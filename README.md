@@ -13,7 +13,7 @@ Configuration
 To configure the plugin, add the following line to the Xrootd configuration file:
 
 ```
-ofs.osslib libXrdMultiuser.so
+ofs.osslib libXrdS3.so
 ```
 
 Here's a minimal config file
@@ -60,5 +60,5 @@ xrootd -d -c xrootd-s3.cfg
 In a separate terminal, run
 
 ```
-curl -v http://localhost:1094/aws/us-east-1/mybucket/hello_world
+curl -v http://localhost:1094/aws/us-east-1/bucket/hello_world
 ```
