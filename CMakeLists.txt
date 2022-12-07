@@ -7,6 +7,9 @@ set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 find_package( Xrootd REQUIRED )
 find_package( CURL REQUIRED )
 
+include (FindPkgConfig)
+pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
+
 if(NOT XROOTD_PLUGIN_VERSION)
   find_program(XROOTD_CONFIG_EXECUTABLE xrootd-config)
   exec_program(${XROOTD_CONFIG_EXECUTABLE} ARGS "--plugin-version" OUTPUT_VARIABLE XROOTD_PLUGIN_VERSION RETURN_VALUE RETVAR)
@@ -34,10 +37,10 @@ endif()
 SET( CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-undefined")
 SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
 
-include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS})
+include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
-add_library(XrdS3 SHARED src/s3.cpp src/S3FileSystem.cc)
-target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES})
+add_library(XrdS3 SHARED src/s3.cpp src/S3FileSystem.cc src/AWSUtils.cc)
+target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
 set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
 
 SET(LIB_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Install path for libraries")
