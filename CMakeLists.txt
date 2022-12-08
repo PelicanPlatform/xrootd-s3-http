@@ -1,5 +1,5 @@
-
 cmake_minimum_required( VERSION 3.14 )
+
 project( xrootd-s3 )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
@@ -11,8 +11,7 @@ include (FindPkgConfig)
 pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
 
 if(NOT XROOTD_PLUGIN_VERSION)
-  find_program(XROOTD_CONFIG_EXECUTABLE xrootd-config)
-  exec_program(${XROOTD_CONFIG_EXECUTABLE} ARGS "--plugin-version" OUTPUT_VARIABLE XROOTD_PLUGIN_VERSION RETURN_VALUE RETVAR)
+  exec_program(${XROOTD_BIN}/xrootd-config ARGS "--plugin-version" OUTPUT_VARIABLE XROOTD_PLUGIN_VERSION RETURN_VALUE RETVAR)
   set(XROOTD_PLUGIN_VERSION ${XROOTD_PLUGIN_VERSION} CACHE INTERNAL "")
 endif()
 
@@ -26,10 +25,6 @@ macro(use_cxx11)
   endif ()
 endmacro(use_cxx11)
 use_cxx11()
-
-#include (FindPkgConfig)
-#pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
-#pkg_check_modules(ZLIB REQUIRED zlib)
 
 if( CMAKE_COMPILER_IS_GNUCXX )
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" )
