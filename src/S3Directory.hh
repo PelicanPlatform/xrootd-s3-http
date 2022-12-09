@@ -15,22 +15,22 @@ public:
 
     virtual int
     Opendir(const char *path,
-            XrdOucEnv &env) override 
+            XrdOucEnv &env) override
     {
         return -ENOSYS;
     }
 
-    int Readdir(char *buff, int blen) 
+    int Readdir(char *buff, int blen)
     {
         return -ENOSYS;
     }
 
-    int StatRet(struct stat *statStruct) 
+    int StatRet(struct stat *statStruct)
     {
         return -ENOSYS;
     }
 
-    int Close(long long *retsz=0) 
+    int Close(long long *retsz=0)
     {
         return -ENOSYS;
     }
