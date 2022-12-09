@@ -14,6 +14,14 @@
 #include <sstream>
 #include <vector>
 
+#include <filesystem>
+
+#include <map>
+#include <string>
+#include "s3Commands.hh"
+
+#include "stl_string_utils.hh"
+
 S3FileSystem* g_s3_oss = nullptr;
 
 XrdVERSIONINFO(XrdOssGetFileSystem, S3);
@@ -28,12 +36,64 @@ S3File::S3File(XrdSysError &log, S3FileSystem *oss) :
 int
 S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 {
-    if (!strcmp(path, "/aws/us-east-1/bucket/hello_world")) {
-        m_log.Emsg("Open", "Opened our magic hello-world file");
-        return 0;
+    std::string error;
+
+    //
+    // FIXME.
+    //
+    std::string configured_s3_region = "us-east-1";
+    std::string configured_s3_service_url = "https://s3.us-east-1.amazonaws.com";
+    std::string configured_s3_service_name = "aws";
+    std::string configured_s3_access_key = "/home/tlmiller/.condor/publicKeyFile";
+    std::string configured_s3_secret_key = "/home/tlmiller/.condor/privateKeyFile";
+
+
+    //
+    // Check the path for validity.
+    //
+    std::filesystem::path p(path);
+    auto pathComponents = p.begin();
+
+    ++pathComponents;
+    if( pathComponents == p.end() ) { return -ENOENT; }
+    if( * pathComponents != configured_s3_service_name ) {
+        return -ENOENT;
     }
 
-    return -ENOENT;
+    ++pathComponents;
+    if( pathComponents == p.end() ) { return -ENOENT; }
+    if( * pathComponents != configured_s3_region ) {
+        return -ENOENT;
+    }
+
+    ++pathComponents;
+    if( pathComponents == p.end() ) { return -ENOENT; }
+    std::string bucket = *pathComponents;
+
+    ++pathComponents;
+    if( pathComponents == p.end() ) { return -ENOENT; }
+    std::string object = *pathComponents++;
+
+
+    //
+    // FIXME: Execute the HeadObject action.
+    //
+    AmazonS3Upload upload(
+        configured_s3_service_url,
+        configured_s3_access_key,
+        configured_s3_secret_key,
+        bucket,
+        object,
+        "/tmp/xrootd/xrootd.pid"
+    );
+
+    if(! upload.SendRequest()) {
+        m_log.Emsg( "Open", "upload.SendRequest() failed" );
+        return -ENOENT;
+    } else {
+        m_log.Emsg( "Open", "upload.SendRequest() succeeded" );
+        return 0;
+    }
 }
 
 
@@ -86,7 +146,6 @@ S3File::Write(const void *buffer, off_t offset, size_t size)
 int S3File::Close(long long *retsz)
 {
     m_log.Emsg("Close", "Closed our S3 file");
-
     return 0;
 }
 
@@ -142,7 +201,7 @@ XrdOss *XrdOssGetStorageSystem(XrdOss       *native_oss,
 }
 
 
-}
+} // end extern "C"
 
 
 XrdVERSIONINFO(XrdOssGetStorageSystem,  s3);

@@ -250,23 +250,33 @@ std::string AmazonRequest::canonicalizeQueryString() {
     return AWSv4Impl::canonicalizeQueryString( query_parameters );
 }
 
+std::string
+substring( const std::string & str, size_t left, size_t right = std::string::npos ) {
+    if( right == std::string::npos ) {
+        return str.substr( left );
+    } else {
+        return str.substr( left, right - left );
+    }
+}
+
 bool parseURL(	const std::string & url,
 				std::string & protocol,
 				std::string & host,
 				std::string & path ) {
-/*
-    Regex r; int errCode = 0; int errOffset = 0;
-    bool patternOK = r.compile( "([^:]+)://(([^/]+)(/.*)?)", &errCode, &errOffset);
-    assert( patternOK );
-    ExtArray<std::string> groups(5);
-    if(! r.match_str( url.c_str(), & groups )) { return false; }
+    auto i = url.find( "://" );
+    if( i == std::string::npos ) { return false; }
+    protocol = substring( url, 0, i );
 
-    protocol = groups[1];
-    host = groups[3];
-    path = groups[4];
+    auto j = url.find( "/", i + 3 );
+    if( j == std::string::npos ) {
+        host = substring( url, i + 3 );
+        path = "/";
+        return true;
+    }
+
+    host = substring( url, i + 3, j );
+    path = substring( url, j );
     return true;
-*/
-    return false;
 }
 
 void convertMessageDigestToLowercaseHex(
@@ -293,7 +303,7 @@ bool AmazonMetadataQuery::SendRequest( const std::string & uri ) {
 	// Don't know what the meta-data server would do with anything else.
 	httpVerb = "GET";
 	// Spin the throttling engine up appropriately.
-	// Throttle::now( & signatureTime );
+	Throttle::now( & signatureTime );
 	// Send a "prepared" request (e.g., don't do any AWS security).
 	return sendPreparedRequest( "http", uri, "" );
 }
@@ -302,7 +312,7 @@ bool AmazonMetadataQuery::SendRequest( const std::string & uri ) {
 bool AmazonRequest::createV4Signature(	const std::string & payload,
 										std::string & authorizationValue,
 										bool sendContentSHA ) {
-	// Throttle::now( & signatureTime );
+	Throttle::now( & signatureTime );
 	time_t now; time( & now );
 	struct tm brokenDownTime; gmtime_r( & now, & brokenDownTime );
 	// dprintf( D_PERF_TRACE, "request #%d (%s): signature\n", requestID, requestCommand.c_str() );
@@ -462,7 +472,7 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 								 + canonicalHeaders + "\n"
 								 + signedHeaders + "\n"
 								 + payloadHash;
-	// dprintf( D_SECURITY | D_VERBOSE, "canonicalRequest:\n%s\n", canonicalRequest.c_str() );
+	// fprintf( stderr, "D_SECURITY | D_VERBOSE: canonicalRequest:\n%s\n", canonicalRequest.c_str() );
 
 
 	//
@@ -509,7 +519,7 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 	std::string stringToSign;
 	formatstr( stringToSign, "AWS4-HMAC-SHA256\n%s\n%s\n%s",
 		dt, credentialScope.c_str(), canonicalRequestHash.c_str() );
-	// dprintf( D_SECURITY | D_VERBOSE, "string to sign:\n%s\n", stringToSign.c_str() );
+	// fprintf( stderr, "D_SECURITY | D_VERBOSE: string to sign:\n%s\n", stringToSign.c_str() );
 
 
 	//
@@ -659,7 +669,7 @@ bool AmazonRequest::sendV2Request() {
     //
     // We're calculating the signature now. [YYYY-MM-DDThh:mm:ssZ]
     //
-    // Throttle::now( & signatureTime );
+    Throttle::now( & signatureTime );
     time_t now; time( & now );
     struct tm brokenDownTime; gmtime_r( & now, & brokenDownTime );
     char iso8601[] = "YYYY-MM-DDThh:mm:ssZ";
@@ -1217,8 +1227,8 @@ retry:
         if( this->errorMessage.empty() ) {
             formatstr( this->errorMessage, "HTTP response was %lu, not 200, and no body was returned.", responseCode );
         }
-        // dprintf( D_FULLDEBUG, "Query did not return 200 (%lu), failing.\n", responseCode );
-        // dprintf( D_FULLDEBUG, "Failure response text was '%s'.\n", resultString.c_str() );
+        // fprintf( stderr, "D_FULLDEBUG: Query did not return 200 (%lu), failing.\n", responseCode );
+        // fprintf( stderr, "D_FULLDEBUG: Failure response text was '%s'.\n", resultString.c_str() );
 
         // dprintf( D_PERF_TRACE, "request #%d (%s): call to %s returned %lu.\n", requestID, requestCommand.c_str(), query_parameters[ "Action" ].c_str(), responseCode );
         pthread_mutex_unlock( & globalCurlMutex );
