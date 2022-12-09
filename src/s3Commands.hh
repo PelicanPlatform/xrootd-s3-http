@@ -24,14 +24,19 @@ class AmazonRequest {
         virtual ~AmazonRequest();
 
         virtual bool SendRequest();
-        virtual bool SendURIRequest();
-        virtual bool SendJSONRequest( const std::string & payload );
+        // virtual bool SendURIRequest();
+        // virtual bool SendJSONRequest( const std::string & payload );
         virtual bool SendS3Request( const std::string & payload );
 
+        unsigned long getResponseCode() const { return responseCode; }
+        const std::string & getResultString() const { return resultString; }
+
     protected:
-		bool sendPreparedRequest(	const std::string & protocol,
-									const std::string & uri,
-									const std::string & payload );
+        bool sendV4Request( const std::string & payload, bool sendContentSHA = false );
+
+        bool sendPreparedRequest(   const std::string & protocol,
+                                    const std::string & uri,
+                                    const std::string & payload );
 
         typedef std::map< std::string, std::string > AttributeValueMap;
         AttributeValueMap query_parameters;
@@ -48,70 +53,94 @@ class AmazonRequest {
         unsigned long responseCode;
         bool includeResponseHeader;
 
-		// So that we don't bother to send expired signatures.
-		struct timespec signatureTime;
+        // So that we don't bother to send expired signatures.
+        struct timespec signatureTime;
 
-		int signatureVersion;
+        int signatureVersion;
 
-		std::string region;
-		std::string service;
-		std::string httpVerb;
+        std::string region;
+        std::string service;
+        std::string httpVerb;
 
-	private:
-		bool sendV4Request( const std::string & payload, bool sendContentSHA = false );
+    private:
+        bool createV4Signature( const std::string & payload, std::string & authorizationHeader, bool sendContentSHA = false );
 
-		std::string canonicalizeQueryString();
-		bool createV4Signature( const std::string & payload, std::string & authorizationHeader, bool sendContentSHA = false );
+        std::string canonicalizeQueryString();
 };
 
 class AmazonS3Upload : public AmazonRequest {
-	public:
-		AmazonS3Upload(
-		    const std::string & s,
+    public:
+        AmazonS3Upload(
+            const std::string & s,
             const std::string & akf,
             const std::string & skf,
-		    const std::string & b,
-		    const std::string & o,
-		    const std::string & p
-		) :
-		    AmazonRequest(s, akf, skf),
-		    bucket(b),
-		    object(o),
-		    path(p)
-		{ }
+            const std::string & b,
+            const std::string & o,
+            const std::string & p
+        ) :
+            AmazonRequest(s, akf, skf),
+            bucket(b),
+            object(o),
+            path(p)
+        { }
 
-		virtual ~AmazonS3Upload();
+        virtual ~AmazonS3Upload();
 
-		virtual bool SendRequest();
+        virtual bool SendRequest();
 
-	protected:
-		std::string bucket;
-		std::string object;
-		std::string path;
+    protected:
+        std::string bucket;
+        std::string object;
+        std::string path;
 };
 
 class AmazonS3Download : public AmazonRequest {
-	public:
-		AmazonS3Download(
-		    const std::string & s,
+    public:
+        AmazonS3Download(
+            const std::string & s,
             const std::string & akf,
             const std::string & skf,
-		    const std::string & b,
-		    const std::string & o,
-		    const std::string & p
-		) :
-		    AmazonRequest(s, akf, skf),
-		    bucket(b),
-		    object(o),
-		    path(p)
-		{ }
+            const std::string & b,
+            const std::string & o,
+            const std::string & p
+        ) :
+            AmazonRequest(s, akf, skf),
+            bucket(b),
+            object(o),
+            path(p)
+        { }
 
-		virtual ~AmazonS3Download();
+        virtual ~AmazonS3Download();
 
-	protected:
-		std::string bucket;
-		std::string object;
-		std::string path;
+        virtual bool SendRequest();
+
+    protected:
+        std::string bucket;
+        std::string object;
+        std::string path;
+};
+
+class AmazonS3Head : public AmazonRequest {
+    public:
+        AmazonS3Head(
+            const std::string & s,
+            const std::string & akf,
+            const std::string & skf,
+            const std::string & b,
+            const std::string & o
+        ) :
+            AmazonRequest(s, akf, skf),
+            bucket(b),
+            object(o)
+        { }
+
+        virtual ~AmazonS3Head();
+
+        virtual bool SendRequest();
+
+    protected:
+        std::string bucket;
+        std::string object;
 };
 
 #endif /* S3_COMMANDS_H */

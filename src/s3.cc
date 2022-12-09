@@ -75,9 +75,7 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
     std::string object = *pathComponents++;
 
 
-    //
-    // FIXME: Execute the HeadObject action.
-    //
+#if defined(TESTING_INTEGRATION)
     AmazonS3Upload upload(
         configured_s3_service_url,
         configured_s3_access_key,
@@ -94,6 +92,39 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
         m_log.Emsg( "Open", "upload.SendRequest() succeeded" );
         return 0;
     }
+#endif /* defined(TESTING_INTEGRATION) */
+
+    //
+    // Check if the object exists.  It might have ceased existing by the
+    // time you actually try to _do_ anything with it, though.
+    //
+    AmazonS3Head head(
+        configured_s3_service_url,
+        configured_s3_access_key,
+        configured_s3_secret_key,
+        bucket,
+        object
+    );
+
+    if(! head.SendRequest()) {
+        // SendRequest() returns false for all errors, including ones
+        // where the server properly responded with something other
+        // than code 200.  If xrootd wants us to distinguish between
+        // these cases, head.getResponseCode() is initialized to 0, so
+        // we can check.
+        fprintf( stderr, "D_FULLDEBUG: failed to send HeadObject command: %lu '%s'\n", head.getResponseCode(), head.getResultString().c_str() );
+        return -ENOENT;
+    }
+
+    //
+    // We -- or, more properly, the AmazonS3Head object -- could parse the
+    // returned headers -- stored in getResultString() -- for useful
+    // information, including
+    //
+    //  Last-Modified
+    //  Content-Length
+    //
+    return 0;
 }
 
 

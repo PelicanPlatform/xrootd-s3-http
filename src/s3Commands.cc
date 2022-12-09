@@ -219,8 +219,6 @@ class Throttle {
         struct timespec deadline;
 
 	public:
-		// Managed by AmazonRequest::SendRequest() because the param system
-		// isn't up yet when this object is constructed.
         int rateLimit;
 
 };
@@ -767,6 +765,7 @@ bool AmazonRequest::sendV2Request() {
 }
 #endif /* defined(SUPPORT_V2) */
 
+#if defined(NEEDED)
 bool AmazonRequest::SendURIRequest() {
     httpVerb = "GET";
     std::string noPayloadAllowed;
@@ -777,6 +776,7 @@ bool AmazonRequest::SendJSONRequest( const std::string & payload ) {
     headers[ "Content-Type" ] = "application/x-amz-json-1.1";
     return sendV4Request( payload );
 }
+#endif /* defined(NEEDED) */
 
 // It's stated in the API documentation that you can upload to any region
 // via us-east-1, which is moderately crazy.
@@ -928,6 +928,17 @@ bool AmazonRequest::sendPreparedRequest(
         this->errorMessage = "curl_easy_setopt( CURLOPT_URL ) failed.";
         // dprintf( D_ALWAYS, "curl_easy_setopt( CURLOPT_URL ) failed (%d): '%s', failing.\n", rv, curl_easy_strerror( rv ) );
         return false;
+    }
+
+    if( httpVerb == "HEAD" ) {
+        rv = curl_easy_setopt( curl.get(), CURLOPT_NOBODY, 1 );
+
+		if( rv != CURLE_OK ) {
+			this->errorCode = "E_CURL_LIB";
+			this->errorMessage = "curl_easy_setopt( CURLOPT_HEAD ) failed.";
+			// dprintf( D_ALWAYS, "curl_easy_setopt( CURLOPT_HEAD ) failed (%d): '%s', failing.\n", rv, curl_easy_strerror( rv ) );
+			return false;
+		}
     }
 
 	if( httpVerb == "POST" ) {
@@ -1276,6 +1287,70 @@ bool AmazonS3Upload::SendRequest() {
 	}
 
 	return SendS3Request( payload );
+}
+
+// ---------------------------------------------------------------------------
+
+AmazonS3Download::~AmazonS3Download() { }
+
+bool AmazonS3Download::SendRequest() {
+	std::string protocol, host, canonicalURI;
+	if(! parseURL( serviceURL, protocol, host, canonicalURI )) {
+		errorCode = "E_INVALID_SERVICE_URL";
+		errorMessage = "Failed to parse service URL.";
+		// dprintf( D_ALWAYS, "Failed to match regex against service URL '%s'.\n", serviceURL.c_str() );
+
+		return false;
+	}
+	if( canonicalURI.empty() ) { canonicalURI = "/"; }
+
+	serviceURL = protocol + "://" + bucket + "." +
+				 host + canonicalURI + object;
+
+	// If we can, set the region based on the host.
+	size_t secondDot = host.find( ".", 2 + 1 );
+	if( host.find( "s3." ) == 0 ) {
+	    region = host.substr( 3, secondDot - 2 - 1 );
+	}
+
+
+    //
+    // FIXME
+    //
+	httpVerb = "GET";
+	return false;
+}
+
+// ---------------------------------------------------------------------------
+
+AmazonS3Head::~AmazonS3Head() { }
+
+bool AmazonS3Head::SendRequest() {
+	std::string protocol, host, canonicalURI;
+	if(! parseURL( serviceURL, protocol, host, canonicalURI )) {
+		errorCode = "E_INVALID_SERVICE_URL";
+		errorMessage = "Failed to parse service URL.";
+		// dprintf( D_ALWAYS, "Failed to match regex against service URL '%s'.\n", serviceURL.c_str() );
+
+		return false;
+	}
+	if( canonicalURI.empty() ) { canonicalURI = "/"; }
+
+	serviceURL = protocol + "://" + bucket + "." +
+				 host + canonicalURI + object;
+
+	// If we can, set the region based on the host.
+	size_t secondDot = host.find( ".", 2 + 1 );
+	if( host.find( "s3." ) == 0 ) {
+	    region = host.substr( 3, secondDot - 2 - 1 );
+	}
+
+
+	// service = "s3";
+	httpVerb = "HEAD";
+	includeResponseHeader = true;
+	std::string noPayloadAllowed;
+	return SendS3Request( noPayloadAllowed );
 }
 
 // ---------------------------------------------------------------------------
