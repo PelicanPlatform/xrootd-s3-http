@@ -1,4 +1,3 @@
-
 #include "XrdOuc/XrdOucEnv.hh"
 #include "XrdOuc/XrdOucStream.hh"
 #include "XrdSec/XrdSecEntity.hh"
@@ -25,7 +24,9 @@ S3File::S3File(XrdSysError &log, S3FileSystem *oss) :
     m_oss(oss)
 {}
 
-int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
+
+int
+S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 {
     if (!strcmp(path, "/aws/us-east-1/bucket/hello_world")) {
         m_log.Emsg("Open", "Opened our magic hello-world file");
@@ -82,13 +83,13 @@ S3File::Write(const void *buffer, off_t offset, size_t size)
 }
 
 
-
-int S3File::Close(long long *retsz) 
+int S3File::Close(long long *retsz)
 {
     m_log.Emsg("Close", "Closed our S3 file");
 
     return 0;
 }
+
 
 extern "C" {
 
@@ -107,7 +108,8 @@ XrdOss *XrdOssAddStorageSystem2(XrdOss       *curr_oss,
     return nullptr;
 }
 
-/* 
+
+/*
     This function is called when it is the top level file system and we are not
     wrapping anything
 */
@@ -141,6 +143,7 @@ XrdOss *XrdOssGetStorageSystem(XrdOss       *native_oss,
 
 
 }
+
 
 XrdVERSIONINFO(XrdOssGetStorageSystem,  s3);
 XrdVERSIONINFO(XrdOssGetStorageSystem2, s3);
