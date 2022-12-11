@@ -4,6 +4,15 @@
 #include <string>
 #include "stl_string_utils.hh"
 
+std::string
+substring( const std::string & str, size_t left, size_t right ) {
+    if( right == std::string::npos ) {
+        return str.substr( left );
+    } else {
+        return str.substr( left, right - left );
+    }
+}
+
 void
 trim( std::string &str ) {
 	if( str.empty() ) {

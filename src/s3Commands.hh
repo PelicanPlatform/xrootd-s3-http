@@ -101,23 +101,20 @@ class AmazonS3Download : public AmazonRequest {
             const std::string & akf,
             const std::string & skf,
             const std::string & b,
-            const std::string & o,
-            const std::string & p
+            const std::string & o
         ) :
             AmazonRequest(s, akf, skf),
             bucket(b),
-            object(o),
-            path(p)
+            object(o)
         { }
 
         virtual ~AmazonS3Download();
 
-        virtual bool SendRequest();
+        virtual bool SendRequest( off_t offset, size_t size );
 
     protected:
         std::string bucket;
         std::string object;
-        std::string path;
 };
 
 class AmazonS3Head : public AmazonRequest {

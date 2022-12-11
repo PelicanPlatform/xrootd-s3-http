@@ -34,19 +34,12 @@ S3File::S3File(XrdSysError &log, S3FileSystem *oss) :
 
 
 int
-S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
-{
-    std::string error;
-
+parse_path( const char * path, std::string & bucket, std::string & object ) {
     //
     // FIXME.
     //
-    std::string configured_s3_region = "us-east-1";
-    std::string configured_s3_service_url = "https://s3.us-east-1.amazonaws.com";
     std::string configured_s3_service_name = "aws";
-    std::string configured_s3_access_key = "/home/tlmiller/.condor/publicKeyFile";
-    std::string configured_s3_secret_key = "/home/tlmiller/.condor/privateKeyFile";
-
+    std::string configured_s3_region = "us-east-1";
 
     //
     // Check the path for validity.
@@ -68,31 +61,38 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 
     ++pathComponents;
     if( pathComponents == p.end() ) { return -ENOENT; }
-    std::string bucket = *pathComponents;
+    bucket = *pathComponents;
 
     ++pathComponents;
     if( pathComponents == p.end() ) { return -ENOENT; }
-    std::string object = *pathComponents++;
+    object = *pathComponents++;
+
+    return 0;
+}
 
 
-#if defined(TESTING_INTEGRATION)
-    AmazonS3Upload upload(
-        configured_s3_service_url,
-        configured_s3_access_key,
-        configured_s3_secret_key,
-        bucket,
-        object,
-        "/tmp/xrootd/xrootd.pid"
-    );
+int
+S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
+{
+    //
+    // FIXME.
+    //
+    std::string configured_s3_region = "us-east-1";
 
-    if(! upload.SendRequest()) {
-        m_log.Emsg( "Open", "upload.SendRequest() failed" );
-        return -ENOENT;
-    } else {
-        m_log.Emsg( "Open", "upload.SendRequest() succeeded" );
-        return 0;
-    }
-#endif /* defined(TESTING_INTEGRATION) */
+    //
+    // Check the path for validity.
+    //
+    std::string bucket, object;
+    int rv = parse_path( path, bucket, object );
+    if( rv != 0 ) { return rv; }
+
+
+    //
+    // FIXME.
+    //
+    std::string configured_s3_service_url = "https://s3.us-east-1.amazonaws.com";
+    std::string configured_s3_access_key = "/home/tlmiller/.condor/publicKeyFile";
+    std::string configured_s3_secret_key = "/home/tlmiller/.condor/privateKeyFile";
 
     //
     // Check if the object exists.  It might have ceased existing by the
@@ -116,14 +116,38 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
         return -ENOENT;
     }
 
-    //
-    // We -- or, more properly, the AmazonS3Head object -- could parse the
-    // returned headers -- stored in getResultString() -- for useful
-    // information, including
-    //
-    //  Last-Modified
-    //  Content-Length
-    //
+
+    std::string headers = head.getResultString();
+
+    std::string line;
+    size_t current_newline = 0;
+    size_t next_newline = std::string::npos;
+    size_t last_character = headers.size();
+    while( current_newline != std::string::npos && current_newline != last_character - 1 ) {
+        next_newline = headers.find( "\r\n", current_newline + 2);
+        std::string line = substring( headers, current_newline + 2, next_newline );
+        // fprintf( stderr, "line = '%s'\n", line.c_str() );
+
+        size_t colon = line.find(":");
+        if( colon != std::string::npos && colon != line.size() ) {
+            std::string attr = substring( line, 0, colon );
+            std::string value = substring( line, colon + 1 );
+
+            if( attr == "Content-Length" ) {
+                this->content_length = std::stol(value);
+            } else if( attr == "Last-Modified" ) {
+                this->last_modified = value;
+            }
+        }
+
+        current_newline = next_newline;
+    }
+
+    this->s3_object_name = object;
+    this->s3_bucket_name = bucket;
+    this->s3_service_url = configured_s3_service_url;
+    this->s3_access_key = configured_s3_access_key;
+    this->s3_secret_key = configured_s3_secret_key;
     return 0;
 }
 
@@ -131,32 +155,35 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 ssize_t
 S3File::Read(void *buffer, off_t offset, size_t size)
 {
-    std::stringstream ss;
-    ss << "Reading S3 at " << offset << "@" << size;
-    m_log.Emsg("Read", ss.str().c_str());
+    AmazonS3Download download(
+        this->s3_service_url,
+        this->s3_access_key,
+        this->s3_secret_key,
+        this->s3_bucket_name,
+        this->s3_object_name
+    );
 
-    if (offset != 0) {return -EIO;}
 
-    const auto len = strlen("hello world");
+    if(! download.SendRequest( offset, size ) ) {
+        fprintf( stderr, "D_FULLDEBUG: failed to send GetObject command: %lu '%s'\n", download.getResponseCode(), download.getResultString().c_str() );
+        return 0;
+    }
 
-    if (size < len) {return -EIO;}
-
-    memcpy(buffer, "hello world", len);
-    return len;
+    const std::string & bytes = download.getResultString();
+    memcpy( buffer, bytes.data(), bytes.size() );
+    return bytes.size();
 }
 
 
 int
 S3File::Fstat(struct stat *buff)
 {
-    const auto len = strlen("hello world");
-
     buff->st_mode = 0600 | S_IFREG;
     buff->st_nlink = 1;
     buff->st_uid = 1;
     buff->st_gid = 1;
-    buff->st_size = len;
-    buff->st_mtime = 0;
+    buff->st_size = this->content_length;
+    buff->st_mtime = 0 /* this->last_modified */;
     buff->st_atime = 0;
     buff->st_ctime = 0;
     buff->st_dev = 0;
@@ -169,6 +196,26 @@ S3File::Fstat(struct stat *buff)
 ssize_t
 S3File::Write(const void *buffer, off_t offset, size_t size)
 {
+
+#if defined(TESTING_INTEGRATION)
+    AmazonS3Upload upload(
+        configured_s3_service_url,
+        configured_s3_access_key,
+        configured_s3_secret_key,
+        bucket,
+        object,
+        "/tmp/xrootd/xrootd.pid"
+    );
+
+    if(! upload.SendRequest()) {
+        m_log.Emsg( "Open", "upload.SendRequest() failed" );
+        return -ENOENT;
+    } else {
+        m_log.Emsg( "Open", "upload.SendRequest() succeeded" );
+        return 0;
+    }
+#endif /* defined(TESTING_INTEGRATION) */
+
     m_log.Emsg("Write", "S3 file does not yet support write");
     return -ENOENT;
 }

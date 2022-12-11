@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "stl_string_utils.hh"
 
 S3FileSystem::S3FileSystem(XrdSysLogger *lp, const char *configfn, XrdOucEnv *envP) :
     m_env(envP),
@@ -87,6 +88,16 @@ int
 S3FileSystem::Stat(const char *path, struct stat *buff,
                     int opts, XrdOucEnv *env)
 {
+    std::string error;
+
+    S3File s3file(m_log, this);
+    int rv = s3file.Open( path, 0, (mode_t)0, *env );
+    if( rv != 0 ) {
+        formatstr( error, "File %s not found.", path );
+        m_log.Emsg( "Stat", error.c_str() );
+        return -ENOENT;
+    }
+
     m_log.Emsg("Stat", "Stat'ing path", path);
 
     if (strcmp(path, "/aws/us-east-1/bucket/hello_world")) {
@@ -94,14 +105,12 @@ S3FileSystem::Stat(const char *path, struct stat *buff,
         return -ENOENT;
     }
 
-    const auto len = strlen("hello world");
-
     buff->st_mode = 0600 | S_IFREG;
     buff->st_nlink = 1;
     buff->st_uid = 1;
     buff->st_gid = 1;
-    buff->st_size = len;
-    buff->st_mtime = 0;
+    buff->st_size = s3file.getContentLength();
+    buff->st_mtime = 0 /* FIXME: s3file.getLastModified() */;
     buff->st_atime = 0;
     buff->st_ctime = 0;
     buff->st_dev = 0;

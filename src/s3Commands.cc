@@ -248,15 +248,6 @@ std::string AmazonRequest::canonicalizeQueryString() {
     return AWSv4Impl::canonicalizeQueryString( query_parameters );
 }
 
-std::string
-substring( const std::string & str, size_t left, size_t right = std::string::npos ) {
-    if( right == std::string::npos ) {
-        return str.substr( left );
-    } else {
-        return str.substr( left, right - left );
-    }
-}
-
 bool parseURL(	const std::string & url,
 				std::string & protocol,
 				std::string & host,
@@ -1293,7 +1284,7 @@ bool AmazonS3Upload::SendRequest() {
 
 AmazonS3Download::~AmazonS3Download() { }
 
-bool AmazonS3Download::SendRequest() {
+bool AmazonS3Download::SendRequest( off_t offset, size_t size ) {
 	std::string protocol, host, canonicalURI;
 	if(! parseURL( serviceURL, protocol, host, canonicalURI )) {
 		errorCode = "E_INVALID_SERVICE_URL";
@@ -1313,12 +1304,13 @@ bool AmazonS3Download::SendRequest() {
 	    region = host.substr( 3, secondDot - 2 - 1 );
 	}
 
+	//
+	// FIXME: ignoring range right now.
+	//
 
-    //
-    // FIXME
-    //
 	httpVerb = "GET";
-	return false;
+	std::string noPayloadAllowed;
+	return SendS3Request( noPayloadAllowed );
 }
 
 // ---------------------------------------------------------------------------
