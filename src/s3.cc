@@ -94,16 +94,52 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
     std::string configured_s3_access_key = "/home/tlmiller/.condor/publicKeyFile";
     std::string configured_s3_secret_key = "/home/tlmiller/.condor/privateKeyFile";
 
-    //
-    // Check if the object exists.  It might have ceased existing by the
-    // time you actually try to _do_ anything with it, though.
-    //
+
+    // We used to query S3 here to see if the object existed, but of course
+    // if you're creating a file on upload, you don't care.
+
+
+    this->s3_object_name = object;
+    this->s3_bucket_name = bucket;
+    this->s3_service_url = configured_s3_service_url;
+    this->s3_access_key = configured_s3_access_key;
+    this->s3_secret_key = configured_s3_secret_key;
+    return 0;
+}
+
+
+ssize_t
+S3File::Read(void *buffer, off_t offset, size_t size)
+{
+    AmazonS3Download download(
+        this->s3_service_url,
+        this->s3_access_key,
+        this->s3_secret_key,
+        this->s3_bucket_name,
+        this->s3_object_name
+    );
+
+
+    if(! download.SendRequest( offset, size ) ) {
+        fprintf( stderr, "D_FULLDEBUG: failed to send GetObject command: %lu '%s'\n", download.getResponseCode(), download.getResultString().c_str() );
+        return 0;
+    }
+
+    const std::string & bytes = download.getResultString();
+    memcpy( buffer, bytes.data(), bytes.size() );
+    return bytes.size();
+}
+
+
+int
+S3File::Fstat(struct stat *buff)
+{
     AmazonS3Head head(
-        configured_s3_service_url,
-        configured_s3_access_key,
-        configured_s3_secret_key,
-        bucket,
-        object
+        this->s3_service_url,
+        this->s3_access_key,
+        this->s3_secret_key,
+        this->s3_bucket_name,
+        this->s3_object_name
     );
 
     if(! head.SendRequest()) {
@@ -143,41 +179,7 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
         current_newline = next_newline;
     }
 
-    this->s3_object_name = object;
-    this->s3_bucket_name = bucket;
-    this->s3_service_url = configured_s3_service_url;
-    this->s3_access_key = configured_s3_access_key;
-    this->s3_secret_key = configured_s3_secret_key;
-    return 0;
-}
 
-
-ssize_t
-S3File::Read(void *buffer, off_t offset, size_t size)
-{
-    AmazonS3Download download(
-        this->s3_service_url,
-        this->s3_access_key,
-        this->s3_secret_key,
-        this->s3_bucket_name,
-        this->s3_object_name
-    );
-
-
-    if(! download.SendRequest( offset, size ) ) {
-        fprintf( stderr, "D_FULLDEBUG: failed to send GetObject command: %lu '%s'\n", download.getResponseCode(), download.getResultString().c_str() );
-        return 0;
-    }
-
-    const std::string & bytes = download.getResultString();
-    memcpy( buffer, bytes.data(), bytes.size() );
-    return bytes.size();
-}
-
-
-int
-S3File::Fstat(struct stat *buff)
-{
     buff->st_mode = 0600 | S_IFREG;
     buff->st_nlink = 1;
     buff->st_uid = 1;
@@ -196,28 +198,22 @@ S3File::Fstat(struct stat *buff)
 ssize_t
 S3File::Write(const void *buffer, off_t offset, size_t size)
 {
-
-#if defined(TESTING_INTEGRATION)
     AmazonS3Upload upload(
-        configured_s3_service_url,
-        configured_s3_access_key,
-        configured_s3_secret_key,
-        bucket,
-        object,
-        "/tmp/xrootd/xrootd.pid"
+        this->s3_service_url,
+        this->s3_access_key,
+        this->s3_secret_key,
+        this->s3_bucket_name,
+        this->s3_object_name
     );
 
-    if(! upload.SendRequest()) {
+    std::string payload( (char *)buffer, size );
+    if(! upload.SendRequest( payload, offset, size )) {
         m_log.Emsg( "Open", "upload.SendRequest() failed" );
         return -ENOENT;
     } else {
         m_log.Emsg( "Open", "upload.SendRequest() succeeded" );
         return 0;
     }
-#endif /* defined(TESTING_INTEGRATION) */
-
-    m_log.Emsg("Write", "S3 file does not yet support write");
-    return -ENOENT;
 }
 
 

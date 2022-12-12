@@ -9,6 +9,8 @@
 
 #include <memory>
 
+int parse_path( const char * path, std::string & bucket, std::string & object );
+
 class S3File : public XrdOssDF {
 public:
     S3File(XrdSysError &log, S3FileSystem *oss);

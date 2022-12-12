@@ -19,10 +19,10 @@ public:
     XrdOssDF *newDir(const char *user=0);
     XrdOssDF *newFile(const char *user=0);
 
-    int Chmod(const char * path, mode_t mode, XrdOucEnv *env=0) {return -ENOSYS;}
+    int       Chmod(const char * path, mode_t mode, XrdOucEnv *env=0) {return -ENOSYS;}
     void      Connect(XrdOucEnv &env) {}
-    int       Create(const char *tid, const char *path, mode_t mode, XrdOucEnv &env,
-                         int opts=0) {return -ENOSYS;}
+    int       Create(const char *tid, const char *path, mode_t mode,
+                     XrdOucEnv &env, int opts=0);
     void      Disc(XrdOucEnv &env) {}
     void      EnvInfo(XrdOucEnv *env) {}
     uint64_t  Features() {return 0;}

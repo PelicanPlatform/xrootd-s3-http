@@ -1247,7 +1247,7 @@ retry:
 
 AmazonS3Upload::~AmazonS3Upload() { }
 
-bool AmazonS3Upload::SendRequest() {
+bool AmazonS3Upload::SendRequest( const std::string & payload, off_t offset, size_t size ) {
 	std::string protocol, host, canonicalURI;
 	if(! parseURL( serviceURL, protocol, host, canonicalURI )) {
 		errorCode = "E_INVALID_SERVICE_URL";
@@ -1267,16 +1267,13 @@ bool AmazonS3Upload::SendRequest() {
 	    region = host.substr( 3, secondDot - 2 - 1 );
 	}
 
-
-	httpVerb = "PUT";
-	std::string payload;
-	if( ! readShortFile( this->path, payload ) ) {
-		this->errorCode = "E_FILE_IO";
-		this->errorMessage = "Unable to read file to upload '" + this->path + "'.";
-		// dprintf( D_ALWAYS, "Unable to read from file to upload '%s', failing.\n", this->path.c_str() );
-		return false;
+	if( offset != 0 || size != 0 ) {
+		std::string range;
+		formatstr( range, "bytes=%zu-%zu", offset, offset + size );
+		headers["Range"] = range.c_str();
 	}
 
+	httpVerb = "PUT";
 	return SendS3Request( payload );
 }
 

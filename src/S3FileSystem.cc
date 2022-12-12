@@ -118,3 +118,22 @@ S3FileSystem::Stat(const char *path, struct stat *buff,
 
     return 0;
 }
+
+int
+S3FileSystem::Create( const char *tid, const char *path, mode_t mode,
+  XrdOucEnv &env, int opts )
+{
+    // Is path valid?
+    std::string bucket, object;
+    int rv = parse_path( path, bucket, object );
+    if( rv != 0 ) { return rv; }
+
+    //
+    // We could instead invoke the upload mchinery directly to create a
+    // 0-byte file, but it seems smarter to remove a round-trip (in
+    // S3File::Open(), checking if the file exists) than to add one
+    // (here, creating the file if it doesn't exist).
+    //
+
+    return 0;
+}

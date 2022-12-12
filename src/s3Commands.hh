@@ -76,18 +76,16 @@ class AmazonS3Upload : public AmazonRequest {
             const std::string & akf,
             const std::string & skf,
             const std::string & b,
-            const std::string & o,
-            const std::string & p
+            const std::string & o
         ) :
             AmazonRequest(s, akf, skf),
             bucket(b),
-            object(o),
-            path(p)
+            object(o)
         { }
 
         virtual ~AmazonS3Upload();
 
-        virtual bool SendRequest();
+        virtual bool SendRequest( const std::string & payload, off_t offset, size_t size );
 
     protected:
         std::string bucket;
