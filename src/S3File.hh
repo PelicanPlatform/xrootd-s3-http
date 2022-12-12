@@ -114,9 +114,7 @@ public:
     int Close(long long *retsz=0);
 
     size_t getContentLength() { return content_length; }
-    // FIXME: convert the Last-Modified into a unix timestamp before storing
-    // it and return that, instead.
-    const std::string & getLastModified() { return last_modified; }
+    time_t getLastModified() { return last_modified; }
 
 private:
     XrdSysError &m_log;
@@ -131,5 +129,5 @@ private:
     std::string s3_secret_key;
 
     size_t content_length;
-    std::string last_modified;
+    time_t last_modified;
 };

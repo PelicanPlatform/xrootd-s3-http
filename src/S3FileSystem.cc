@@ -110,7 +110,7 @@ S3FileSystem::Stat(const char *path, struct stat *buff,
     buff->st_uid = 1;
     buff->st_gid = 1;
     buff->st_size = s3file.getContentLength();
-    buff->st_mtime = 0 /* FIXME: s3file.getLastModified() */;
+    buff->st_mtime = s3file.getLastModified();
     buff->st_atime = 0;
     buff->st_ctime = 0;
     buff->st_dev = 0;

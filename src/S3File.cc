@@ -168,11 +168,21 @@ S3File::Fstat(struct stat *buff)
         if( colon != std::string::npos && colon != line.size() ) {
             std::string attr = substring( line, 0, colon );
             std::string value = substring( line, colon + 1 );
+            trim(value);
 
             if( attr == "Content-Length" ) {
                 this->content_length = std::stol(value);
             } else if( attr == "Last-Modified" ) {
-                this->last_modified = value;
+                struct tm t;
+                char * eos = strptime( value.c_str(),
+                    "%a, %d %b %Y %T %Z",
+                    & t );
+                if( eos == & value.c_str()[value.size()] ) {
+                    time_t epoch = timegm(& t);
+                    if( epoch != -1 ) {
+                        this->last_modified = epoch;
+                    }
+                }
             }
         }
 
@@ -185,7 +195,7 @@ S3File::Fstat(struct stat *buff)
     buff->st_uid = 1;
     buff->st_gid = 1;
     buff->st_size = this->content_length;
-    buff->st_mtime = 0 /* this->last_modified */;
+    buff->st_mtime = this->last_modified;
     buff->st_atime = 0;
     buff->st_ctime = 0;
     buff->st_dev = 0;
