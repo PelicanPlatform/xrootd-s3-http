@@ -51,6 +51,7 @@ class AmazonRequest {
 
         std::string resultString;
         unsigned long responseCode;
+        unsigned long expectedResponseCode = 200;
         bool includeResponseHeader;
 
         // So that we don't bother to send expired signatures.

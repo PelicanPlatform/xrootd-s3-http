@@ -1223,11 +1223,11 @@ retry:
 
     if( header_slist ) { curl_slist_free_all( header_slist ); }
 
-    if( responseCode != 200 ) {
-        formatstr( this->errorCode, "E_HTTP_RESPONSE_NOT_200 (%lu)", responseCode );
+    if( responseCode != this->expectedResponseCode ) {
+        formatstr( this->errorCode, "E_HTTP_RESPONSE_NOT_EXPECTED (response %lu != expected %lu)", responseCode, this->expectedResponseCode );
         this->errorMessage = resultString;
         if( this->errorMessage.empty() ) {
-            formatstr( this->errorMessage, "HTTP response was %lu, not 200, and no body was returned.", responseCode );
+            formatstr( this->errorMessage, "HTTP response was %lu, not %lu, and no body was returned.", responseCode, this->expectedResponseCode );
         }
         // fprintf( stderr, "D_FULLDEBUG: Query did not return 200 (%lu), failing.\n", responseCode );
         // fprintf( stderr, "D_FULLDEBUG: Failure response text was '%s'.\n", resultString.c_str() );
@@ -1304,9 +1304,13 @@ bool AmazonS3Download::SendRequest( off_t offset, size_t size ) {
 	    region = host.substr( 3, secondDot - 2 - 1 );
 	}
 
-	//
-	// FIXME: ignoring range right now.
-	//
+
+	if( offset != 0 || size != 0 ) {
+		std::string range;
+		formatstr( range, "bytes=%zu-%zu", offset, offset + size );
+		headers["Range"] = range.c_str();
+		this->expectedResponseCode = 206;
+	}
 
 	httpVerb = "GET";
 	std::string noPayloadAllowed;
