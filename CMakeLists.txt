@@ -43,7 +43,7 @@ SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
 
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
-add_library(XrdS3 SHARED src/s3.cc src/S3FileSystem.cc src/AWSCredential.cc src/AWSv4-impl.cc src/s3Commands.cc src/stl_string_utils.cc src/shortfile.cc)
+add_library(XrdS3 SHARED src/S3File.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/stl_string_utils.cc src/shortfile.cc)
 target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
 set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
 

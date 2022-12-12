@@ -18,7 +18,7 @@
 
 #include <map>
 #include <string>
-#include "s3Commands.hh"
+#include "S3Commands.hh"
 
 #include "stl_string_utils.hh"
 

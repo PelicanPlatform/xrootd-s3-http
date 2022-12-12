@@ -3,7 +3,7 @@
 
 // #include <map>
 // #include <string>
-// #include "s3Commands.hh"
+// #include "S3Commands.hh"
 
 class AmazonRequest {
     public:

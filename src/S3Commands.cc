@@ -9,7 +9,7 @@
 #include <map>
 #include <string>
 
-#include "s3Commands.hh"
+#include "S3Commands.hh"
 #include "AWSv4-impl.hh"
 #include "stl_string_utils.hh"
 #include "shortfile.hh"
@@ -286,17 +286,6 @@ bool doSha256(	const std::string & payload,
 std::string pathEncode( const std::string & original ) {
     return AWSv4Impl::pathEncode( original );
 }
-
-#if defined(EXAMPLE)
-bool AmazonMetadataQuery::SendRequest( const std::string & uri ) {
-	// Don't know what the meta-data server would do with anything else.
-	httpVerb = "GET";
-	// Spin the throttling engine up appropriately.
-	Throttle::now( & signatureTime );
-	// Send a "prepared" request (e.g., don't do any AWS security).
-	return sendPreparedRequest( "http", uri, "" );
-}
-#endif /* defined(EXAMPLE) */
 
 bool AmazonRequest::createV4Signature(	const std::string & payload,
 										std::string & authorizationValue,
@@ -585,189 +574,6 @@ bool AmazonRequest::sendV4Request( const std::string & payload, bool sendContent
 
     return sendPreparedRequest( protocol, serviceURL, payload );
 }
-
-#if defined(SUPPORT_V2)
-bool AmazonRequest::sendV2Request() {
-    //
-    // Every request must have the following parameters:
-    //
-    //      Action, Version, AWSAccessKeyId, Timestamp (or Expires),
-    //      Signature, SignatureMethod, and SignatureVersion.
-    //
-
-    if( query_parameters.find( "Action" ) == query_parameters.end() ) {
-        this->errorCode = "E_INTERNAL";
-        this->errorMessage = "No action specified in request.";
-        // dprintf( D_ALWAYS, "No action specified in request, failing.\n" );
-        return false;
-    }
-
-    // We need to know right away if we're doing FermiLab-style authentication.
-    //
-    // While we're at it, extract "the value of the Host header in lowercase"
-    // and the "HTTP Request URI" from the service URL.  The service URL must
-    // be of the form '[http[s]|x509|euca3[s]]://hostname[:port][/path]*'.
-    std::string protocol, host, httpRequestURI;
-    if(! parseURL( serviceURL, protocol, host, httpRequestURI )) {
-        this->errorCode = "E_INVALID_SERVICE_URL";
-        this->errorMessage = "Failed to parse service URL.";
-        // dprintf( D_ALWAYS, "Failed to match regex against service URL '%s'.\n", serviceURL.c_str() );
-        return false;
-    }
-
-    if( (protocol != "http" && protocol != "https" && protocol != "x509" && protocol != "euca3" && protocol != "euca3s" ) ) {
-        this->errorCode = "E_INVALID_SERVICE_URL";
-        this->errorMessage = "Service URL not of a known protocol (http[s]|x509|euca3[s]).";
-        // dprintf( D_ALWAYS, "Service URL '%s' not of a known protocol (http[s]|x509|euca3[s]).\n", serviceURL.c_str() );
-        return false;
-    }
-    std::string hostAndPath = host + httpRequestURI;
-    std::transform( host.begin(), host.end(), host.begin(), & tolower );
-    if( httpRequestURI.empty() ) { httpRequestURI = "/"; }
-
-    //
-    // Eucalyptus 3 bombs if it sees this attribute.
-    //
-    if( protocol == "euca3" || protocol == "euca3s" ) {
-        query_parameters.erase( "InstanceInitiatedShutdownBehavior" );
-    }
-
-    //
-    // The AWSAccessKeyId is just the contents of this->accessKeyFile,
-    // and are (currently) 20 characters long.
-    //
-    std::string keyID;
-    if( protocol != "x509" ) {
-        if( ! readShortFile( this->accessKeyFile, keyID ) ) {
-            this->errorCode = "E_FILE_IO";
-            this->errorMessage = "Unable to read from accesskey file '" + this->accessKeyFile + "'.";
-            // dprintf( D_ALWAYS, "Unable to read accesskey file '%s', failing.\n", this->accessKeyFile.c_str() );
-            return false;
-        }
-        trim( keyID );
-        query_parameters.insert( std::make_pair( "AWSAccessKeyId", keyID ) );
-    }
-
-    //
-    // This implementation computes signature version 2,
-    // using the "HmacSHA256" method.
-    //
-    query_parameters.insert( std::make_pair( "SignatureVersion", "2" ) );
-    query_parameters.insert( std::make_pair( "SignatureMethod", "HmacSHA256" ) );
-
-    //
-    // We're calculating the signature now. [YYYY-MM-DDThh:mm:ssZ]
-    //
-    Throttle::now( & signatureTime );
-    time_t now; time( & now );
-    struct tm brokenDownTime; gmtime_r( & now, & brokenDownTime );
-    char iso8601[] = "YYYY-MM-DDThh:mm:ssZ";
-    strftime( iso8601, 20, "%Y-%m-%dT%H:%M:%SZ", & brokenDownTime );
-    query_parameters.insert( std::make_pair( "Timestamp", iso8601 ) );
-    // dprintf( D_PERF_TRACE, "request #%d (%s): signature\n", requestID, requestCommand.c_str() );
-
-
-    /*
-     * The tricky party of sending a Query API request is calculating
-     * the signature.  See
-     *
-     * http://docs.amazonwebservices.com/AWSEC2/2010-11-15/DeveloperGuide/using-query-api.html
-     *
-     */
-
-    // Step 1: Create the canonicalized query string.
-    std::string canonicalQueryString = canonicalizeQueryString();
-
-    // Step 2: Create the string to sign.
-    std::string stringToSign = "POST\n"
-                             + host + "\n"
-                             + httpRequestURI + "\n"
-                             + canonicalQueryString;
-
-    // Step 3: "Calculate an RFC 2104-compliant HMAC with the string
-    // you just created, your Secret Access Key as the key, and SHA256
-    // or SHA1 as the hash algorithm."
-    std::string saKey;
-    if( protocol == "x509" ) {
-        // If we ever support the UploadImage action, we'll need to
-        // extract the DN from the user's certificate here.  Otherwise,
-        // since the x.509 implementation ignores the AWSAccessKeyId
-        // and Signature, we can do whatever we want.
-        saKey = std::string( "not-the-DN" );
-        // dprintf( D_FULLDEBUG, "Using '%s' as secret key for x.509\n", saKey.c_str() );
-    } else {
-        if( ! readShortFile( this->secretKeyFile, saKey ) ) {
-            this->errorCode = "E_FILE_IO";
-            this->errorMessage = "Unable to read from secretkey file '" + this->secretKeyFile + "'.";
-            // dprintf( D_ALWAYS, "Unable to read secretkey file '%s', failing.\n", this->secretKeyFile.c_str() );
-            return false;
-        }
-        trim( saKey );
-    }
-
-    unsigned int mdLength = 0;
-    unsigned char messageDigest[EVP_MAX_MD_SIZE];
-    const unsigned char * hmac = HMAC( EVP_sha256(), saKey.c_str(), saKey.length(),
-        (const unsigned char *)stringToSign.c_str(), stringToSign.length(), messageDigest, & mdLength );
-    if( hmac == NULL ) {
-        this->errorCode = "E_INTERNAL";
-        this->errorMessage = "Unable to calculate query signature (SHA256 HMAC).";
-        // dprintf( D_ALWAYS, "Unable to calculate SHA256 HMAC to sign query, failing.\n" );
-        return false;
-    }
-
-    // Step 4: "Convert the resulting value to base64."
-    char * base64Encoded = condor_base64_encode( messageDigest, mdLength );
-    std::string signatureInBase64 = base64Encoded;
-    free( base64Encoded );
-
-    // Generate the final URI.
-    canonicalQueryString += "&Signature=" + amazonURLEncode( signatureInBase64 );
-    std::string postURI;
-    if( protocol == "x509" ) {
-        postURI = "https://" + hostAndPath;
-    } else if( protocol == "euca3" ) {
-        postURI = "http://" + hostAndPath;
-    } else if( protocol == "euca3s" ) {
-        postURI = "https://" + hostAndPath;
-    } else {
-        postURI = this->serviceURL;
-    }
-    // dprintf( D_FULLDEBUG, "Request URI is '%s'\n", postURI.c_str() );
-
-    // The AWS docs now say that " " - > "%20", and that "+" is an error.
-    size_t index = canonicalQueryString.find( "AWSAccessKeyId=" );
-    if( index != std::string::npos ) {
-        size_t skipLast = canonicalQueryString.find( "&", index + 14 );
-        char swap = canonicalQueryString[ index + 15 ];
-        canonicalQueryString[ index + 15 ] = '\0';
-        char const * cqs = canonicalQueryString.c_str();
-        if( skipLast == std::string::npos ) {
-            // dprintf( D_FULLDEBUG, "Post body is '%s...'\n", cqs );
-        } else {
-            // dprintf( D_FULLDEBUG, "Post body is '%s...%s'\n", cqs, cqs + skipLast );
-        }
-        canonicalQueryString[ index + 15 ] = swap;
-    } else {
-        // dprintf( D_FULLDEBUG, "Post body is '%s'\n", canonicalQueryString.c_str() );
-    }
-
-    return sendPreparedRequest( protocol, postURI, canonicalQueryString );
-}
-#endif /* defined(SUPPORT_V2) */
-
-#if defined(NEEDED)
-bool AmazonRequest::SendURIRequest() {
-    httpVerb = "GET";
-    std::string noPayloadAllowed;
-    return sendV4Request( noPayloadAllowed );
-}
-
-bool AmazonRequest::SendJSONRequest( const std::string & payload ) {
-    headers[ "Content-Type" ] = "application/x-amz-json-1.1";
-    return sendV4Request( payload );
-}
-#endif /* defined(NEEDED) */
 
 // It's stated in the API documentation that you can upload to any region
 // via us-east-1, which is moderately crazy.
@@ -1142,22 +948,6 @@ retry:
     // Throttle::now( & this->mutexGained );
 
     // dprintf( D_PERF_TRACE, "request #%d (%s): called %s\n", requestID, requestCommand.c_str(), query_parameters[ "Action" ].c_str() );
-    /*
-    dprintf( D_PERF_TRACE | D_VERBOSE,
-        "request #%d (%s): "
-        "scheduling delay (release mutex, grab lock): %ld ms; "
-        "cumulative delay time: %ld ms; "
-        "last delay time: %ld ms "
-        "request time: %ld ms; "
-        "grab mutex: %ld ms\n",
-        requestID, requestCommand.c_str(),
-        Throttle::difference( & this->mutexReleased, & this->lockGained ),
-        Throttle::difference( & this->lockGained, & this->requestBegan ),
-        Throttle::difference( & this->sleepBegan, & this->sleepEnded ),
-        Throttle::difference( & this->requestBegan, & this->requestEnded ),
-        Throttle::difference( & this->requestEnded, & this->mutexGained )
-    );
-    */
 
     if( rv != 0 ) {
         // We'll be very conservative here, and set the next liveline as if
