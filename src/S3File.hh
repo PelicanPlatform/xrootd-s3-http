@@ -9,7 +9,7 @@
 
 #include <memory>
 
-int parse_path( const char * path, std::string & bucket, std::string & object );
+int parse_path( const S3FileSystem & fs, const char * path, std::string & bucket, std::string & object );
 
 class S3File : public XrdOssDF {
 public:
@@ -118,8 +118,6 @@ public:
 
 private:
     XrdSysError &m_log;
-    const XrdSecEntity* m_client;
-    ssize_t m_nextoff;
     S3FileSystem *m_oss;
 
     std::string s3_service_url;

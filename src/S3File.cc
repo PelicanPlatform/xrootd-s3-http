@@ -28,18 +28,14 @@ XrdVERSIONINFO(XrdOssGetFileSystem, S3);
 
 S3File::S3File(XrdSysError &log, S3FileSystem *oss) :
     m_log(log),
-    m_nextoff(0),
     m_oss(oss)
 {}
 
 
 int
-parse_path( const char * path, std::string & bucket, std::string & object ) {
-    //
-    // FIXME.
-    //
-    std::string configured_s3_service_name = "aws";
-    std::string configured_s3_region = "us-east-1";
+parse_path( const S3FileSystem & fs, const char * path, std::string & bucket, std::string & object ) {
+    const std::string & configured_s3_service_name = fs.getS3ServiceName();
+    const std::string & configured_s3_region = fs.getS3Region();
 
     //
     // Check the path for validity.
@@ -74,25 +70,19 @@ parse_path( const char * path, std::string & bucket, std::string & object ) {
 int
 S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 {
-    //
-    // FIXME.
-    //
-    std::string configured_s3_region = "us-east-1";
+    std::string configured_s3_region = m_oss->getS3Region();
 
     //
     // Check the path for validity.
     //
     std::string bucket, object;
-    int rv = parse_path( path, bucket, object );
+    int rv = parse_path( * m_oss, path, bucket, object );
     if( rv != 0 ) { return rv; }
 
 
-    //
-    // FIXME.
-    //
-    std::string configured_s3_service_url = "https://s3.us-east-1.amazonaws.com";
-    std::string configured_s3_access_key = "/home/tlmiller/.condor/publicKeyFile";
-    std::string configured_s3_secret_key = "/home/tlmiller/.condor/privateKeyFile";
+    std::string configured_s3_service_url = m_oss->getS3ServiceURL();
+    std::string configured_s3_access_key = m_oss->getS3AccessKeyFile();
+    std::string configured_s3_secret_key = m_oss->getS3SecretKeyFile();
 
 
     // We used to query S3 here to see if the object existed, but of course

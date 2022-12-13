@@ -56,7 +56,28 @@ public:
     int       Lfn2Pfn(const char *Path, char *buff, int blen) {return -ENOSYS;}
     const char       *Lfn2Pfn(const char *Path, char *buff, int blen, int &rc) {return nullptr;}
 
+    const std::string & getS3ServiceName() const { return s3_service_name; }
+    const std::string & getS3Region() const { return s3_region; }
+    const std::string & getS3ServiceURL() const { return s3_service_url; }
+
+    const std::string & getS3AccessKeyFile() const { return s3_access_key_file; }
+    const std::string & getS3SecretKeyFile() const { return s3_secret_key_file; }
+
 private:
     XrdOucEnv *m_env;
     XrdSysError m_log;
+
+    bool handle_required_config(
+        const std::string & name_from_config,
+        const char * desired_name,
+        const std::string & source,
+        std::string & target
+    );
+
+    std::string s3_service_name;
+    std::string s3_region;
+    std::string s3_service_url;
+
+    std::string s3_access_key_file;
+    std::string s3_secret_key_file;
 };

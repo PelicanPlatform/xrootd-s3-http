@@ -32,6 +32,28 @@ S3FileSystem::~S3FileSystem() {
 
 
 bool
+S3FileSystem::handle_required_config(
+    const std::string & name_from_config,
+    const char * desired_name,
+    const std::string & source,
+    std::string & target
+) {
+    if( name_from_config != desired_name ) { return true; }
+
+    if( source.empty() ) {
+        std::string error;
+        formatstr( error, "%s must specify a value", desired_name );
+        m_log.Emsg( "Config", error.c_str() );
+        return false;
+    }
+
+    // fprintf( stderr, "Setting %s = %s\n", desired_name, source.c_str() );
+    target = source;
+    return true;
+}
+
+
+bool
 S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
 {
     XrdOucEnv myEnv;
@@ -42,28 +64,50 @@ S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
         m_log.Emsg("Config", errno, "open config file", configfn);
         return false;
     }
+
+    char * temporary;
+    std::string value;
+    std::string attribute;
     Config.Attach(cfgFD);
-    const char *val;
-    while ((val = Config.GetMyFirstWord())) {
-        if (!strcmp("s3.test", val)) {
-            val = Config.GetWord();
-            if (!val || !val[0]) {
-                m_log.Emsg("Config", "s3.test must specify a value");
-                Config.Close();
-                return false;
-            }
-            m_log.Emsg("Config", "Value of s3.test", val);
-        }
+    while ((temporary = Config.GetMyFirstWord())) {
+        // This is dumb.  So is using the same internal buffer for the
+        // attribute and the value.
+        attribute = temporary;
+        temporary = Config.GetWord();
+        if(! temporary) { continue; }
+        value = temporary;
+
+        // Ye flipping bits, this is clumsy.
+        // fprintf( stderr, "%s = %s\n", attribute.c_str(), value.c_str() );
+        if(! handle_required_config( attribute, "s3.service_name",
+            value, this->s3_service_name ) ) { Config.Close(); return false; }
+        if(! handle_required_config( attribute, "s3.region",
+            value, this->s3_region ) ) { Config.Close(); return false; }
+        if(! handle_required_config( attribute, "s3.service_url",
+            value, this->s3_service_url ) ) { Config.Close(); return false; }
+        if(! handle_required_config( attribute, "s3.access_key_file",
+            value, this->s3_access_key_file ) ) { Config.Close(); return false; }
+        if(! handle_required_config( attribute, "s3.secret_key_file",
+            value, this->s3_secret_key_file ) ) { Config.Close(); return false; }
+    }
+
+    if( this->s3_service_name.empty() ) {
+        m_log.Emsg("Config", "s3.service_name not specified");
+        return false;
+    }
+    if( this->s3_region.empty() ) {
+        m_log.Emsg("Config", "s3.region not specified");
+        return false;
     }
 
     int retc = Config.LastError();
-    if (retc) {
+    if( retc ) {
         m_log.Emsg("Config", -retc, "read config file", configfn);
         Config.Close();
         return false;
     }
-    Config.Close();
 
+    Config.Close();
     return true;
 }
 
@@ -125,7 +169,7 @@ S3FileSystem::Create( const char *tid, const char *path, mode_t mode,
 {
     // Is path valid?
     std::string bucket, object;
-    int rv = parse_path( path, bucket, object );
+    int rv = parse_path( * this, path, bucket, object );
     if( rv != 0 ) { return rv; }
 
     //
