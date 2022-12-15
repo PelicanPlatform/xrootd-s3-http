@@ -7,6 +7,19 @@ underlying "filesystem" for an XRootD server
 
 It is currently quite experimental, aiming to show a "minimum viable product".
 
+Building and Installing
+-----------------------
+
+Run `cmake`.  You'll need version 3.13 or later and gcc 8 or later.  If you have
+xrootd installed, BrianB thinks CMake will find it for you.  I built xrootd from
+source instead, so I added `-DXROOTD_DIR` to my CMake command line to point it at
+the installed directory.  I'm not sure if it really needs it, but I've also been
+doing out-of-source builds and setting `DCMAKE_ISNTALL_PREFIX` to somewhere I could
+write as a normal user.
+
+Then run `make install`.  BrianB made noises about building an RPMs automagically,
+but I don't know anything about that.
+
 Configuration
 -------------
 
