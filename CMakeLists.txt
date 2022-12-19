@@ -1,8 +1,9 @@
+cmake_minimum_required( VERSION 3.13 )
 
-cmake_minimum_required( VERSION 3.14 )
 project( xrootd-s3 )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
+set( CMAKE_BUILD_TYPE Debug )
 
 find_package( Xrootd REQUIRED )
 find_package( CURL REQUIRED )
@@ -11,25 +12,28 @@ include (FindPkgConfig)
 pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
 
 if(NOT XROOTD_PLUGIN_VERSION)
-  find_program(XROOTD_CONFIG_EXECUTABLE xrootd-config)
-  exec_program(${XROOTD_CONFIG_EXECUTABLE} ARGS "--plugin-version" OUTPUT_VARIABLE XROOTD_PLUGIN_VERSION RETURN_VALUE RETVAR)
+  exec_program(${XROOTD_BIN}/xrootd-config ARGS "--plugin-version" OUTPUT_VARIABLE XROOTD_PLUGIN_VERSION RETURN_VALUE RETVAR)
   set(XROOTD_PLUGIN_VERSION ${XROOTD_PLUGIN_VERSION} CACHE INTERNAL "")
 endif()
 
-macro(use_cxx11)
+macro(use_cxx17)
   if (CMAKE_VERSION VERSION_LESS "3.1")
     if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      set (CMAKE_CXX_FLAGS "-std=gnu++11 ${CMAKE_CXX_FLAGS}")
+      set (CMAKE_CXX_FLAGS "-std=c++17 ${CMAKE_CXX_FLAGS}")
     endif ()
   else ()
-    set (CMAKE_CXX_STANDARD 11)
+    set (CMAKE_CXX_STANDARD 17)
   endif ()
-endmacro(use_cxx11)
-use_cxx11()
 
-#include (FindPkgConfig)
-#pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
-#pkg_check_modules(ZLIB REQUIRED zlib)
+  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0)
+      if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
+        link_libraries(stdc++fs)
+      endif()
+    endif()
+  endif()
+endmacro(use_cxx17)
+use_cxx17()
 
 if( CMAKE_COMPILER_IS_GNUCXX )
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" )
@@ -39,7 +43,7 @@ SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
 
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
-add_library(XrdS3 SHARED src/s3.cpp src/S3FileSystem.cc src/AWSUtils.cc)
+add_library(XrdS3 SHARED src/S3File.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/stl_string_utils.cc src/shortfile.cc)
 target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
 set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
 

@@ -9,6 +9,8 @@
 
 #include <memory>
 
+int parse_path( const S3FileSystem & fs, const char * path, std::string & bucket, std::string & object );
+
 class S3File : public XrdOssDF {
 public:
     S3File(XrdSysError &log, S3FileSystem *oss);
@@ -111,10 +113,19 @@ public:
 
     int Close(long long *retsz=0);
 
+    size_t getContentLength() { return content_length; }
+    time_t getLastModified() { return last_modified; }
+
 private:
     XrdSysError &m_log;
-    const XrdSecEntity* m_client;
-    ssize_t m_nextoff;
-    std::string m_fname;
     S3FileSystem *m_oss;
+
+    std::string s3_service_url;
+    std::string s3_bucket_name;
+    std::string s3_object_name;
+    std::string s3_access_key;
+    std::string s3_secret_key;
+
+    size_t content_length;
+    time_t last_modified;
 };
