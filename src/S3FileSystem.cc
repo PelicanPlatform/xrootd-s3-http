@@ -144,11 +144,6 @@ S3FileSystem::Stat(const char *path, struct stat *buff,
 
     m_log.Emsg("Stat", "Stat'ing path", path);
 
-    if (strcmp(path, "/aws/us-east-1/bucket/hello_world")) {
-        m_log.Emsg("Stat", "Pretending file isn't found");
-        return -ENOENT;
-    }
-
     buff->st_mode = 0600 | S_IFREG;
     buff->st_nlink = 1;
     buff->st_uid = 1;
