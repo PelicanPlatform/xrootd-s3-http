@@ -28,7 +28,9 @@ XrdVERSIONINFO(XrdOssGetFileSystem, S3);
 
 S3File::S3File(XrdSysError &log, S3FileSystem *oss) :
     m_log(log),
-    m_oss(oss)
+    m_oss(oss),
+    content_length(0),
+    last_modified(0)
 {}
 
 
