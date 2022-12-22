@@ -137,8 +137,12 @@ S3FileSystem::Stat(const char *path, struct stat *buff,
     m_log.Emsg("Stat", "Stat'ing path", path);
 
     S3File s3file(m_log, this);
+    int rv = s3file.Open( path, 0, (mode_t)0, *env );
+    if (rv) {
+        m_log.Emsg("Stat", "Failed to open path:", path);
+    }
     // Assume that S3File::FStat() doesn't write to buff unless it succeeds.
-    int rv = s3file.Fstat( buff );
+    rv = s3file.Fstat( buff );
     if( rv != 0 ) {
         formatstr( error, "File %s not found.", path );
         m_log.Emsg( "Stat", error.c_str() );
