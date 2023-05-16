@@ -338,6 +338,9 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 	std::string saKey;
 	std::string token;
 	if( ! readShortFile( this->secretKeyFile, saKey ) ) {
+		if (this->secretKeyFile.empty()) { // Some origins may exist in front of unauthenticated buckets
+			return true;
+		}
 		this->errorCode = "E_FILE_IO";
 		this->errorMessage = "Unable to read from secretkey file '" + this->secretKeyFile + "'.";
 		// dprintf( D_ALWAYS, "Unable to read secretkey file '%s', failing.\n", this->secretKeyFile.c_str() );
@@ -346,6 +349,9 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 	trim( saKey );
 
 	if( ! readShortFile( this->accessKeyFile, keyID ) ) {
+		if (this->accessKeyFile.empty()) { // Some origins may exist in front of unauthenticated buckets
+			return true;
+		}
 		this->errorCode = "E_FILE_IO";
 		this->errorMessage = "Unable to read from accesskey file '" + this->accessKeyFile + "'.";
 		// dprintf( D_ALWAYS, "Unable to read accesskey file '%s', failing.\n", this->accessKeyFile.c_str() );
@@ -570,7 +576,11 @@ bool AmazonRequest::sendV4Request( const std::string & payload, bool sendContent
         // dprintf( D_ALWAYS, "Failed to create v4 signature.\n" );
         return false;
     }
-    headers[ "Authorization" ] = authorizationValue;
+
+	// When accessing an unauthenticated bucket, providing an auth header will cause errors
+	if (!authorizationValue.empty()) {
+ 		headers[ "Authorization" ] = authorizationValue;
+	}
 
     return sendPreparedRequest( protocol, serviceURL, payload );
 }
