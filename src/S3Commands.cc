@@ -1059,7 +1059,7 @@ bool AmazonS3Upload::SendRequest( const std::string & payload, off_t offset, siz
 
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr( range, "bytes=%zu-%zu", offset, offset + size );
+		formatstr( range, "bytes=%zu-%zu", offset, offset + size - 1 );
 		headers["Range"] = range.c_str();
 	}
 
