@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <vector>
+#include <stdexcept>
 
 #include <fcntl.h>
 #include <sys/types.h>

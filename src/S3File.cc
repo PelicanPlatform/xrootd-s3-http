@@ -61,9 +61,19 @@ parse_path( const S3FileSystem & fs, const char * path, std::string & bucket, st
     if( pathComponents == p.end() ) { return -ENOENT; }
     bucket = *pathComponents;
 
+    // Objects names may contain path separators.
     ++pathComponents;
     if( pathComponents == p.end() ) { return -ENOENT; }
-    object = *pathComponents++;
+
+
+    std::filesystem::path objectPath = *pathComponents++;
+    for( ; pathComponents != p.end(); ++pathComponents ) {
+        objectPath /= (* pathComponents);
+    }
+    object = objectPath.string();
+
+    fprintf( stderr, "object = %s\n", object.c_str() );
+
 
     return 0;
 }

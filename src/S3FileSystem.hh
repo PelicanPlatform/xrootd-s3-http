@@ -6,6 +6,7 @@
 #include "XrdOss/XrdOss.hh"
 
 #include <memory>
+#include <string>
 
 class S3FileSystem : public XrdOss {
 public:
