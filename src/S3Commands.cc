@@ -575,9 +575,9 @@ bool AmazonRequest::sendV4Request( const std::string & payload, bool sendContent
     }
 
 	// When accessing an unauthenticated bucket, providing an auth header will cause errors
-	if (!authorizationValue.empty()) {
- 		headers[ "Authorization" ] = authorizationValue;
-	}
+    if (!authorizationValue.empty()) {
+        headers[ "Authorization" ] = authorizationValue;
+    }
 
     return sendPreparedRequest( protocol, serviceURL, payload );
 }
