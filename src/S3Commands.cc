@@ -337,22 +337,25 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 	std::string keyID;
 	std::string saKey;
 	std::string token;
-	if( ! readShortFile( this->secretKeyFile, saKey ) ) {
-		this->errorCode = "E_FILE_IO";
-		this->errorMessage = "Unable to read from secretkey file '" + this->secretKeyFile + "'.";
-		// dprintf( D_ALWAYS, "Unable to read secretkey file '%s', failing.\n", this->secretKeyFile.c_str() );
-		return false;
+	if (!this->secretKeyFile.empty()) { // Some origins may exist in front of unauthenticated buckets
+		if( ! readShortFile( this->secretKeyFile, saKey ) ) {
+			this->errorCode = "E_FILE_IO";
+			this->errorMessage = "Unable to read from secretkey file '" + this->secretKeyFile + "'.";
+			// dprintf( D_ALWAYS, "Unable to read secretkey file '%s', failing.\n", this->secretKeyFile.c_str() );
+			return false;
+		}
+		trim( saKey );
 	}
-	trim( saKey );
 
-	if( ! readShortFile( this->accessKeyFile, keyID ) ) {
-		this->errorCode = "E_FILE_IO";
-		this->errorMessage = "Unable to read from accesskey file '" + this->accessKeyFile + "'.";
-		// dprintf( D_ALWAYS, "Unable to read accesskey file '%s', failing.\n", this->accessKeyFile.c_str() );
-		return false;
+	if (!this->accessKeyFile.empty()) { // Some origins may exist in front of unauthenticated buckets
+		if( ! readShortFile( this->accessKeyFile, keyID ) ) {
+			this->errorCode = "E_FILE_IO";
+			this->errorMessage = "Unable to read from accesskey file '" + this->accessKeyFile + "'.";
+			// dprintf( D_ALWAYS, "Unable to read accesskey file '%s', failing.\n", this->accessKeyFile.c_str() );
+			return false;
+		}
+		trim( keyID );
 	}
-	trim( keyID );
-
 	// S3 complains if x-amz-date isn't signed, so do this early.
 	char dt[] = "YYYYMMDDThhmmssZ";
 	strftime( dt, sizeof(dt), "%Y%m%dT%H%M%SZ", & brokenDownTime );
@@ -570,7 +573,11 @@ bool AmazonRequest::sendV4Request( const std::string & payload, bool sendContent
         // dprintf( D_ALWAYS, "Failed to create v4 signature.\n" );
         return false;
     }
-    headers[ "Authorization" ] = authorizationValue;
+
+	// When accessing an unauthenticated bucket, providing an auth header will cause errors
+    if (!authorizationValue.empty()) {
+        headers[ "Authorization" ] = authorizationValue;
+    }
 
     return sendPreparedRequest( protocol, serviceURL, payload );
 }
