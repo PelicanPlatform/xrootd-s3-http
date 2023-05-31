@@ -4,8 +4,9 @@
 // #include <map>
 // #include <string>
 // #include "S3Commands.hh"
+#include "HTTPCommands.hh"
 
-class AmazonRequest {
+class AmazonRequest : public HTTPRequest {
     public:
         AmazonRequest(
             const std::string & s,
@@ -13,55 +14,51 @@ class AmazonRequest {
             const std::string & skf,
             int sv = 4
         ) :
-            serviceURL(s),
+            HTTPRequest( s ),
             accessKeyFile(akf),
             secretKeyFile(skf),
-            responseCode(0),
-            includeResponseHeader(false),
-            signatureVersion(sv),
-            httpVerb( "POST" )
-        { }
+            signatureVersion(sv)
+        { 
+            requiresSignature = true;
+            if (! parseURL(hostUrl, host, canonicalURI)) {
+                errorCode = "E_INVALID_SERVICE_URL";
+		        errorMessage = "Failed to parse host and canonicalURI from service URL.";
+            }
+
+	        if( canonicalURI.empty() ) { canonicalURI = "/"; }
+
+            // If we can, set the region based on the host.
+            size_t secondDot = host.find( ".", 2 + 1 );
+            if( host.find( "s3." ) == 0 ) {
+                region = host.substr( 3, secondDot - 2 - 1 );
+            }
+        }
         virtual ~AmazonRequest();
+
+        bool parseURL(	const std::string & url,
+				std::string & host,
+				std::string & path );
+
+
 
         virtual bool SendRequest();
         // virtual bool SendURIRequest();
         // virtual bool SendJSONRequest( const std::string & payload );
         virtual bool SendS3Request( const std::string & payload );
 
-        unsigned long getResponseCode() const { return responseCode; }
-        const std::string & getResultString() const { return resultString; }
-
     protected:
         bool sendV4Request( const std::string & payload, bool sendContentSHA = false );
 
-        bool sendPreparedRequest(   const std::string & protocol,
-                                    const std::string & uri,
-                                    const std::string & payload );
-
-        typedef std::map< std::string, std::string > AttributeValueMap;
-        AttributeValueMap query_parameters;
-        AttributeValueMap headers;
-
-        std::string serviceURL;
         std::string accessKeyFile;
         std::string secretKeyFile;
 
-        std::string errorMessage;
-        std::string errorCode;
-
-        std::string resultString;
-        unsigned long responseCode;
-        unsigned long expectedResponseCode = 200;
-        bool includeResponseHeader;
-
-        // So that we don't bother to send expired signatures.
-        struct timespec signatureTime;
-
         int signatureVersion;
+
+        std::string host;
+        std::string canonicalURI;
 
         std::string region;
         std::string service;
-        std::string httpVerb;
 
     private:
         bool createV4Signature( const std::string & payload, std::string & authorizationHeader, bool sendContentSHA = false );
@@ -70,6 +67,8 @@ class AmazonRequest {
 };
 
 class AmazonS3Upload : public AmazonRequest {
+    using AmazonRequest::SendRequest;
+    
     public:
         AmazonS3Upload(
             const std::string & s,
@@ -81,7 +80,10 @@ class AmazonS3Upload : public AmazonRequest {
             AmazonRequest(s, akf, skf),
             bucket(b),
             object(o)
-        { }
+        {
+	        hostUrl = protocol + "://" + bucket + "." +
+				host + canonicalURI + object;
+        }
 
         virtual ~AmazonS3Upload();
 
@@ -94,6 +96,8 @@ class AmazonS3Upload : public AmazonRequest {
 };
 
 class AmazonS3Download : public AmazonRequest {
+    using AmazonRequest::SendRequest;
+
     public:
         AmazonS3Download(
             const std::string & s,
@@ -105,7 +109,10 @@ class AmazonS3Download : public AmazonRequest {
             AmazonRequest(s, akf, skf),
             bucket(b),
             object(o)
-        { }
+        { 
+	        hostUrl = protocol + "://" + bucket + "." +
+				host + canonicalURI + object;
+        }
 
         virtual ~AmazonS3Download();
 
@@ -117,6 +124,8 @@ class AmazonS3Download : public AmazonRequest {
 };
 
 class AmazonS3Head : public AmazonRequest {
+    using AmazonRequest::SendRequest;
+
     public:
         AmazonS3Head(
             const std::string & s,
@@ -128,7 +137,10 @@ class AmazonS3Head : public AmazonRequest {
             AmazonRequest(s, akf, skf),
             bucket(b),
             object(o)
-        { }
+        { 
+	        hostUrl = protocol + "://" + bucket + "." +
+				host + canonicalURI + object;
+        }
 
         virtual ~AmazonS3Head();
 

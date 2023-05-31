@@ -1,6 +1,6 @@
 cmake_minimum_required( VERSION 3.13 )
 
-project( xrootd-s3 )
+project( xrootd-http/s3 )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 set( CMAKE_BUILD_TYPE Debug )
@@ -36,7 +36,7 @@ endmacro(use_cxx17)
 use_cxx17()
 
 if( CMAKE_COMPILER_IS_GNUCXX )
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" )
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall" ) #-Werror
 endif()
 SET( CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-undefined")
 SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
@@ -44,17 +44,22 @@ SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
 add_library(XrdS3 SHARED src/S3File.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/stl_string_utils.cc src/shortfile.cc)
+add_library(XrdHTTPServer SHARED src/HTTPFile.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/stl_string_utils.cc src/shortfile.cc)
+
 target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
+target_link_libraries(XrdHTTPServer -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
+
 set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
+set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
 
 SET(LIB_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Install path for libraries")
 
 install(
-  TARGETS XrdS3
+  TARGETS XrdS3 XrdHTTPServer
   LIBRARY DESTINATION ${LIB_INSTALL_DIR}
 )
 
-install(
-  FILES ${CMAKE_SOURCE_DIR}/configs/60-s3.cfg
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/etc/xrootd/config.d/
-)
+#install(
+#  FILES ${CMAKE_SOURCE_DIR}/configs/60-s3.cfg
+#  DESTINATION ${CMAKE_INSTALL_PREFIX}/etc/xrootd/config.d/
+#)
