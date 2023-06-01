@@ -20,6 +20,7 @@
 #include "HTTPCommands.hh"
 
 #include "stl_string_utils.hh"
+#include <iostream>
 
 HTTPFileSystem* g_http_oss = nullptr;
 
@@ -162,12 +163,13 @@ HTTPFile::Fstat(struct stat *buff)
         size_t colon = line.find(":");
         if( colon != std::string::npos && colon != line.size() ) {
             std::string attr = substring( line, 0, colon );
+            toLower(attr); // Some servers might not follow conventional capitalization schemes
             std::string value = substring( line, colon + 1 );
             trim(value);
 
-            if( attr == "content-length" ) { // Need to handle other capitalization schemes!!!
+            if( attr == "content-length" ) {
                 this->content_length = std::stol(value);
-            } else if( attr == "last-modified" ) {  // Need to handle other capitalization schemes!!!
+            } else if( attr == "last-modified" ) {
                 struct tm t;
                 char * eos = strptime( value.c_str(),
                     "%a, %d %b %Y %T %Z",

@@ -14,8 +14,6 @@
 #include "stl_string_utils.hh"
 #include "shortfile.hh"
 
-#include <iostream> //DELETE
-
 //
 // "This function gets called by libcurl as soon as there is data received
 //  that needs to be saved. The size of the data pointed to by ptr is size

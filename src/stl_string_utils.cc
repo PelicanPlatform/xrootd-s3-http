@@ -2,6 +2,7 @@
 #include <cassert>
 
 #include <string>
+#include <algorithm>
 #include "stl_string_utils.hh"
 
 std::string
@@ -33,6 +34,10 @@ trim( std::string &str ) {
 	}
 }
 
+void
+toLower( std::string &str ) {
+    std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+}
 
 int
 vformatstr_impl(std::string& s, bool concat, const char* format, va_list pargs) {
