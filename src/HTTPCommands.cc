@@ -345,12 +345,6 @@ bool HTTPRequest::sendPreparedRequest(
         const std::string & protocol,
         const std::string & uri,
         const std::string & payload ) {
-    static bool rateLimitInitialized = false;
-    if(! rateLimitInitialized) {
-        globalCurlThrottle.rateLimit = 100;
-        // dprintf( D_PERF_TRACE, "rate limit = %d\n", globalCurlThrottle.rateLimit );
-        rateLimitInitialized = true;
-    }
 
     // curl_global_init() is not thread-safe.  However, it's safe to call
     // multiple times.  Therefore, we'll just call it before we drop the
@@ -580,13 +574,25 @@ bool HTTPRequest::sendPreparedRequest(
 
     // Throttle::now( & this->mutexReleased );
     // amazon_gahp_release_big_mutex();
-    pthread_mutex_lock( & globalCurlMutex );
+    
+    // Comment the mutex, causing problems and libcurl appears threadsafe anyway
+    //pthread_mutex_lock( & globalCurlMutex );
+    
     // Throttle::now( & this->lockGained );
 
     // We don't check the deadline after the retry because limitExceeded()
     // already checks.  (limitNotExceeded() does not, but if we call that
     // then the request has succeeded and we won't be retrying.)
+
     if (requiresSignature) {
+        // XRootD Already has its own throttling plugin, so commenting the throttle-related code for not        
+        static bool rateLimitInitialized = false;
+        if(! rateLimitInitialized) {
+            globalCurlThrottle.rateLimit = 100;
+            // dprintf( D_PERF_TRACE, "rate limit = %d\n", globalCurlThrottle.rateLimit );
+            rateLimitInitialized = true;
+        }
+
         globalCurlThrottle.setDeadline( signatureTime, 300 );
         struct timespec liveline = globalCurlThrottle.getWhen();
         struct timespec deadline = globalCurlThrottle.getDeadline();
@@ -635,7 +641,7 @@ retry:
         // dprintf( D_FULLDEBUG, "%s\n", errorBuffer );
         if( header_slist ) { curl_slist_free_all( header_slist ); }
 
-        pthread_mutex_unlock( & globalCurlMutex );
+        //pthread_mutex_unlock( & globalCurlMutex );
         return false;
     }
 
@@ -653,7 +659,7 @@ retry:
         // dprintf( D_ALWAYS, "curl_easy_getinfo( CURLINFO_RESPONSE_CODE ) failed (%d): '%s', failing.\n", rv, curl_easy_strerror( rv ) );
         if( header_slist ) { curl_slist_free_all( header_slist ); }
 
-        pthread_mutex_unlock( & globalCurlMutex );
+        //pthread_mutex_unlock( & globalCurlMutex );
         return false;
     }
 
@@ -669,7 +675,7 @@ retry:
             this->errorMessage = resultString;
 	        if( header_slist ) { curl_slist_free_all( header_slist ); }
 
-            pthread_mutex_unlock( & globalCurlMutex );
+            //pthread_mutex_unlock( & globalCurlMutex );
             return false;
         }
 
@@ -693,12 +699,12 @@ retry:
         // fprintf( stderr, "D_FULLDEBUG: Failure response text was '%s'.\n", resultString.c_str() );
 
         // dprintf( D_PERF_TRACE, "request #%d (%s): call to %s returned %lu.\n", requestID, requestCommand.c_str(), query_parameters[ "Action" ].c_str(), responseCode );
-        pthread_mutex_unlock( & globalCurlMutex );
+        //pthread_mutex_unlock( & globalCurlMutex );
         return false;
     }
 
     // dprintf( D_FULLDEBUG, "Response was '%s'\n", resultString.c_str() );
-    pthread_mutex_unlock( & globalCurlMutex );
+    //pthread_mutex_unlock( & globalCurlMutex );
     // dprintf( D_PERF_TRACE, "request #%d (%s): call to %s returned 200 (OK).\n", requestID, requestCommand.c_str(), query_parameters[ "Action" ].c_str() );
     return true;
 }

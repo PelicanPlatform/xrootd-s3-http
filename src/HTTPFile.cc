@@ -65,7 +65,7 @@ parse_path( const std::string & hname, const char * path, std::string & object )
         obj_path /= *pathComponents++;
     }
 
-    fprintf(stderr, "D_FULLDEBUG: in parse_path, obj_path: '%s'\n", obj_path.string().c_str());
+    //fprintf(stderr, "D_FULLDEBUG: in parse_path, obj_path: '%s'\n", obj_path.string().c_str());
 
     object = obj_path.string();
     return 0;    
@@ -80,15 +80,15 @@ HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
     //std::string configured_protocol = m_oss->getHTTPProtocol();
 
 
-     fprintf( stderr, "D_FULLDEBUG: configured HTTP Host name: '%s'\n",  configured_hostname.c_str() );
+    //fprintf( stderr, "D_FULLDEBUG: configured HTTP Host name: '%s'\n",  configured_hostname.c_str() );
 
     //
     // Check the path for validity.
     //
     std::string object;
     int rv = parse_path( configured_hostname, path, object );
-    fprintf( stderr, "D_FULLDEBUG: Registered path: '%s'\n", path );
-    fprintf( stderr, "D_FULLDEBUG: Parsed object: '%s'\n",  object.c_str() );
+    //fprintf( stderr, "D_FULLDEBUG: Registered path: '%s'\n", path );
+    //fprintf( stderr, "D_FULLDEBUG: Parsed object: '%s'\n",  object.c_str() );
 
     if( rv != 0 ) { return rv; }
 
@@ -114,7 +114,7 @@ HTTPFile::Read(void *buffer, off_t offset, size_t size)
         // this->protocol,
         this->object
     );
-    fprintf( stderr, "D_FULLDEBUG: about to perform download.SendRequest: hostname: '%s' object: '%s'\n", hostname.c_str(), object.c_str() );
+    fprintf( stderr, "D_FULLDEBUG: about to perform download.SendRequest from HTTPFile::Read(): hostname: '%s' object: '%s'\n", hostname.c_str(), object.c_str() );
 
     if(! download.SendRequest( offset, size ) ) {
         fprintf( stderr, "D_FULLDEBUG: failed to send GetObject command: %lu '%s'\n", download.getResponseCode(), download.getResultString().c_str() );
@@ -206,7 +206,6 @@ ssize_t
 HTTPFile::Write(const void *buffer, off_t offset, size_t size)
 {
     HTTPUpload upload(
-        // this->hostname,
         this->hostUrl,
         this->object
     );
@@ -242,7 +241,7 @@ XrdOss *XrdOssAddStorageSystem2(XrdOss       *curr_oss,
 {
     XrdSysError log(Logger, "s3_");
 
-    log.Emsg("Initialize", "S3 filesystem cannot be stacked with other filesystems");
+    log.Emsg("Initialize", "HTTP filesystem cannot be stacked with other filesystems");
     return nullptr;
 }
 

@@ -111,7 +111,7 @@ public:
         return -ENOSYS;
     }
 
-    virtual int Close(long long *retsz=0);
+    virtual int Close(long long *retsz=0); // upstream is abstract definition
 
     size_t getContentLength() { return content_length; }
     time_t getLastModified() { return last_modified; }

@@ -136,7 +136,7 @@ HTTPFileSystem::Stat(const char *path, struct stat *buff,
     if (rv) {
         m_log.Emsg("Stat", "Failed to open path:", path);
     }
-    // Assume that S3File::FStat() doesn't write to buff unless it succeeds.
+    // Assume that HTTPFile::FStat() doesn't write to buff unless it succeeds.
     rv = httpFile.Fstat( buff );
     if( rv != 0 ) {
         formatstr( error, "File %s not found.", path );
