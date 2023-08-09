@@ -70,6 +70,8 @@ class AmazonRequest {
 };
 
 class AmazonS3Upload : public AmazonRequest {
+    using AmazonRequest::SendRequest;
+
     public:
         AmazonS3Upload(
             const std::string & s,
@@ -94,6 +96,8 @@ class AmazonS3Upload : public AmazonRequest {
 };
 
 class AmazonS3Download : public AmazonRequest {
+    using AmazonRequest::SendRequest;
+
     public:
         AmazonS3Download(
             const std::string & s,
