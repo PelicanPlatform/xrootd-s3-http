@@ -68,7 +68,6 @@ class AmazonRequest : public HTTPRequest {
 
 class AmazonS3Upload : public AmazonRequest {
     using AmazonRequest::SendRequest;
-    
     public:
         AmazonS3Upload(
             const std::string & s,
