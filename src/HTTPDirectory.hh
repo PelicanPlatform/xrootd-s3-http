@@ -20,23 +20,25 @@ public:
         return -ENOSYS;
     }
 
-    int Readdir(char *buff, int blen)
+    virtual int Readdir(char *buff, int blen)
     {
         return -ENOSYS;
     }
 
-    int StatRet(struct stat *statStruct)
+    virtual int StatRet(struct stat *statStruct)
     {
         return -ENOSYS;
     }
 
-    int Close(long long *retsz=0)
+    virtual int Close(long long *retsz=0)
     {
         return -ENOSYS;
     }
 
-
-private:
+protected:
     XrdSysError m_log;
+
+// private:
+//     XrdSysError m_log;
 
 };
