@@ -71,15 +71,11 @@ HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn)
     std::string attribute;
     Config.Attach(cfgFD);
     while ((temporary = Config.GetMyFirstWord())) {
-        // This is dumb.  So is using the same internal buffer for the
-        // attribute and the value.
         attribute = temporary;
         temporary = Config.GetWord();
         if(! temporary) { continue; }
         value = temporary;
 
-        // Ye flipping bits, this is clumsy.
-        // fprintf( stderr, "%s = %s\n", attribute.c_str(), value.c_str() );
         if(! handle_required_config( attribute, "httpserver.host_name",
             value, this->http_host_name ) ) { Config.Close(); return false; }
         if(! handle_required_config( attribute, "httpserver.host_url",
@@ -156,13 +152,6 @@ HTTPFileSystem::Create( const char *tid, const char *path, mode_t mode,
     std::string hostname = this->getHTTPHostName();
     int rv = parse_path( hostname, path, object );
     if( rv != 0 ) { return rv; }
-
-    //
-    // We could instead invoke the upload mchinery directly to create a
-    // 0-byte file, but it seems smarter to remove a round-trip (in
-    // S3File::Open(), checking if the file exists) than to add one
-    // (here, creating the file if it doesn't exist).
-    //
 
     return 0;
 }
