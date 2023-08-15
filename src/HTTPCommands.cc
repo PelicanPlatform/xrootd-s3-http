@@ -314,18 +314,17 @@ bool HTTPRequest::sendPreparedRequest(
     // Configure for x.509 operation.
     //
 
-    // TODO: Get this section to work with HTTP stuff without being so hacky
-    if( protocol == "x509" ) {
-        // dprintf( D_FULLDEBUG, "Configuring x.509...\n" );
+    if( protocol == "x509" && requiresSignature ) {
+        const std::string* accessKeyFilePtr = this->getAccessKey();
+        const std::string* secretKeyFilePtr = this->getSecretKey();
+        if (accessKeyFilePtr && secretKeyFilePtr) {
 
-        if (requiresSignature) // If requiresSignature is true, there will be
-        SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLKEYTYPE, "PEM" );
-        //SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLKEY, this->secretKeyFile.c_str() );
-        SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLKEY, "" );
+            SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLKEYTYPE, "PEM" );
+            SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLKEY, *secretKeyFilePtr->c_str() );
 
-        SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLCERTTYPE, "PEM" );
-        //SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLCERT, this->accessKeyFile.c_str() );
-        SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLCERT, "" );
+            SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLCERTTYPE, "PEM" );
+            SET_CURL_SECURITY_OPTION( curl.get(), CURLOPT_SSLCERT, *accessKeyFilePtr->c_str() );
+        }
     }
 
 	std::string headerPair;

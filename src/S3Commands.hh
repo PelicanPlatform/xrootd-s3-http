@@ -32,6 +32,11 @@ public:
     }
     virtual ~AmazonRequest();
 
+    virtual const std::string* getAccessKey() const { 
+        return &accessKeyFile; }
+    virtual const std::string* getSecretKey() const { 
+        return &secretKeyFile; }
+
     bool parseURL(	const std::string & url,
             std::string & host,
             std::string & path );

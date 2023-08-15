@@ -85,7 +85,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 		if( ! readShortFile( this->secretKeyFile, saKey ) ) {
 			this->errorCode = "E_FILE_IO";
 			this->errorMessage = "Unable to read from secretkey file '" + this->secretKeyFile + "'.";
-			// dprintf( D_ALWAYS, "Unable to read secretkey file '%s', failing.\n", this->secretKeyFile.c_str() );
 			return false;
 		}
 		trim( saKey );
@@ -99,7 +98,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 		if( ! readShortFile( this->accessKeyFile, keyID ) ) {
 			this->errorCode = "E_FILE_IO";
 			this->errorMessage = "Unable to read from accesskey file '" + this->accessKeyFile + "'.";
-			// dprintf( D_ALWAYS, "Unable to read accesskey file '%s', failing.\n", this->accessKeyFile.c_str() );
 			return false;
 		}
 		trim( keyID );
@@ -107,16 +105,12 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 	else {
 		this->errorCode = "E_FILE_IO";
 			this->errorMessage = "The secretkey file was read, but I can't read from accesskey file '" + this->secretKeyFile + "'.";
-			// dprintf( D_ALWAYS, "Unable to read secretkey file '%s', failing.\n", this->secretKeyFile.c_str() );
 			return false;
 	}
 	
-	// HERE
-	// Throttle::now( & signatureTime );
-	// END HERE
+
 	time_t now; time( & now );
 	struct tm brokenDownTime; gmtime_r( & now, & brokenDownTime );
-	// dprintf( D_PERF_TRACE, "request #%d (%s): signature\n", requestID, requestCommand.c_str() );
 
 	//
 	// Create task 1's inputs.
@@ -233,8 +227,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 		signedHeaders += i->first + ";";
 	}
 	signedHeaders.erase( signedHeaders.end() - 1 );
-	// dprintf( D_ALWAYS, "signedHeaders: '%s'\n", signedHeaders.c_str() );
-	// dprintf( D_ALWAYS, "canonicalHeaders: '%s'.\n", canonicalHeaders.c_str() );
 
 	// Task 1: create the canonical request.
 	std::string canonicalRequest = httpVerb + "\n"
@@ -243,8 +235,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 								 + canonicalHeaders + "\n"
 								 + signedHeaders + "\n"
 								 + payloadHash;
-	// fprintf( stderr, "D_SECURITY | D_VERBOSE: canonicalRequest:\n%s\n", canonicalRequest.c_str() );
-
 
 	//
 	// Create task 2's inputs.
@@ -254,7 +244,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 	if(! doSha256( canonicalRequest, messageDigest, & mdLength )) {
 		this->errorCode = "E_INTERNAL";
 		this->errorMessage = "Unable to hash canonical request.";
-		// dprintf( D_ALWAYS, "Unable to hash canonical request, failing.\n" );
 		return false;
 	}
 	std::string canonicalRequestHash;
@@ -266,7 +255,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 		if( i != std::string::npos ) {
 			s = host.substr( 0, i );
 		} else {
-			// dprintf( D_ALWAYS, "Could not derive service from host '%s'; using host name as service name for testing purposes.\n", host.c_str() );
 			s = host;
 		}
 	}
@@ -278,7 +266,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 		if( j != std::string::npos ) {
 			r = host.substr( i + 1, j - i - 1 );
 		} else {
-			// dprintf( D_ALWAYS, "Could not derive region from host '%s'; using host name as region name for testing purposes.\n", host.c_str() );
 			r = host;
 		}
 	}
@@ -290,8 +277,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 	std::string stringToSign;
 	formatstr( stringToSign, "AWS4-HMAC-SHA256\n%s\n%s\n%s",
 		dt, credentialScope.c_str(), canonicalRequestHash.c_str() );
-	// fprintf( stderr, "D_SECURITY | D_VERBOSE: string to sign:\n%s\n", stringToSign.c_str() );
-
 
 	//
 	// Creating task 3's inputs was done when we checked to see if we needed
@@ -332,7 +317,6 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 				" SignedHeaders=%s, Signature=%s",
 				keyID.c_str(), credentialScope.c_str(),
 				signedHeaders.c_str(), signature.c_str() );
-	// dprintf( D_ALWAYS, "authorization value: '%s'\n", authorizationValue.c_str() );
 	return true;
 }
 
@@ -340,11 +324,9 @@ bool AmazonRequest::sendV4Request( const std::string & payload, bool sendContent
     if( (protocol != "http") && (protocol != "https") ) {
         this->errorCode = "E_INVALID_SERVICE_URL";
         this->errorMessage = "Service URL not of a known protocol (http[s]).";
-        // dprintf( D_ALWAYS, "Service URL '%s' not of a known protocol (http[s]).\n", serviceURL.c_str() );
         return false;
     }
 
-    // dprintf( D_FULLDEBUG, "Request URI is '%s'\n", serviceURL.c_str() );
     if(! sendContentSHA) {
     	// dprintf( D_FULLDEBUG, "Payload is '%s'\n", payload.c_str() );
     }
@@ -353,7 +335,6 @@ bool AmazonRequest::sendV4Request( const std::string & payload, bool sendContent
     if(! createV4Signature( payload, authorizationValue, sendContentSHA )) {
         if( this->errorCode.empty() ) { this->errorCode = "E_INTERNAL"; }
         if( this->errorMessage.empty() ) { this->errorMessage = "Failed to create v4 signature."; }
-        // dprintf( D_ALWAYS, "Failed to create v4 signature.\n" );
         return false;
     }
 
