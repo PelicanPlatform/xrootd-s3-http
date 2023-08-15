@@ -60,8 +60,6 @@ public:
     const std::string & getHTTPHostName() const { return http_host_name; }
     const std::string & getHTTPHostUrl() const { return http_host_url; }
 
-    // void setEnv(XrdOucEnv *envP) {m_env = envP;
-    // void setErr(XrdSysLogger *lp, const char *prfx) {m_log(lp, prfx);};
 protected:
     XrdOucEnv *m_env;
     XrdSysError m_log;

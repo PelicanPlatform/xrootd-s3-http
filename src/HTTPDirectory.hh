@@ -37,8 +37,4 @@ public:
 
 protected:
     XrdSysError m_log;
-
-// private:
-//     XrdSysError m_log;
-
 };

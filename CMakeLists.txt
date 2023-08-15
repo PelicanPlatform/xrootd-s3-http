@@ -36,14 +36,14 @@ endmacro(use_cxx17)
 use_cxx17()
 
 if( CMAKE_COMPILER_IS_GNUCXX )
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall" ) #-Werror
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" ) 
 endif()
 SET( CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-undefined")
 SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
 
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
-add_library(XrdS3 SHARED src/S3File.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/stl_string_utils.cc src/shortfile.cc)
+add_library(XrdS3 SHARED src/S3File.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/stl_string_utils.cc src/shortfile.cc)
 add_library(XrdHTTPServer SHARED src/HTTPFile.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/stl_string_utils.cc src/shortfile.cc)
 
 target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})

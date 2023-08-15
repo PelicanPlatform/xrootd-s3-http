@@ -9,7 +9,6 @@
 #include <map>
 #include <string>
 
-#include "HTTPCommands.cc"
 #include "S3Commands.hh"
 #include "AWSv4-impl.hh"
 #include "stl_string_utils.hh"
@@ -112,7 +111,9 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 			return false;
 	}
 	
-	Throttle::now( & signatureTime );
+	// HERE
+	// Throttle::now( & signatureTime );
+	// END HERE
 	time_t now; time( & now );
 	struct tm brokenDownTime; gmtime_r( & now, & brokenDownTime );
 	// dprintf( D_PERF_TRACE, "request #%d (%s): signature\n", requestID, requestCommand.c_str() );

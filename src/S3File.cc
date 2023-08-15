@@ -100,7 +100,6 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
     // We used to query S3 here to see if the object existed, but of course
     // if you're creating a file on upload, you don't care.
 
-
     this->s3_object_name = object;
     this->s3_bucket_name = bucket;
     this->s3_service_url = configured_s3_service_url;

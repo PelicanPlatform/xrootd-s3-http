@@ -1,10 +1,6 @@
 #ifndef AWSV4_IMPL_H
 #define AWSV4_IMPL_H
 
-// #include <map>
-// #include <string>
-// #include "AWSv4-impl.h"
-
 namespace AWSv4Impl {
 
 std::string

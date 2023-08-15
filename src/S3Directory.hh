@@ -1,7 +1,5 @@
 #pragma once
 
-// #include "XrdOuc/XrdOucEnv.hh"
-// #include "XrdOss/XrdOss.hh"
 #include "HTTPDirectory.hh"
 
 
@@ -40,9 +38,4 @@ public:
     {
         return -ENOSYS;
     }
-
-
-// private:
-//     XrdSysError m_log;
-
 };

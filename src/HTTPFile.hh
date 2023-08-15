@@ -123,7 +123,6 @@ private:
     std::string hostname;
     std::string hostUrl;
     std::string object;
-    //std::string protocol;
 
     size_t content_length;
     time_t last_modified;

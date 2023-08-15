@@ -53,10 +53,6 @@ parse_path( const std::string & hname, const char * path, std::string & object )
 
     // Check that nothing diverged before reaching end of service name
     if (prefixComponents != h.end()) {
-        // fprintf(stderr, "D_FULLDEBUG: In parse_path, prefixComponents was NOT h.end()\n");
-
-        // fprintf(stderr, "D_FULLDEBUG: full: '%s'\n", full.string().c_str());
-        // fprintf(stderr, "D_FULLDEBUG: prefix: '%s'\n", prefix.string().c_str());
         return -ENOENT;
     }
 
@@ -64,8 +60,6 @@ parse_path( const std::string & hname, const char * path, std::string & object )
     while (pathComponents != p.end()) {
         obj_path /= *pathComponents++;
     }
-
-    //fprintf(stderr, "D_FULLDEBUG: in parse_path, obj_path: '%s'\n", obj_path.string().c_str());
 
     object = obj_path.string();
     return 0;    
@@ -77,24 +71,17 @@ HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 {
     std::string configured_hostname = m_oss->getHTTPHostName();
     std::string configured_hostUrl = m_oss->getHTTPHostUrl();
-    //std::string configured_protocol = m_oss->getHTTPProtocol();
-
-
-    //fprintf( stderr, "D_FULLDEBUG: configured HTTP Host name: '%s'\n",  configured_hostname.c_str() );
 
     //
     // Check the path for validity.
     //
     std::string object;
     int rv = parse_path( configured_hostname, path, object );
-    //fprintf( stderr, "D_FULLDEBUG: Registered path: '%s'\n", path );
-    //fprintf( stderr, "D_FULLDEBUG: Parsed object: '%s'\n",  object.c_str() );
 
     if( rv != 0 ) { return rv; }
 
     // We used to query S3 here to see if the object existed, but of course
     // if you're creating a file on upload, you don't care.
-
 
     this->object = object;
     //this->protocol = configured_protocol;
@@ -109,9 +96,7 @@ ssize_t
 HTTPFile::Read(void *buffer, off_t offset, size_t size)
 {
     HTTPDownload download(
-        // this->hostname,
         this->hostUrl,
-        // this->protocol,
         this->object
     );
     fprintf( stderr, "D_FULLDEBUG: about to perform download.SendRequest from HTTPFile::Read(): hostname: '%s' object: '%s'\n", hostname.c_str(), object.c_str() );
@@ -132,9 +117,7 @@ HTTPFile::Fstat(struct stat *buff)
 {
     fprintf( stderr, "D_FULLDEBUG: In HTTPFile::Fstat: hostname: '%s' object: '%s'\n", hostname.c_str(), object.c_str() );
     HTTPHead head(
-        // this->hostname,
         this->hostUrl,
-        // this->protocol,
         this->object
     );
 
@@ -158,7 +141,6 @@ HTTPFile::Fstat(struct stat *buff)
     while( current_newline != std::string::npos && current_newline != last_character - 1 ) {
         next_newline = headers.find( "\r\n", current_newline + 2);
         std::string line = substring( headers, current_newline + 2, next_newline );
-        // fprintf( stderr, "line = '%s'\n", line.c_str() );
 
         size_t colon = line.find(":");
         if( colon != std::string::npos && colon != line.size() ) {

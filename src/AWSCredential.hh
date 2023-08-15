@@ -1,9 +1,6 @@
 #ifndef AWS_CREDENTIAL_H
 #define AWS_CREDENTIAL_H
 
-// #include <string>
-// #include "AWSCredential.hh"
-
 class AWSCredential {
 
     public:
