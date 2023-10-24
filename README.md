@@ -1,32 +1,36 @@
 
-S3 filesystem plugin for XRootD
+S3/HTTP filesystem plugins for XRootD
 ================================
 
-This filesystem plugin is intended to demonstrate the ability to have a S3 bucket as an
-underlying "filesystem" for an XRootD server
+These filesystem plugins are intended to demonstrate the ability to have an S3 bucket
+or raw HTTP server as an underlying "filesystem" for an XRootD server.
 
-It is currently quite experimental, aiming to show a "minimum viable product".
+They are currently quite experimental, aiming to show a "minimum viable product".
 
 Building and Installing
 -----------------------
+Assuming XRootD, CMake>=3.13 and gcc>=8 are already installed, run:
 
-Run `cmake`.  You'll need version 3.13 or later and gcc 8 or later.  If you have
-xrootd installed, BrianB thinks CMake will find it for you.  I built xrootd from
-source instead, so I added `-DXROOTD_DIR` to my CMake command line to point it at
-the installed directory.  I'm not sure if it really needs it, but I've also been
-doing out-of-source builds and setting `DCMAKE_ISNTALL_PREFIX` to somewhere I could
-write as a normal user.
+```
+mkdir build
+cd build
+cmake ..
+make install
+```
 
-Then run `make install`.  BrianB made noises about building an RPMs automagically,
-but I don't know anything about that.
+
+If building XRootD from source instead, add `-DXROOTD_DIR` to the CMake command line
+to point it at the installed directory.
 
 Configuration
 -------------
 
-To configure the plugin, add the following line to the Xrootd configuration file:
+## Configure an HTTP Server Backend
+
+To configure the HTTP server plugin, add the following line to the Xrootd configuration file:
 
 ```
-ofs.osslib libXrdS3.so
+ofs.osslib </path/to/libXrdHTTPServer.so>
 ```
 
 Here's a minimal config file
@@ -34,9 +38,17 @@ Here's a minimal config file
 ```
 ###########################################################################
 # This is a very simple sample configuration file sufficient to start an  #
-# xrootd data server using the default port 1094, exporting both the      #
-# xrootd and HTTP protocols, and enabling the S3 plugin                   #
+# xrootd file caching proxy server using the default port 1094. This      #
+# server runs by itself (stand-alone) and does not assume it is part of a #
+# cluster. You can then connect to this server to access files in '/tmp'. #
+# Consult the the reference manuals on how to create more complicated     #
+# configurations.                                                         #
 #                                                                         #
+# On successful start-up you will see 'initialization completed' in the   #
+# last message. You can now connect to the xrootd server.                 #
+#                                                                         #
+# Note: You should always create a *single* configuration file for all    #
+# daemons related to xrootd.                                              #
 ###########################################################################
 
 # The adminpath and pidpath variables indicate where the pid and various
@@ -49,22 +61,106 @@ all.pidpath /run/xrootd
 # Enable the HTTP protocol on port 1094 (same as the default XRootD port):
 xrd.protocol http:1094 libXrdHttp.so
 
-# This exports global without authentication the prefix /aws/us-east-1
-all.export /aws/us-east-1
-
-# Use this if libXrdS3-5.so is in a standard search path
-# Note that XRootD will automatically inject the '-5' into the filename
-ofs.osslib libXrdS3.so
-
-## Use this if you have it in a developer directory
+# Allow access to path with given prefix.
 #
-# ofs.osslib /home/myself/xrootd-s3-build/release_dir/lib/libXrdS3.so
+all.export  </exported/server/prefix>
+
+# Setting up HTTP plugin
+ofs.osslib libXrdHTTPServer.so
+# Use this if libXrdHTTPServer.so is in a development directory
+# ofs.osslib /path/to/libXrdHTTPServer.so
+
+# Upon last testing, the plugin did not yet work in async mode
+xrootd.async off
+
+# Configure the upstream HTTP server that XRootD is to treat as a filesystem
+httpserver.host_name <hostname of HTTP server>
+httpserver.host_url <host url>
 ```
+
+
+## Configure an S3 Backend
+
+To configure the S3 plugin, add the following line to the Xrootd configuration file:
+
+```
+ofs.osslib </path/to/libXrdS3.so>
+```
+
+Here's a minimal config file
+
+```
+###########################################################################
+# This is a very simple sample configuration file sufficient to start an  #
+# xrootd file caching proxy server using the default port 1094. This      #
+# server runs by itself (stand-alone) and does not assume it is part of a #
+# cluster. You can then connect to this server to access files in '/tmp'. #
+# Consult the the reference manuals on how to create more complicated     #
+# configurations.                                                         #
+#                                                                         #
+# On successful start-up you will see 'initialization completed' in the   #
+# last message. You can now connect to the xrootd server.                 #
+#                                                                         #
+# Note: You should always create a *single* configuration file for all    #
+# daemons related to xrootd.                                              #
+###########################################################################
+
+# The adminpath and pidpath variables indicate where the pid and various
+# IPC files should be placed.  These can be placed in /tmp for a developer-
+# quality server.
+#
+all.adminpath /var/spool/xrootd
+all.pidpath /run/xrootd
+
+# Enable the HTTP protocol on port 1094 (same as the default XRootD port):
+xrd.protocol http:1094 libXrdHttp.so
+
+# Allow access to path with given prefix.
+#
+all.export  </exported/server/prefix>
+
+# Setting up S3 plugin
+ofs.osslib libXrdS3.so
+# Use this if libXrdS3.so is in a development directory
+# ofs.osslib /path/to/libXrdS3.so
+
+# Upon last testing, the plugin did not yet work in async mode
+xrootd.async off
+
+# Configure the upstream HTTP server that XRootD is to treat as a filesystem
+s3.service_name     <s3 service name, eg s3.amazonaws.com>
+s3.region           <s3 region, eg us-east-1>
+s3.service_url      <s3 service url, eg https://s3.us-east-1.amazonaws.com>
+# For buckets requiring an access/secret key:
+# s3.access_key_file  </path/to/access_key>
+# s3.secret_key_file  </path/to/secret_key>
+```
+
 
 Startup and Testing
 -------------------
 
-Assuming you named the config file `xrootd-s3.cfg`, run:
+## HTTP Server Backend
+
+Assuming you named the config file `xrootd-http.cfg`, as a non-rootly user run:
+
+```
+xrootd -d -c xrootd-http.cfg
+```
+
+In a separate terminal, run
+
+```
+curl -v http://localhost:1094/<host name>/<URL path to object>
+```
+
+## S3 Server Backend
+Startup and Testing
+-------------------
+
+## HTTP Server Backend
+
+Assuming you named the config file `xrootd-s3.cfg`, as a non-rootly user run:
 
 ```
 xrootd -d -c xrootd-s3.cfg
@@ -73,5 +169,5 @@ xrootd -d -c xrootd-s3.cfg
 In a separate terminal, run
 
 ```
-curl -v http://localhost:1094/aws/us-east-1/bucket/hello_world
+curl -v http://localhost:1094/<service_name>/<region>/<path to bucket/object>
 ```
