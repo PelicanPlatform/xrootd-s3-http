@@ -46,14 +46,12 @@ readShortFile( const std::string & fileName, std::string & contents ) {
     int fd = open( fileName.c_str(), O_RDONLY, 0600 );
 
     if( fd < 0 ) {
-        // dprintf( D_ALWAYS, "Failed to open file '%s' for reading: '%s' (%d).\n", fileName.c_str(), strerror( errno ), errno );
         return false;
     }
 
     struct stat statbuf;
     int rv = fstat( fd, & statbuf );
     if( rv < 0 ) {
-        // dprintf( D_ALWAYS, "Failed to stat file '%s': %s (%d).\n", fileName.c_str(), strerror( errno ), errno );
         return false;
     }
     unsigned long fileSize = statbuf.st_size;
@@ -63,7 +61,6 @@ readShortFile( const std::string & fileName, std::string & contents ) {
     unsigned long totalRead = full_read( fd, rawBuffer, fileSize );
     close( fd );
     if( totalRead != fileSize ) {
-        // dprintf( D_ALWAYS, "Failed to completely read file '%s'; needed %lu but got %lu.\n", fileName.c_str(), fileSize, totalRead );
         free( rawBuffer );
         return false;
     }

@@ -1,13 +1,17 @@
 #pragma once
 
-#include "XrdOuc/XrdOucEnv.hh"
-#include "XrdOss/XrdOss.hh"
+#include "HTTPDirectory.hh"
 
 
-class S3Directory : public XrdOssDF {
+// Leaving in duplicate definitions for now. It remains
+// to be seen if we'll need to change these and have specific
+// behaviors for either HTTP or S3 variants in the future.
+
+class S3Directory : public HTTPDirectory {
 public:
     S3Directory(XrdSysError &log) :
-        m_log(log)
+        HTTPDirectory(log)
+        // m_log(log)
     {
     }
 
@@ -20,23 +24,18 @@ public:
         return -ENOSYS;
     }
 
-    int Readdir(char *buff, int blen)
+    int Readdir(char *buff, int blen) override
     {
         return -ENOSYS;
     }
 
-    int StatRet(struct stat *statStruct)
+    int StatRet(struct stat *statStruct) override
     {
         return -ENOSYS;
     }
 
-    int Close(long long *retsz=0)
+    int Close(long long *retsz=0) override
     {
         return -ENOSYS;
     }
-
-
-private:
-    XrdSysError m_log;
-
 };

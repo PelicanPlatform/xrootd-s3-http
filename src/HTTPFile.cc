@@ -4,8 +4,8 @@
 #include "XrdSec/XrdSecEntityAttr.hh"
 #include "XrdSfs/XrdSfsInterface.hh"
 #include "XrdVersion.hh"
-#include "S3FileSystem.hh"
-#include "S3File.hh"
+#include "HTTPFileSystem.hh"
+#include "HTTPFile.hh"
 
 #include <curl/curl.h>
 
@@ -13,113 +13,93 @@
 #include <mutex>
 #include <sstream>
 #include <vector>
-
 #include <filesystem>
 
 #include <map>
 #include <string>
-#include "S3Commands.hh"
+#include "HTTPCommands.hh"
 
 #include "stl_string_utils.hh"
+#include <iostream>
 
-S3FileSystem* g_s3_oss = nullptr;
+HTTPFileSystem* g_http_oss = nullptr;
 
-XrdVERSIONINFO(XrdOssGetFileSystem, S3);
+XrdVERSIONINFO(XrdOssGetFileSystem, HTTP);
 
-S3File::S3File(XrdSysError &log, S3FileSystem *oss) :
+HTTPFile::HTTPFile(XrdSysError &log, HTTPFileSystem *oss) :
     m_log(log),
     m_oss(oss),
     content_length(0),
     last_modified(0)
 {}
 
-
 int
-parse_path( const S3FileSystem & fs, const char * path, std::string & bucket, std::string & object ) {
-    const std::string & configured_s3_service_name = fs.getS3ServiceName();
-    const std::string & configured_s3_region = fs.getS3Region();
+parse_path( const std::string & hname, const char * path, std::string & object ) {
+    const std::filesystem::path p(path);
+    const std::filesystem::path h(hname);
 
-    //
-    // Check the path for validity.
-    //
-    std::filesystem::path p(path);
+    auto prefixComponents = h.begin();
     auto pathComponents = p.begin();
 
-    ++pathComponents;
-    if( pathComponents == p.end() ) { return -ENOENT; }
-    if( * pathComponents != configured_s3_service_name ) {
+    std::filesystem::path full;
+    std::filesystem::path prefix;
+
+    pathComponents++; // The path will begin with '/' while the hostname will not. Skip the first slash for comparison
+
+    while (prefixComponents != h.end() && *prefixComponents == *pathComponents ) {
+        full /= *prefixComponents++;
+        prefix /= *pathComponents++;
+    }
+
+    // Check that nothing diverged before reaching end of service name
+    if (prefixComponents != h.end()) {
         return -ENOENT;
     }
 
-    ++pathComponents;
-    if( pathComponents == p.end() ) { return -ENOENT; }
-    if( * pathComponents != configured_s3_region ) {
-        return -ENOENT;
+    std::filesystem::path obj_path;
+    while (pathComponents != p.end()) {
+        obj_path /= *pathComponents++;
     }
 
-    ++pathComponents;
-    if( pathComponents == p.end() ) { return -ENOENT; }
-    bucket = *pathComponents;
-
-    // Objects names may contain path separators.
-    ++pathComponents;
-    if( pathComponents == p.end() ) { return -ENOENT; }
-
-
-    std::filesystem::path objectPath = *pathComponents++;
-    for( ; pathComponents != p.end(); ++pathComponents ) {
-        objectPath /= (* pathComponents);
-    }
-    object = objectPath.string();
-
-    fprintf( stderr, "object = %s\n", object.c_str() );
-
-
-    return 0;
+    object = obj_path.string();
+    return 0;    
 }
 
 
 int
-S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
+HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 {
-    std::string configured_s3_region = m_oss->getS3Region();
+    std::string configured_hostname = m_oss->getHTTPHostName();
+    std::string configured_hostUrl = m_oss->getHTTPHostUrl();
 
     //
     // Check the path for validity.
     //
-    std::string bucket, object;
-    int rv = parse_path( * m_oss, path, bucket, object );
+    std::string object;
+    int rv = parse_path( configured_hostname, path, object );
+
     if( rv != 0 ) { return rv; }
-
-
-    std::string configured_s3_service_url = m_oss->getS3ServiceURL();
-    std::string configured_s3_access_key = m_oss->getS3AccessKeyFile();
-    std::string configured_s3_secret_key = m_oss->getS3SecretKeyFile();
-
 
     // We used to query S3 here to see if the object existed, but of course
     // if you're creating a file on upload, you don't care.
 
-    this->s3_object_name = object;
-    this->s3_bucket_name = bucket;
-    this->s3_service_url = configured_s3_service_url;
-    this->s3_access_key = configured_s3_access_key;
-    this->s3_secret_key = configured_s3_secret_key;
+    this->object = object;
+    //this->protocol = configured_protocol;
+    this->hostname = configured_hostname;
+    this->hostUrl = configured_hostUrl;
+
     return 0;
 }
 
 
 ssize_t
-S3File::Read(void *buffer, off_t offset, size_t size)
+HTTPFile::Read(void *buffer, off_t offset, size_t size)
 {
-    AmazonS3Download download(
-        this->s3_service_url,
-        this->s3_access_key,
-        this->s3_secret_key,
-        this->s3_bucket_name,
-        this->s3_object_name
+    HTTPDownload download(
+        this->hostUrl,
+        this->object
     );
-
+    fprintf( stderr, "D_FULLDEBUG: about to perform download.SendRequest from HTTPFile::Read(): hostname: '%s' object: '%s'\n", hostname.c_str(), object.c_str() );
 
     if(! download.SendRequest( offset, size ) ) {
         fprintf( stderr, "D_FULLDEBUG: failed to send GetObject command: %lu '%s'\n", download.getResponseCode(), download.getResultString().c_str() );
@@ -133,14 +113,12 @@ S3File::Read(void *buffer, off_t offset, size_t size)
 
 
 int
-S3File::Fstat(struct stat *buff)
+HTTPFile::Fstat(struct stat *buff)
 {
-    AmazonS3Head head(
-        this->s3_service_url,
-        this->s3_access_key,
-        this->s3_secret_key,
-        this->s3_bucket_name,
-        this->s3_object_name
+    fprintf( stderr, "D_FULLDEBUG: In HTTPFile::Fstat: hostname: '%s' object: '%s'\n", hostname.c_str(), object.c_str() );
+    HTTPHead head(
+        this->hostUrl,
+        this->object
     );
 
     if(! head.SendRequest()) {
@@ -167,12 +145,13 @@ S3File::Fstat(struct stat *buff)
         size_t colon = line.find(":");
         if( colon != std::string::npos && colon != line.size() ) {
             std::string attr = substring( line, 0, colon );
+            toLower(attr); // Some servers might not follow conventional capitalization schemes
             std::string value = substring( line, colon + 1 );
             trim(value);
 
-            if( attr == "Content-Length" ) {
+            if( attr == "content-length" ) {
                 this->content_length = std::stol(value);
-            } else if( attr == "Last-Modified" ) {
+            } else if( attr == "last-modified" ) {
                 struct tm t;
                 char * eos = strptime( value.c_str(),
                     "%a, %d %b %Y %T %Z",
@@ -206,14 +185,11 @@ S3File::Fstat(struct stat *buff)
 
 
 ssize_t
-S3File::Write(const void *buffer, off_t offset, size_t size)
+HTTPFile::Write(const void *buffer, off_t offset, size_t size)
 {
-    AmazonS3Upload upload(
-        this->s3_service_url,
-        this->s3_access_key,
-        this->s3_secret_key,
-        this->s3_bucket_name,
-        this->s3_object_name
+    HTTPUpload upload(
+        this->hostUrl,
+        this->object
     );
 
     std::string payload( (char *)buffer, size );
@@ -227,9 +203,9 @@ S3File::Write(const void *buffer, off_t offset, size_t size)
 }
 
 
-int S3File::Close(long long *retsz)
+int HTTPFile::Close(long long *retsz)
 {
-    m_log.Emsg("Close", "Closed our S3 file");
+    m_log.Emsg("Close", "Closed our HTTP file");
     return 0;
 }
 
@@ -247,7 +223,7 @@ XrdOss *XrdOssAddStorageSystem2(XrdOss       *curr_oss,
 {
     XrdSysError log(Logger, "s3_");
 
-    log.Emsg("Initialize", "S3 filesystem cannot be stacked with other filesystems");
+    log.Emsg("Initialize", "HTTP filesystem cannot be stacked with other filesystems");
     return nullptr;
 }
 
@@ -262,13 +238,13 @@ XrdOss *XrdOssGetStorageSystem2(XrdOss       *native_oss,
                                 const char   *parms,
                                 XrdOucEnv    *envP)
 {
-    XrdSysError log(Logger, "s3_");
+    XrdSysError log(Logger, "httpserver_");
 
     envP->Export("XRDXROOTD_NOPOSC", "1");
 
     try {
-        g_s3_oss = new S3FileSystem(Logger, config_fn, envP);
-        return g_s3_oss;
+        g_http_oss = new HTTPFileSystem(Logger, config_fn, envP);
+        return g_http_oss;
     } catch (std::runtime_error &re) {
         log.Emsg("Initialize", "Encountered a runtime failure", re.what());
         return nullptr;
@@ -288,6 +264,6 @@ XrdOss *XrdOssGetStorageSystem(XrdOss       *native_oss,
 } // end extern "C"
 
 
-XrdVERSIONINFO(XrdOssGetStorageSystem,  s3);
-XrdVERSIONINFO(XrdOssGetStorageSystem2, s3);
-XrdVERSIONINFO(XrdOssAddStorageSystem2, s3);
+XrdVERSIONINFO(XrdOssGetStorageSystem,  HTTPserver);
+XrdVERSIONINFO(XrdOssGetStorageSystem2, HTTPserver);
+XrdVERSIONINFO(XrdOssAddStorageSystem2, HTTPserver);

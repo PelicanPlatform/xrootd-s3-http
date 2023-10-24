@@ -48,7 +48,6 @@ S3FileSystem::handle_required_config(
         return false;
     }
 
-    // fprintf( stderr, "Setting %s = %s\n", desired_name, source.c_str() );
     target = source;
     return true;
 }
@@ -71,15 +70,11 @@ S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
     std::string attribute;
     Config.Attach(cfgFD);
     while ((temporary = Config.GetMyFirstWord())) {
-        // This is dumb.  So is using the same internal buffer for the
-        // attribute and the value.
         attribute = temporary;
         temporary = Config.GetWord();
         if(! temporary) { continue; }
         value = temporary;
 
-        // Ye flipping bits, this is clumsy.
-        // fprintf( stderr, "%s = %s\n", attribute.c_str(), value.c_str() );
         if(! handle_required_config( attribute, "s3.service_name",
             value, this->s3_service_name ) ) { Config.Close(); return false; }
         if(! handle_required_config( attribute, "s3.region",
