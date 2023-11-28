@@ -19,7 +19,7 @@ BuildRequires: xrootd-server-libs >= 1:%{xrootd_current_major}
 BuildRequires: xrootd-server-libs <  1:%{xrootd_next_major}
 BuildRequires: xrootd-server-devel >= 1:%{xrootd_current_major}
 BuildRequires: xrootd-server-devel <  1:%{xrootd_next_major}
-BuildRequires: cmake
+BuildRequires: cmake3
 BuildRequires: gcc-c++
 BuildRequires: libcurl-devel
 BuildRequires: openssl-devel
