@@ -1,0 +1,59 @@
+name: Lint
+
+# Linter Action documentation at https://github.com/marketplace/actions/lint-action
+
+# One thing to note is that this action is currently configured automatically fix and re-push the linted code to the repo on a pull request.
+# Because the github token used for authenticating this commit comes from the upstream repo (ie pelicanplatform/xrootd-s3-http), those linter changes will not be pushed
+# to the fork that is providing the pull request. A manual git fetch will have to be run by the fork after the PR is merged to update the fork to the linted code.
+# The linter does not have authorization to lint any code in the repo's .github/workflows/ directory.
+
+# If the linter fails, the PR can still be completed, but none of the linter changes will be made.
+
+on:         
+  push:
+    branches:
+      - main
+  pull_request_target:
+    branches:
+      - main
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  run-linters:
+    name: Run linters
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository (push)
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/checkout@v3
+      
+      - name: Check out repository (pull_request_target)
+        if: ${{ github.event_name == 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install ClangFormat
+        run: sudo apt-get install -y clang-format
+
+      - name: Run linters
+        uses: wearerequired/lint-action@v2
+        with:
+          github_token: ${{ secrets.github_token }} # For providing the commit authorization for the auto_fix feature
+          clang_format: true
+          clang_format_auto_fix: true
+          auto_fix: true
+          commit: false
+          continue_on_error: false
+          git_email: github.event.commits[0].author.name # Uses the author's git email instead of the default git email associated with the action ("lint-action@samuelmeuli.com")
+          clang_format_args: -style=file # Any additional arguments for clang_format
+
+      - name: suggester / lint
+        uses: reviewdog/action-suggester@v1
+        with:
+          tool_name: lint
