@@ -38,8 +38,11 @@ use_cxx17()
 if( CMAKE_COMPILER_IS_GNUCXX )
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" ) 
 endif()
-SET( CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-undefined")
-SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
+
+if(NOT APPLE)
+  SET( CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-undefined")
+  SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
+endif()
 
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
@@ -49,8 +52,19 @@ add_library(XrdHTTPServer SHARED src/HTTPFile.cc src/HTTPFileSystem.cc src/HTTPC
 target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
 target_link_libraries(XrdHTTPServer -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
 
-set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
-set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
+# The CMake documentation strongly advises against using these macros; instead, the pkg_check_modules
+# is supposed to fill out the full path to ${LIBCRYPTO_LIBRARIES}.  As of cmake 3.26.1, this does not
+# appear to be the case on Mac OS X.  Remove once no longer necessary!
+target_link_directories(XrdS3 PRIVATE ${LIBCRYPTO_LIBRARY_DIRS})
+target_link_directories(XrdHTTPServer PRIVATE ${LIBCRYPTO_LIBRARY_DIRS})
+
+if(NOT APPLE)
+  set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
+  set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
+else()
+  set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so")
+  set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so")
+endif()
 
 SET(LIB_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Install path for libraries")
 
