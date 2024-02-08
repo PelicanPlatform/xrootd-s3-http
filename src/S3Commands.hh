@@ -9,20 +9,32 @@ public:
         const std::string & s,
         const std::string & akf,
         const std::string & skf,
+        const std::string & b,
+        const std::string & o,
         int sv = 4
     ) :
     HTTPRequest( s ),
     accessKeyFile(akf),
     secretKeyFile(skf),
-    signatureVersion(sv)
+    signatureVersion(sv),
+    bucket(b),
+    object(o)
     { 
         requiresSignature = true;
-        if (! parseURL(hostUrl, host, canonicalURI)) {
+        // Start off by parsing the hostUrl, which we use in conjunction with the bucket to fill in the host (for setting host header).
+        // For example, if the incoming hostUrl (which we get from config) is "https://my-url.com:443", the bucket is "my-bucket", and
+        // the object is "my-object", then the host will be "my-bucket.my-url.com:443" and the canonicalURI will be "/my-object".
+        if (! parseURL(hostUrl, b, o, host, canonicalURI)) {
             errorCode = "E_INVALID_SERVICE_URL";
             errorMessage = "Failed to parse host and canonicalURI from service URL.";
         }
 
         if( canonicalURI.empty() ) { canonicalURI = "/"; }
+
+        // Now that we have the host and canonicalURI, we can build the actual url we perform the curl against.
+        // Using the previous example, we'd get a new hostUrl of "https://my-bucket.my-url.com:443/my-object".
+        hostUrl = protocol + "://" +
+            host + canonicalURI;
 
         // If we can, set the region based on the host.
         size_t secondDot = host.find( ".", 2 + 1 );
@@ -38,6 +50,8 @@ public:
         return &secretKeyFile; }
 
     bool parseURL(	const std::string & url,
+            const std::string & bucket,
+            const std::string & object,
             std::string & host,
             std::string & path );
 
@@ -56,6 +70,9 @@ protected:
 
     std::string host;
     std::string canonicalURI;
+
+    std::string bucket;
+    std::string object;
 
     std::string region;
     std::string service;
@@ -76,21 +93,13 @@ public:
         const std::string & b,
         const std::string & o
     ) :
-    AmazonRequest(s, akf, skf),
-    bucket(b),
-    object(o)
-    {
-        hostUrl = protocol + "://" + bucket + "." +
-            host + canonicalURI + object;
-    }
+    AmazonRequest(s, akf, skf, b, o){}
 
     virtual ~AmazonS3Upload();
 
     virtual bool SendRequest( const std::string & payload, off_t offset, size_t size );
 
 protected:
-    std::string bucket;
-    std::string object;
     std::string path;
 };
 
@@ -104,21 +113,11 @@ public:
         const std::string & b,
         const std::string & o
     ) :
-    AmazonRequest(s, akf, skf),
-    bucket(b),
-    object(o)
-    { 
-        hostUrl = protocol + "://" + bucket + "." +
-            host + canonicalURI + object;
-    }
+    AmazonRequest(s, akf, skf, b, o){}
 
     virtual ~AmazonS3Download();
 
     virtual bool SendRequest( off_t offset, size_t size );
-
-protected:
-    std::string bucket;
-    std::string object;
 };
 
 class AmazonS3Head : public AmazonRequest {
@@ -131,21 +130,11 @@ public:
         const std::string & b,
         const std::string & o
     ) :
-    AmazonRequest(s, akf, skf),
-    bucket(b),
-    object(o)
-    { 
-        hostUrl = protocol + "://" + bucket + "." +
-            host + canonicalURI + object;
-    }
+    AmazonRequest(s, akf, skf, b, o){}
 
     virtual ~AmazonS3Head();
 
     virtual bool SendRequest();
-
-protected:
-    std::string bucket;
-    std::string object;
 };
 
 #endif /* S3_COMMANDS_H */

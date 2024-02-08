@@ -34,7 +34,11 @@ std::string AmazonRequest::canonicalizeQueryString() {
     return AWSv4Impl::canonicalizeQueryString( query_parameters );
 }
 
+// Takes in the configured `s3.service_url` and uses the bucket/object requested to generate
+// the virtual host URL, as well as the canonical URI (which is the path to the object).
 bool AmazonRequest::parseURL(	const std::string & url,
+				const std::string & bucket,
+				const std::string & object,
 				std::string & host,
 				std::string & path ) {
     auto i = url.find( "://" );
@@ -43,13 +47,13 @@ bool AmazonRequest::parseURL(	const std::string & url,
 
     auto j = url.find( "/", i + 3 );
     if( j == std::string::npos ) {
-        host = substring( url, i + 3 );
-        path = "/";
+        host = bucket + "." + substring( url, i + 3 );
+        path = "/" + object;
         return true;
     }
 
-    host = substring( url, i + 3, j );
-    path = substring( url, j );
+    host = bucket + "." + substring( url, i + 3, j );
+    path = substring( url, j ) + object;
     return true;
 }
 
@@ -164,7 +168,7 @@ bool AmazonRequest::createV4Signature(	const std::string & payload,
 	std::string payloadHash;
 	convertMessageDigestToLowercaseHex( messageDigest, mdLength, payloadHash );
 	if( sendContentSHA ) {
-		headers[ "x-amz-content-sha256" ] = payloadHash;
+		headers[ "X-Amz-Content-Sha256" ] = payloadHash;
 	}
 
 	// The canonical list of headers is a sorted list of lowercase header
