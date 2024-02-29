@@ -60,6 +60,7 @@ public:
     const std::string & getS3ServiceName() const { return s3_service_name; }
     const std::string & getS3Region() const { return s3_region; }
     const std::string & getS3ServiceURL() const { return s3_service_url; }
+    const std::string & getS3URLStyle() const { return s3_url_style; }
 
     const std::string & getS3AccessKeyFile() const { return s3_access_key_file; }
     const std::string & getS3SecretKeyFile() const { return s3_secret_key_file; }
@@ -81,4 +82,6 @@ private:
 
     std::string s3_access_key_file;
     std::string s3_secret_key_file;
+
+    std::string s3_url_style;
 };

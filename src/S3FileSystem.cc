@@ -5,6 +5,7 @@
 #include "S3FileSystem.hh"
 #include "S3Directory.hh"
 #include "S3File.hh"
+#include "stl_string_utils.hh"
 
 #include <memory>
 #include <vector>
@@ -85,6 +86,8 @@ S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
             value, this->s3_access_key_file ) ) { Config.Close(); return false; }
         if(! handle_required_config( attribute, "s3.secret_key_file",
             value, this->s3_secret_key_file ) ) { Config.Close(); return false; }
+        if(! handle_required_config( attribute, "s3.url_style",
+            value, this->s3_url_style ) ) { Config.Close(); return false; }
     }
 
     if( this->s3_service_name.empty() ) {
@@ -93,6 +96,17 @@ S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
     }
     if( this->s3_region.empty() ) {
         m_log.Emsg("Config", "s3.region not specified");
+        return false;
+    }
+    if( this->s3_url_style.empty() ) {
+        m_log.Emsg("Config", "s3.url_style not specified");
+        return false;
+    } else {
+        // We want this to be case-insensitive.
+        toLower( this->s3_url_style );
+    }
+    if( this->s3_url_style != "virtual" && this->s3_url_style != "path" ) {
+        m_log.Emsg("Config", "invalid s3.url_style specified. Must be 'virtual' or 'path'");
         return false;
     }
 

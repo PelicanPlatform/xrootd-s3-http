@@ -6,6 +6,7 @@
 #include "XrdVersion.hh"
 #include "S3FileSystem.hh"
 #include "S3File.hh"
+#include "stl_string_utils.hh"
 
 #include <curl/curl.h>
 
@@ -95,6 +96,7 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
     std::string configured_s3_service_url = m_oss->getS3ServiceURL();
     std::string configured_s3_access_key = m_oss->getS3AccessKeyFile();
     std::string configured_s3_secret_key = m_oss->getS3SecretKeyFile();
+    std::string configured_s3_url_style = m_oss->getS3URLStyle();
 
 
     // We used to query S3 here to see if the object existed, but of course
@@ -105,6 +107,7 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
     this->s3_service_url = configured_s3_service_url;
     this->s3_access_key = configured_s3_access_key;
     this->s3_secret_key = configured_s3_secret_key;
+    this->s3_url_style = configured_s3_url_style;
     return 0;
 }
 
@@ -117,7 +120,8 @@ S3File::Read(void *buffer, off_t offset, size_t size)
         this->s3_access_key,
         this->s3_secret_key,
         this->s3_bucket_name,
-        this->s3_object_name
+        this->s3_object_name,
+        this->s3_url_style
     );
 
 
@@ -140,7 +144,8 @@ S3File::Fstat(struct stat *buff)
         this->s3_access_key,
         this->s3_secret_key,
         this->s3_bucket_name,
-        this->s3_object_name
+        this->s3_object_name,
+        this->s3_url_style
     );
 
     if(! head.SendRequest()) {
@@ -169,10 +174,11 @@ S3File::Fstat(struct stat *buff)
             std::string attr = substring( line, 0, colon );
             std::string value = substring( line, colon + 1 );
             trim(value);
+            toLower(attr);
 
-            if( attr == "Content-Length" ) {
+            if( attr == "content-length" ) {
                 this->content_length = std::stol(value);
-            } else if( attr == "Last-Modified" ) {
+            } else if( attr == "last-modified" ) {
                 struct tm t;
                 char * eos = strptime( value.c_str(),
                     "%a, %d %b %Y %T %Z",
@@ -213,7 +219,8 @@ S3File::Write(const void *buffer, off_t offset, size_t size)
         this->s3_access_key,
         this->s3_secret_key,
         this->s3_bucket_name,
-        this->s3_object_name
+        this->s3_object_name,
+        this->s3_url_style
     );
 
     std::string payload( (char *)buffer, size );

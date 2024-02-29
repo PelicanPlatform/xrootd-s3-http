@@ -125,6 +125,7 @@ private:
     std::string s3_object_name;
     std::string s3_access_key;
     std::string s3_secret_key;
+    std::string s3_url_style;
 
     size_t content_length;
     time_t last_modified;

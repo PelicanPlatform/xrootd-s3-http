@@ -11,6 +11,7 @@ public:
         const std::string & skf,
         const std::string & b,
         const std::string & o,
+        const std::string & style,
         int sv = 4
     ) :
     HTTPRequest( s ),
@@ -18,7 +19,8 @@ public:
     secretKeyFile(skf),
     signatureVersion(sv),
     bucket(b),
-    object(o)
+    object(o),
+    style(style)
     { 
         requiresSignature = true;
         // Start off by parsing the hostUrl, which we use in conjunction with the bucket to fill in the host (for setting host header).
@@ -33,8 +35,11 @@ public:
 
         // Now that we have the host and canonicalURI, we can build the actual url we perform the curl against.
         // Using the previous example, we'd get a new hostUrl of "https://my-bucket.my-url.com:443/my-object".
-        hostUrl = protocol + "://" +
-            host + canonicalURI;
+        if (style == "path") {
+            hostUrl = protocol + "://" + host + "/" + b + canonicalURI;
+        } else {
+            hostUrl = protocol + "://" + host + canonicalURI;            
+        }
 
         // If we can, set the region based on the host.
         size_t secondDot = host.find( ".", 2 + 1 );
@@ -77,6 +82,7 @@ protected:
     std::string region;
     std::string service;
 
+    std::string style;
 private:
     bool createV4Signature( const std::string & payload, std::string & authorizationHeader, bool sendContentSHA = false );
 
@@ -91,9 +97,10 @@ public:
         const std::string & akf,
         const std::string & skf,
         const std::string & b,
-        const std::string & o
+        const std::string & o,
+        const std::string & style
     ) :
-    AmazonRequest(s, akf, skf, b, o){}
+    AmazonRequest(s, akf, skf, b, o, style){}
 
     virtual ~AmazonS3Upload();
 
@@ -111,9 +118,10 @@ public:
         const std::string & akf,
         const std::string & skf,
         const std::string & b,
-        const std::string & o
+        const std::string & o,
+        const std::string & style
     ) :
-    AmazonRequest(s, akf, skf, b, o){}
+    AmazonRequest(s, akf, skf, b, o, style){}
 
     virtual ~AmazonS3Download();
 
@@ -128,9 +136,10 @@ public:
         const std::string & akf,
         const std::string & skf,
         const std::string & b,
-        const std::string & o
+        const std::string & o,
+        const std::string & style
     ) :
-    AmazonRequest(s, akf, skf, b, o){}
+    AmazonRequest(s, akf, skf, b, o, style){}
 
     virtual ~AmazonS3Head();
 
