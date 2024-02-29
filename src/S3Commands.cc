@@ -47,7 +47,12 @@ bool AmazonRequest::parseURL(	const std::string & url,
 
     auto j = url.find( "/", i + 3 );
     if( j == std::string::npos ) {
-        host = bucket + "." + substring( url, i + 3 );
+        if (style == "path") {
+            host = substring( url, i + 3 );
+        } else {
+            host = bucket + "." + substring( url, i + 3 );
+        }
+        
         path = "/" + object;
         return true;
     }

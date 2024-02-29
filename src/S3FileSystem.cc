@@ -85,6 +85,8 @@ S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
             value, this->s3_access_key_file ) ) { Config.Close(); return false; }
         if(! handle_required_config( attribute, "s3.secret_key_file",
             value, this->s3_secret_key_file ) ) { Config.Close(); return false; }
+        if(! handle_required_config( attribute, "s3.url_style",
+            value, this->s3_url_style ) ) { Config.Close(); return false; }
     }
 
     if( this->s3_service_name.empty() ) {
@@ -93,6 +95,13 @@ S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
     }
     if( this->s3_region.empty() ) {
         m_log.Emsg("Config", "s3.region not specified");
+        return false;
+    }
+    if( this->s3_url_style.empty() ) {
+        this->s3_url_style = "virtual";
+    }
+    if( this->s3_url_style != "virtual" && this->s3_url_style != "path" ) {
+        m_log.Emsg("Config", "invalid s3.url_style specified");
         return false;
     }
 
