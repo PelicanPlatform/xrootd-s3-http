@@ -6,6 +6,7 @@
 #include "XrdVersion.hh"
 #include "S3FileSystem.hh"
 #include "S3File.hh"
+#include "stl_string_utils.hh"
 
 #include <curl/curl.h>
 
@@ -14,7 +15,6 @@
 #include <sstream>
 #include <vector>
 
-#include <algorithm>
 #include <filesystem>
 
 #include <map>
@@ -174,7 +174,7 @@ S3File::Fstat(struct stat *buff)
             std::string attr = substring( line, 0, colon );
             std::string value = substring( line, colon + 1 );
             trim(value);
-            std::transform(attr.begin(), attr.end(), attr.begin(), ::tolower);
+            toLower(attr);
 
             if( attr == "content-length" ) {
                 this->content_length = std::stol(value);
