@@ -1,14 +1,35 @@
-#include "XrdOuc/XrdOucEnv.hh"
-#include "XrdOuc/XrdOucStream.hh"
-#include "XrdSec/XrdSecEntity.hh"
-#include "XrdVersion.hh"
-#include "HTTPFileSystem.hh"
+/***************************************************************
+ *
+ * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License.  You may
+ * obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ ***************************************************************/
+
 #include "HTTPDirectory.hh"
 #include "HTTPFile.hh"
+#include "HTTPFileSystem.hh"
+#include "logging.hh"
+
+#include <XrdOuc/XrdOucEnv.hh>
+#include <XrdOuc/XrdOucStream.hh>
+#include <XrdSec/XrdSecEntity.hh>
+#include <XrdVersion.hh>
 
 #include <memory>
 #include <vector>
 #include <stdexcept>
+#include <sstream>
 
 #include <fcntl.h>
 #include <sys/types.h>
@@ -16,6 +37,8 @@
 #include <unistd.h>
 
 #include "stl_string_utils.hh"
+
+using namespace XrdHTTPServer;
 
 HTTPFileSystem::HTTPFileSystem(XrdSysLogger *lp, const char *configfn, XrdOucEnv *envP) :
     m_env(envP),
@@ -48,7 +71,9 @@ HTTPFileSystem::handle_required_config(
         return false;
     }
 
-    // fprintf( stderr, "Setting %s = %s\n", desired_name, source.c_str() );
+    std::stringstream ss;
+    ss << "Setting " << desired_name << "=" << source;
+    m_log.Log(LogMask::Debug, "Config", ss.str().c_str());
     target = source;
     return true;
 }
@@ -72,6 +97,13 @@ HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn)
     Config.Attach(cfgFD);
     while ((temporary = Config.GetMyFirstWord())) {
         attribute = temporary;
+        if (attribute == "httpserver.trace") {
+            if (!XrdHTTPServer::ConfigLog(Config, m_log)) {
+                m_log.Emsg("Config", "Failed to configure the log level");
+            }
+            continue;
+        }
+
         temporary = Config.GetWord();
         if(! temporary) { continue; }
         value = temporary;

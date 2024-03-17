@@ -1,6 +1,6 @@
 /***************************************************************
  *
- * Copyright (C) 2024, HTCondor Team, UW-Madison
+ * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License.  You may
@@ -20,17 +20,24 @@
 
 #include <string>
 
-#ifndef CHECK_PRINTF_FORMAT
-    #ifdef __GNUC__
-        #define CHECK_PRINTF_FORMAT(a,b) __attribute__((__format__(__printf__, a, b)))
-    #else
-        #define CHECK_PRINTF_FORMAT(a,b)
-    #endif
-#endif
+class XrdOucStream;
+class XrdSysError;
 
-void trim( std::string & str );
-std::string substring( const std::string & str, size_t left, size_t right = std::string::npos );
-void toLower( std::string & str);
+namespace XrdHTTPServer {
 
-int formatstr(std::string& s, const char* format, ...) CHECK_PRINTF_FORMAT(2,3);
-int formatstr_cat(std::string& s, const char* format, ...) CHECK_PRINTF_FORMAT(2,3);
+enum LogMask {  
+    Debug = 0x01,
+    Info = 0x02,
+    Warning = 0x04,
+    Error = 0x08,
+    All = 0xff  
+};          
+
+// Given a bitset based on LogMask, return a human-readable string of the set logging levels.
+std::string LogMaskToString(int mask);
+
+// Given an xrootd configuration object that matched on httpserver.trace, parse
+// the remainder of the line and configure the logger appropriately.
+bool ConfigLog(XrdOucStream &conf, XrdSysError &log);
+
+}

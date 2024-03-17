@@ -1,18 +1,40 @@
-#include <sstream>
+/***************************************************************
+ *
+ * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License.  You may
+ * obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ ***************************************************************/
+
 #include <algorithm>
-#include <openssl/hmac.h>
-#include <curl/curl.h>
 #include <cassert>
 #include <cstring>
-#include <memory>
 #include <filesystem>
-
 #include <map>
+#include <memory>
+#include <sstream>
 #include <string>
 
+#include <openssl/hmac.h>
+#include <curl/curl.h>
+#include <XrdSys/XrdSysError.hh>
+
 #include "HTTPCommands.hh"
+#include "logging.hh"
 #include "stl_string_utils.hh"
 #include "shortfile.hh"
+
+using namespace XrdHTTPServer;
 
 //
 // "This function gets called by libcurl as soon as there is data received
@@ -78,7 +100,7 @@ bool HTTPRequest::SendHTTPRequest( const std::string & payload ) {
     if( (protocol != "http") && (protocol != "https") ) {
         this->errorCode = "E_INVALID_SERVICE_URL";
         this->errorMessage = "Service URL not of a known protocol (http[s]).";
-        // dprintf( D_ALWAYS, "Service URL '%s' not of a known protocol (http[s]).\n", serviceURL.c_str() );
+        m_log.Log(LogMask::Warning, "HTTPRequest::SendHTTPRequest", "Host URL '", hostUrl.c_str(), "' not of a known protocol (http[s]).");
         return false;
     }
 
@@ -261,6 +283,12 @@ bool HTTPRequest::sendPreparedRequest(
         return false;
     }
 
+    if (curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1) != CURLE_OK) {
+        this->errorCode = "E_CURL_LIB";
+        this->errorMessage = "curl_easy_setopt( CURLOPT_FOLLOWLOCATION ) failed.";
+        return false;
+    }
+
     //
     // Set security options.
     //
@@ -402,7 +430,7 @@ HTTPUpload::~HTTPUpload() { }
 bool HTTPUpload::SendRequest( const std::string & payload, off_t offset, size_t size ) {
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr( range, "bytes=%zu-%zu", offset, offset + size - 1 );
+		formatstr( range, "bytes=%lld-%lld", offset, offset + size - 1 );
 		headers["Range"] = range.c_str();
 	}
 
@@ -417,7 +445,7 @@ HTTPDownload::~HTTPDownload() { }
 bool HTTPDownload::SendRequest( off_t offset, size_t size ) {
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr( range, "bytes=%zu-%zu", offset, offset + size - 1 );
+		formatstr( range, "bytes=%lld-%lld", offset, offset + size - 1 );
 		headers["Range"] = range.c_str();
 		this->expectedResponseCode = 206;
 	}

@@ -1,7 +1,26 @@
-#ifndef S3_COMMANDS_H
-#define S3_COMMANDS_H
+/***************************************************************
+ *
+ * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License.  You may
+ * obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ ***************************************************************/
+
+#pragma once
 
 #include "HTTPCommands.hh"
+
+#include <string>
 
 class AmazonRequest : public HTTPRequest {
 public:
@@ -12,9 +31,10 @@ public:
         const std::string & b,
         const std::string & o,
         const std::string & style,
-        int sv = 4
+        int sv,
+        XrdSysError &log
     ) :
-    HTTPRequest( s ),
+    HTTPRequest(s, log),
     accessKeyFile(akf),
     secretKeyFile(skf),
     signatureVersion(sv),
@@ -98,9 +118,10 @@ public:
         const std::string & skf,
         const std::string & b,
         const std::string & o,
-        const std::string & style
+        const std::string & style,
+        XrdSysError &log
     ) :
-    AmazonRequest(s, akf, skf, b, o, style){}
+        AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
 
     virtual ~AmazonS3Upload();
 
@@ -119,9 +140,10 @@ public:
         const std::string & skf,
         const std::string & b,
         const std::string & o,
-        const std::string & style
+        const std::string & style,
+        XrdSysError &log
     ) :
-    AmazonRequest(s, akf, skf, b, o, style){}
+    AmazonRequest(s, akf, skf, b, o, style, 4, log){}
 
     virtual ~AmazonS3Download();
 
@@ -137,13 +159,12 @@ public:
         const std::string & skf,
         const std::string & b,
         const std::string & o,
-        const std::string & style
+        const std::string & style,
+        XrdSysError &log
     ) :
-    AmazonRequest(s, akf, skf, b, o, style){}
+    AmazonRequest(s, akf, skf, b, o, style, 4, log){}
 
     virtual ~AmazonS3Head();
 
     virtual bool SendRequest();
 };
-
-#endif /* S3_COMMANDS_H */
