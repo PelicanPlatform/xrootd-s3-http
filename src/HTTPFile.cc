@@ -52,31 +52,42 @@ HTTPFile::HTTPFile(XrdSysError &log, HTTPFileSystem *oss) :
     last_modified(0)
 {}
 
+// Ensures that path is of the form /storagePrefix/object and returns
+// the resulting object value.  The storagePrefix does not necessarily begin
+// with '/'
+//
+// Examples:
+// /foo/bar, /foo/bar/baz -> baz
+// storage.com/foo, /storage.com/foo/bar -> bar
+// /baz, /foo/bar -> error
 int
-parse_path( const std::string & hname, const char * path, std::string & object ) {
-    const std::filesystem::path p(path);
-    const std::filesystem::path h(hname);
+parse_path(const std::string &storagePrefixStr, const char *pathStr, std::string &object) {
+    const std::filesystem::path storagePath(pathStr);
+    const std::filesystem::path storagePrefix(storagePrefixStr);
 
-    auto prefixComponents = h.begin();
-    auto pathComponents = p.begin();
+    auto prefixComponents = storagePrefix.begin();
+    auto pathComponents = storagePath.begin();
 
     std::filesystem::path full;
     std::filesystem::path prefix;
 
-    pathComponents++; // The path will begin with '/' while the hostname will not. Skip the first slash for comparison
+    pathComponents++;
+    if (!storagePrefixStr.empty() && storagePrefixStr[0] == '/') {
+        prefixComponents++;
+    }
 
-    while (prefixComponents != h.end() && *prefixComponents == *pathComponents ) {
+    while (prefixComponents != storagePrefix.end() && *prefixComponents == *pathComponents ) {
         full /= *prefixComponents++;
         prefix /= *pathComponents++;
     }
 
     // Check that nothing diverged before reaching end of service name
-    if (prefixComponents != h.end()) {
+    if (prefixComponents != storagePrefix.end()) {
         return -ENOENT;
     }
 
     std::filesystem::path obj_path;
-    while (pathComponents != p.end()) {
+    while (pathComponents != storagePath.end()) {
         obj_path /= *pathComponents++;
     }
 
@@ -90,12 +101,17 @@ HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 {
     auto configured_hostname = m_oss->getHTTPHostName();
     auto configured_hostUrl = m_oss->getHTTPHostUrl();
+    const auto &configured_url_base = m_oss->getHTTPUrlBase();
+    if (!configured_url_base.empty()) {
+        configured_hostUrl = configured_url_base;
+        configured_hostname = m_oss->getStoragePrefix();
+    }
 
     //
     // Check the path for validity.
     //
     std::string object;
-    int rv = parse_path( configured_hostname, path, object );
+    int rv = parse_path(configured_hostname, path, object);
 
     if( rv != 0 ) { return rv; }
 
@@ -136,10 +152,10 @@ HTTPFile::Read(void *buffer, off_t offset, size_t size)
 int
 HTTPFile::Fstat(struct stat *buff)
 {
-    m_log.Log(LogMask::Debug, "HTTPFile::Fstat", "About to perform HTTPFile::Fstat(): hostname / object", hostname.c_str(), object.c_str());
+    m_log.Log(LogMask::Debug, "HTTPFile::Fstat", "About to perform HTTPFile::Fstat():", hostUrl.c_str(), object.c_str());
     HTTPHead head(
-        this->hostUrl,
-        this->object,
+        hostUrl,
+        object,
         m_log
     );
 
