@@ -1,18 +1,37 @@
-#include <sstream>
-#include <algorithm>
+/***************************************************************
+ *
+ * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License.  You may
+ * obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ ***************************************************************/
+
+#include "AWSv4-impl.hh"
+#include "S3Commands.hh"
+#include "shortfile.hh"
+#include "stl_string_utils.hh"
+
 #include <openssl/hmac.h>
 #include <curl/curl.h>
+#include <XrdSys/XrdSysError.hh>
+
+#include <algorithm>
 #include <cassert>
 #include <cstring>
-#include <memory>
-
 #include <map>
+#include <memory>
+#include <sstream>
 #include <string>
-
-#include "S3Commands.hh"
-#include "AWSv4-impl.hh"
-#include "stl_string_utils.hh"
-#include "shortfile.hh"
 
 AmazonRequest::~AmazonRequest() { }
 
@@ -378,7 +397,7 @@ AmazonS3Upload::~AmazonS3Upload() { }
 bool AmazonS3Upload::SendRequest( const std::string & payload, off_t offset, size_t size ) {
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr( range, "bytes=%zu-%zu", offset, offset + size - 1 );
+		formatstr(range, "bytes=%lld-%lld", static_cast<long long int>(offset), static_cast<long long int>(offset + size - 1));
 		headers["Range"] = range.c_str();
 	}
 
@@ -393,7 +412,7 @@ AmazonS3Download::~AmazonS3Download() { }
 bool AmazonS3Download::SendRequest( off_t offset, size_t size ) {
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr( range, "bytes=%zu-%zu", offset, offset + size -1 );
+		formatstr(range, "bytes=%lld-%lld",static_cast<long long int>(offset), static_cast<long long int>(offset + size - 1));
 		headers["Range"] = range.c_str();
 		this->expectedResponseCode = 206;
 	}

@@ -1,22 +1,39 @@
-#include "XrdOuc/XrdOucEnv.hh"
-#include "XrdOuc/XrdOucStream.hh"
-#include "XrdSec/XrdSecEntity.hh"
-#include "XrdVersion.hh"
-#include "S3FileSystem.hh"
+/***************************************************************
+ *
+ * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License.  You may
+ * obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ ***************************************************************/
+
 #include "S3Directory.hh"
 #include "S3File.hh"
+#include "S3FileSystem.hh"
 #include "stl_string_utils.hh"
 
+#include <XrdOuc/XrdOucEnv.hh>
+#include <XrdOuc/XrdOucStream.hh>
+#include <XrdSec/XrdSecEntity.hh>
+#include <XrdVersion.hh>
+
 #include <memory>
-#include <vector>
 #include <stdexcept>
+#include <vector>
 
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-#include "stl_string_utils.hh"
 
 S3FileSystem::S3FileSystem(XrdSysLogger *lp, const char *configfn, XrdOucEnv *envP) :
     m_env(envP),

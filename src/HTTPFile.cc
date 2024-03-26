@@ -1,26 +1,45 @@
-#include "XrdOuc/XrdOucEnv.hh"
-#include "XrdOuc/XrdOucStream.hh"
-#include "XrdSec/XrdSecEntity.hh"
-#include "XrdSec/XrdSecEntityAttr.hh"
-#include "XrdSfs/XrdSfsInterface.hh"
-#include "XrdVersion.hh"
+/***************************************************************
+ *
+ * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License.  You may
+ * obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ ***************************************************************/
+
+#include "HTTPCommands.hh"
 #include "HTTPFileSystem.hh"
 #include "HTTPFile.hh"
+#include "logging.hh"
+#include "stl_string_utils.hh"
 
 #include <curl/curl.h>
+#include <XrdOuc/XrdOucEnv.hh>
+#include <XrdOuc/XrdOucStream.hh>
+#include <XrdSec/XrdSecEntity.hh>
+#include <XrdSec/XrdSecEntityAttr.hh>
+#include <XrdSfs/XrdSfsInterface.hh>
+#include <XrdVersion.hh>
 
+#include <filesystem>
+#include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
-#include <vector>
-#include <filesystem>
-
-#include <map>
 #include <string>
-#include "HTTPCommands.hh"
+#include <vector>
 
-#include "stl_string_utils.hh"
-#include <iostream>
+using namespace XrdHTTPServer;
 
 HTTPFileSystem* g_http_oss = nullptr;
 
@@ -69,8 +88,8 @@ parse_path( const std::string & hname, const char * path, std::string & object )
 int
 HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 {
-    std::string configured_hostname = m_oss->getHTTPHostName();
-    std::string configured_hostUrl = m_oss->getHTTPHostUrl();
+    auto configured_hostname = m_oss->getHTTPHostName();
+    auto configured_hostUrl = m_oss->getHTTPHostUrl();
 
     //
     // Check the path for validity.
@@ -84,7 +103,6 @@ HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
     // if you're creating a file on upload, you don't care.
 
     this->object = object;
-    //this->protocol = configured_protocol;
     this->hostname = configured_hostname;
     this->hostUrl = configured_hostUrl;
 
@@ -97,12 +115,15 @@ HTTPFile::Read(void *buffer, off_t offset, size_t size)
 {
     HTTPDownload download(
         this->hostUrl,
-        this->object
+        this->object,
+        m_log
     );
-    fprintf( stderr, "D_FULLDEBUG: about to perform download.SendRequest from HTTPFile::Read(): hostname: '%s' object: '%s'\n", hostname.c_str(), object.c_str() );
+    m_log.Log(LogMask::Debug, "HTTPFile::Read", "About to perform download from HTTPFile::Read(): hostname / object:", hostname.c_str(), object.c_str());
 
-    if(! download.SendRequest( offset, size ) ) {
-        fprintf( stderr, "D_FULLDEBUG: failed to send GetObject command: %lu '%s'\n", download.getResponseCode(), download.getResultString().c_str() );
+    if (!download.SendRequest(offset, size)) {
+        std::stringstream ss;
+        ss << "Failed to send GetObject command: " << download.getResponseCode() << "'" << download.getResultString() << "'";
+        m_log.Log(LogMask::Warning, "HTTPFile::Read", ss.str().c_str());
         return 0;
     }
 
@@ -115,19 +136,22 @@ HTTPFile::Read(void *buffer, off_t offset, size_t size)
 int
 HTTPFile::Fstat(struct stat *buff)
 {
-    fprintf( stderr, "D_FULLDEBUG: In HTTPFile::Fstat: hostname: '%s' object: '%s'\n", hostname.c_str(), object.c_str() );
+    m_log.Log(LogMask::Debug, "HTTPFile::Fstat", "About to perform HTTPFile::Fstat(): hostname / object", hostname.c_str(), object.c_str());
     HTTPHead head(
         this->hostUrl,
-        this->object
+        this->object,
+        m_log
     );
 
-    if(! head.SendRequest()) {
+    if (!head.SendRequest()) {
         // SendRequest() returns false for all errors, including ones
         // where the server properly responded with something other
         // than code 200.  If xrootd wants us to distinguish between
         // these cases, head.getResponseCode() is initialized to 0, so
         // we can check.
-        fprintf( stderr, "D_FULLDEBUG: failed to send HeadObject command: %lu '%s'\n", head.getResponseCode(), head.getResultString().c_str() );
+        std::stringstream ss;
+        ss << "Failed to send HeadObject command: " << head.getResponseCode() << "'" << head.getResultString() << "'";
+        m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
         return -ENOENT;
     }
 
@@ -189,7 +213,8 @@ HTTPFile::Write(const void *buffer, off_t offset, size_t size)
 {
     HTTPUpload upload(
         this->hostUrl,
-        this->object
+        this->object,
+        m_log
     );
 
     std::string payload( (char *)buffer, size );
