@@ -108,19 +108,25 @@ HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn)
         if(! temporary) { continue; }
         value = temporary;
 
-        if(! handle_required_config( attribute, "httpserver.host_name",
-            value, this->http_host_name ) ) { Config.Close(); return false; }
-        if(! handle_required_config( attribute, "httpserver.host_url",
-            value, this->http_host_url ) ) { Config.Close(); return false; }
+        if (!handle_required_config(attribute, "httpserver.host_name", value, http_host_name) ||
+            !handle_required_config(attribute, "httpserver.host_url", value, http_host_url) ||
+            !handle_required_config(attribute, "httpserver.url_base", value, m_url_base) ||
+            !handle_required_config(attribute, "httpserver.storage_prefix", value, m_storage_prefix))
+        {
+            Config.Close();
+            return false;
+        }
     }
 
-    if( this->http_host_name.empty() ) {
-        m_log.Emsg("Config", "httpserver.host_name not specified");
-        return false;
-    }
-    if( this->http_host_url.empty() ) {
-        m_log.Emsg("Config", "httpserver.host_url not specified");
-        return false;
+    if (m_url_base.empty()) {
+        if (http_host_name.empty()) {
+            m_log.Emsg("Config", "httpserver.host_name not specified; this or httpserver.url_base are required");
+            return false;
+        }
+        if (http_host_url.empty()) {
+            m_log.Emsg("Config", "httpserver.host_url not specified; this or httpserver.url_base are required");
+            return false;
+        }
     }
 
     int retc = Config.LastError();

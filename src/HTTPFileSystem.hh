@@ -75,8 +75,10 @@ public:
     int       Lfn2Pfn(const char *Path, char *buff, int blen) {return -ENOSYS;}
     const char       *Lfn2Pfn(const char *Path, char *buff, int blen, int &rc) {return nullptr;}
 
-    const std::string & getHTTPHostName() const { return http_host_name; }
-    const std::string & getHTTPHostUrl() const { return http_host_url; }
+    const std::string &getHTTPHostName() const {return http_host_name;}
+    const std::string &getHTTPHostUrl() const {return http_host_url;}
+    const std::string &getHTTPUrlBase() const {return m_url_base;}
+    const std::string &getStoragePrefix() const {return m_storage_prefix;}
 
 protected:
     XrdOucEnv *m_env;
@@ -92,4 +94,6 @@ protected:
 private:
     std::string http_host_name;
     std::string http_host_url;
+    std::string m_url_base;
+    std::string m_storage_prefix;
 };
