@@ -430,7 +430,7 @@ HTTPUpload::~HTTPUpload() { }
 bool HTTPUpload::SendRequest( const std::string & payload, off_t offset, size_t size ) {
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr( range, "bytes=%lld-%lld", offset, offset + size - 1 );
+		formatstr( range, "bytes=%lld-%lld", static_cast<long long int>(offset), static_cast<long long int>(offset + size - 1));
 		headers["Range"] = range.c_str();
 	}
 
@@ -445,7 +445,7 @@ HTTPDownload::~HTTPDownload() { }
 bool HTTPDownload::SendRequest( off_t offset, size_t size ) {
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr( range, "bytes=%lld-%lld", offset, offset + size - 1 );
+		formatstr( range, "bytes=%lld-%lld", static_cast<long long int>(offset), static_cast<long long int>(offset + size - 1));
 		headers["Range"] = range.c_str();
 		this->expectedResponseCode = 206;
 	}
