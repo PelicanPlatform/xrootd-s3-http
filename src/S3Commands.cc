@@ -397,7 +397,7 @@ AmazonS3Upload::~AmazonS3Upload() { }
 bool AmazonS3Upload::SendRequest( const std::string & payload, off_t offset, size_t size ) {
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr(range, "bytes=%lld-%lld", offset, offset + size - 1);
+		formatstr(range, "bytes=%lld-%lld", static_cast<long long int>(offset), static_cast<long long int>(offset + size - 1));
 		headers["Range"] = range.c_str();
 	}
 
@@ -412,7 +412,7 @@ AmazonS3Download::~AmazonS3Download() { }
 bool AmazonS3Download::SendRequest( off_t offset, size_t size ) {
 	if( offset != 0 || size != 0 ) {
 		std::string range;
-		formatstr(range, "bytes=%lld-%lld", offset, offset + size - 1);
+		formatstr(range, "bytes=%lld-%lld",static_cast<long long int>(offset), static_cast<long long int>(offset + size - 1));
 		headers["Range"] = range.c_str();
 		this->expectedResponseCode = 206;
 	}

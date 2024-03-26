@@ -100,7 +100,7 @@ convertMessageDigestToLowercaseHex(
 	char * buffer = (char *)malloc( (mdLength * 2) + 1 );
 	char * ptr = buffer;
 	for (unsigned int i = 0; i < mdLength; ++i, ptr += 2) {
-		snprintf(ptr, 2, "%02x", messageDigest[i]);
+		snprintf(ptr, 3, "%02x", messageDigest[i]);
 	}
 	hexEncoded.assign(buffer, mdLength * 2);
 	free(buffer);
