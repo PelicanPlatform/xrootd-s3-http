@@ -17,7 +17,7 @@ const std::string &S3AccessInfo::getS3ServiceName() const {
 }
 
 void S3AccessInfo::setS3ServiceName(const std::string &s3ServiceName) {
-    s3_service_name = s3ServiceName;
+  s3_service_name = s3ServiceName;
 }
 
 const std::string &S3AccessInfo::getS3Region() const {
