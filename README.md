@@ -73,6 +73,8 @@ ofs.osslib libXrdHTTPServer.so
 # Upon last testing, the plugin did not yet work in async mode
 xrootd.async off
 
+
+
 # Configure the upstream HTTP server that XRootD is to treat as a filesystem
 httpserver.host_name <hostname of HTTP server>
 httpserver.host_url <host url>
@@ -127,13 +129,30 @@ ofs.osslib libXrdS3.so
 # Upon last testing, the plugin did not yet work in async mode
 xrootd.async off
 
-# Configure the upstream HTTP server that XRootD is to treat as a filesystem
-s3.service_name     <s3 service name, eg s3.amazonaws.com>
-s3.region           <s3 region, eg us-east-1>
-s3.service_url      <s3 service url, eg https://s3.us-east-1.amazonaws.com>
-# For buckets requiring an access/secret key:
-# s3.access_key_file  </path/to/access_key>
-# s3.secret_key_file  </path/to/secret_key>
+#example url
+#https://<origin url>/my-magic-path/bar/foo
+# these must be in this order to allow parsing of multiple entries
+s3.begin
+s3.path_name        my-magic-path
+s3.bucket_name      hubzero-private-rich
+s3.service_name     s3.amazonaws.com
+s3.region           us-east-1
+s3.access_key_file  /xrootd-dev/access-key
+s3.secret_key_file  /xrootd-dev/secret-key
+s3.service_url      https://s3.us-east-1.amazonaws.com
+s3.end
+
+s3.begin
+s3.path_name        my-other-magic-path
+s3.bucket_name      hubzero-private-rich-2
+s3.service_name     s3.amazonaws.com
+s3.region           us-east-1
+s3.access_key_file  /xrootd-dev/access-key-2
+s3.secret_key_file  /xrootd-dev/secret-key-2
+s3.service_url      https://s3.us-east-1.amazonaws.com
+s3.end
+
+s3.url_style        virtual
 ```
 
 
