@@ -13,7 +13,7 @@ void S3AccessInfo::setS3BucketName(const std::string &s3BucketName) {
 }
 
 const std::string &S3AccessInfo::getS3ServiceName() const {
-    return s3_service_name;
+  return s3_service_name;
 }
 
 void S3AccessInfo::setS3ServiceName(const std::string &s3ServiceName) {
