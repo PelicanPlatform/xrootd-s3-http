@@ -47,5 +47,5 @@ const std::string &S3AccessInfo::getS3SecretKeyFile() const {
 }
 
 void S3AccessInfo::setS3SecretKeyFile(const std::string &s3SecretKeyFile) {
-    s3_secret_key_file = s3SecretKeyFile;
+  s3_secret_key_file = s3SecretKeyFile;
 }
