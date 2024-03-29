@@ -27,7 +27,7 @@ void S3AccessInfo::setS3Region(const std::string &s3Region) {
 }
 
 const std::string &S3AccessInfo::getS3ServiceUrl() const {
-    return s3_service_url;
+  return s3_service_url;
 }
 
 void S3AccessInfo::setS3ServiceUrl(const std::string &s3ServiceUrl) {
