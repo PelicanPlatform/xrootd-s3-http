@@ -55,11 +55,8 @@ std::string AmazonRequest::canonicalizeQueryString() {
 
 // Takes in the configured `s3.service_url` and uses the bucket/object requested to generate
 // the virtual host URL, as well as the canonical URI (which is the path to the object).
-bool AmazonRequest::parseURL(	const std::string & url,
-				const std::string & bucket,
-				const std::string & object,
-				std::string & host,
-				std::string & path ) {
+bool AmazonRequest::parseURL( const std::string & url,
+                              std::string & path ) {
     auto i = url.find( "://" );
     if( i == std::string::npos ) { return false; }
     //protocol = substring( url, 0, i );

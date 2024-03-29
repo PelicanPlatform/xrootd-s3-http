@@ -54,41 +54,28 @@ S3File::S3File(XrdSysError &log, S3FileSystem *oss) :
 
 
 int
-parse_path( const S3FileSystem & fs, const char * path, std::string & bucket, std::string & object ) {
-    const std::string & configured_s3_service_name = fs.getS3ServiceName();
-    const std::string & configured_s3_region = fs.getS3Region();
-
+parse_path( const S3FileSystem & fs, const char * fullPath, std::string & exposedPath, std::string & object ) {
     //
     // Check the path for validity.
     //
-    std::filesystem::path p(path);
+    std::filesystem::path p(fullPath);
     auto pathComponents = p.begin();
 
     ++pathComponents;
-    if(pathComponents == p.end()) { return -ENOENT; }
-    if (* pathComponents != configured_s3_service_name) {
-        return -ENOENT;
-    }
-
-    ++pathComponents;
-    if (pathComponents == p.end()) { return -ENOENT; }
-    if (*pathComponents != configured_s3_region) {
-        return -ENOENT;
-    }
-
-    ++pathComponents;
-    if (pathComponents == p.end()) { return -ENOENT; }
-    bucket = *pathComponents;
+    if( pathComponents == p.end() ) { return -ENOENT; }
+    exposedPath = *pathComponents;
 
     // Objects names may contain path separators.
     ++pathComponents;
-    if (pathComponents == p.end()) { return -ENOENT; }
+    if( pathComponents == p.end() ) { return -ENOENT; }
 
     std::filesystem::path objectPath = *pathComponents++;
-    for ( ; pathComponents != p.end(); ++pathComponents) {
-        objectPath /= (*pathComponents);
+    for( ; pathComponents != p.end(); ++pathComponents ) {
+        objectPath /= (* pathComponents);
     }
     object = objectPath.string();
+
+    fprintf( stderr, "object = %s\n", object.c_str() );
 
     return 0;
 }
@@ -97,19 +84,25 @@ parse_path( const S3FileSystem & fs, const char * path, std::string & bucket, st
 int
 S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
 {
-    std::string configured_s3_region = m_oss->getS3Region();
-
-    //
-    // Check the path for validity.
-    //
-    std::string bucket, object;
-    int rv = parse_path( * m_oss, path, bucket, object );
+    std::string exposedPath, object;
+    int rv = parse_path( * m_oss, path, exposedPath, object );
     if( rv != 0 ) { return rv; }
+    if(!m_oss->exposedPathExists(exposedPath)) return -ENOENT;
 
+    std::string configured_s3_region = m_oss->getS3Region(exposedPath);
+    std::string configured_s3_service_url = m_oss->getS3ServiceURL(exposedPath);
+    std::string configured_s3_access_key = m_oss->getS3AccessKeyFile(exposedPath);
+    std::string configured_s3_secret_key = m_oss->getS3SecretKeyFile(exposedPath);
+    std::string configured_s3_bucket_name = m_oss->getS3BucketName(exposedPath);
 
-    std::string configured_s3_service_url = m_oss->getS3ServiceURL();
-    std::string configured_s3_access_key = m_oss->getS3AccessKeyFile();
-    std::string configured_s3_secret_key = m_oss->getS3SecretKeyFile();
+    // We used to query S3 here to see if the object existed, but of course
+    // if you're creating a file on upload, you don't care.
+
+    this->s3_object_name = object;
+    this->s3_bucket_name = configured_s3_bucket_name;
+    this->s3_service_url = configured_s3_service_url;
+    this->s3_access_key = configured_s3_access_key;
+    this->s3_secret_key = configured_s3_secret_key;
     std::string configured_s3_url_style = m_oss->getS3URLStyle();
 
 
@@ -117,7 +110,7 @@ S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env)
     // if you're creating a file on upload, you don't care.
 
     this->s3_object_name = object;
-    this->s3_bucket_name = bucket;
+    this->s3_bucket_name = configured_s3_bucket_name;
     this->s3_service_url = configured_s3_service_url;
     this->s3_access_key = configured_s3_access_key;
     this->s3_secret_key = configured_s3_secret_key;
@@ -186,7 +179,7 @@ S3File::Fstat(struct stat *buff)
     size_t last_character = headers.size();
     while( current_newline != std::string::npos && current_newline != last_character - 1 ) {
         next_newline = headers.find( "\r\n", current_newline + 2);
-        std::string line = substring( headers, current_newline + 2, next_newline );
+        line = substring( headers, current_newline + 2, next_newline );
 
         size_t colon = line.find(":");
         if( colon != std::string::npos && colon != line.size() ) {

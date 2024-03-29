@@ -22,9 +22,12 @@
 #include <XrdSec/XrdSecEntity.hh>
 #include <XrdVersion.hh>
 #include <XrdOss/XrdOss.hh>
+#include "S3AccessInfo.hh"
 
 #include <memory>
 #include <string>
+#include <map>
+
 
 class S3FileSystem : public XrdOss {
 public:
@@ -75,31 +78,31 @@ public:
     int       Lfn2Pfn(const char *Path, char *buff, int blen) {return -ENOSYS;}
     const char       *Lfn2Pfn(const char *Path, char *buff, int blen, int &rc) {return nullptr;}
 
-    const std::string & getS3ServiceName() const { return s3_service_name; }
-    const std::string & getS3Region() const { return s3_region; }
-    const std::string & getS3ServiceURL() const { return s3_service_url; }
+    int exposedPathExists(const std::string &exposedPath)
+    { return s3_access_map.count(exposedPath);}
+    const std::string & getS3ServiceName (const std::string &exposedPath)
+    const { return s3_access_map.at(exposedPath)->getS3ServiceName(); }
+    const std::string &getS3Region(const std::string &exposedPath)
+    const { return s3_access_map.at(exposedPath)->getS3Region(); }
+    const std::string &getS3ServiceURL(const std::string &exposedPath)
+    const { return s3_access_map.at(exposedPath)->getS3ServiceUrl(); }
+    const std::string &getS3BucketName(const std::string &exposedPath)
+    const { return s3_access_map.at(exposedPath)->getS3BucketName(); }
+    const std::string &getS3AccessKeyFile(const std::string &exposedPath)
+    const { return s3_access_map.at(exposedPath)->getS3AccessKeyFile(); }
+    const std::string &getS3SecretKeyFile(const std::string &exposedPath)
+    const { return s3_access_map.at(exposedPath)->getS3SecretKeyFile(); }
     const std::string & getS3URLStyle() const { return s3_url_style; }
-
-    const std::string & getS3AccessKeyFile() const { return s3_access_key_file; }
-    const std::string & getS3SecretKeyFile() const { return s3_secret_key_file; }
 
 private:
     XrdOucEnv *m_env;
     XrdSysError m_log;
 
     bool handle_required_config(
-        const std::string & name_from_config,
-        const char * desired_name,
-        const std::string & source,
-        std::string & target
+            const char * desired_name,
+            const std::string & source
     );
-
-    std::string s3_service_name;
-    std::string s3_region;
-    std::string s3_service_url;
-
-    std::string s3_access_key_file;
-    std::string s3_secret_key_file;
-
+    std::map<std::string, S3AccessInfo*> s3_access_map;
     std::string s3_url_style;
+
 };
