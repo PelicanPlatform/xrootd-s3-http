@@ -5,7 +5,7 @@
 #include "S3AccessInfo.hh"
 
 const std::string &S3AccessInfo::getS3BucketName() const {
-    return s3_bucket_name;
+  return s3_bucket_name;
 }
 
 void S3AccessInfo::setS3BucketName(const std::string &s3BucketName) {
