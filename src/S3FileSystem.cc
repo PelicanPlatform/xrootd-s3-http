@@ -20,6 +20,8 @@
 #include "S3File.hh"
 #include "S3FileSystem.hh"
 #include "S3AccessInfo.hh"
+#include "S3Directory.hh"
+#include "S3File.hh"
 #include "stl_string_utils.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
