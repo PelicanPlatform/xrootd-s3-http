@@ -35,7 +35,7 @@ void S3AccessInfo::setS3ServiceUrl(const std::string &s3ServiceUrl) {
 }
 
 const std::string &S3AccessInfo::getS3AccessKeyFile() const {
-    return s3_access_key_file;
+  return s3_access_key_file;
 }
 
 void S3AccessInfo::setS3AccessKeyFile(const std::string &s3AccessKeyFile) {
