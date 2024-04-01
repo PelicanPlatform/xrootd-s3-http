@@ -78,8 +78,8 @@ public:
     int       Lfn2Pfn(const char *Path, char *buff, int blen) {return -ENOSYS;}
     const char       *Lfn2Pfn(const char *Path, char *buff, int blen, int &rc) {return nullptr;}
 
-    int exposedPathExists(const std::string &exposedPath)
-    { return s3_access_map.count(exposedPath);}
+    bool exposedPathExists(const std::string &exposedPath) const
+    { return s3_access_map.count(exposedPath) > 0;}
     const std::string & getS3ServiceName (const std::string &exposedPath)
     const { return s3_access_map.at(exposedPath)->getS3ServiceName(); }
     const std::string &getS3Region(const std::string &exposedPath)

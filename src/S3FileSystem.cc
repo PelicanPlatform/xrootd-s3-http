@@ -114,7 +114,14 @@ S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
         if(!handle_required_config("s3.secret_key_file", value) ) { Config.Close(); return false; }
         if(!handle_required_config("s3.url_style", value) ) { Config.Close(); return false; }
 
-        if(attribute == "s3.path_name") exposedPath = value;
+        if (attribute == "s3.path_name") {
+            // Normalize paths so that they all start with /
+            if (value[0] != '/') {
+               exposedPath = "/" + value;
+            } else {
+                exposedPath = value;
+            }
+        }
         else if(attribute == "s3.bucket_name") newAccessInfo->setS3BucketName(value);
         else if(attribute == "s3.service_name") newAccessInfo->setS3ServiceName(value);
         else if(attribute == "s3.region") newAccessInfo->setS3Region(value);
@@ -194,8 +201,8 @@ S3FileSystem::Create( const char *tid, const char *path, mode_t mode,
   XrdOucEnv &env, int opts )
 {
     // Is path valid?
-    std::string bucket, object;
-    int rv = parse_path( * this, path, bucket, object );
+    std::string exposedPath, object;
+    int rv = parse_path( * this, path, exposedPath, object );
     if( rv != 0 ) { return rv; }
 
     //

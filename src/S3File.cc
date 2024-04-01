@@ -61,9 +61,21 @@ parse_path( const S3FileSystem & fs, const char * fullPath, std::string & expose
     std::filesystem::path p(fullPath);
     auto pathComponents = p.begin();
 
-    ++pathComponents;
-    if( pathComponents == p.end() ) { return -ENOENT; }
-    exposedPath = *pathComponents;
+    // Iterate through components of the fullPath until we either find a match
+    // or we've reached the end of the path.
+    std::filesystem::path currentPath = *pathComponents;
+    while (pathComponents != p.end()) {
+        if (fs.exposedPathExists(currentPath.string())) {
+            exposedPath = currentPath.string();
+            break;
+        }
+        ++pathComponents;
+        if (pathComponents != p.end()) {
+            currentPath /= *pathComponents;
+        } else {
+            return -ENOENT;
+        }
+    }
 
     // Objects names may contain path separators.
     ++pathComponents;
