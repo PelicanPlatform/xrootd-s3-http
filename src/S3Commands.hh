@@ -75,14 +75,9 @@ public:
         return &secretKeyFile; }
 
     bool parseURL(	const std::string & url,
-            //const std::string & bucket,
-            //const std::string & object,
-            //std::string & host,
             std::string & path );
 
     virtual bool SendRequest();
-    // virtual bool SendURIRequest();
-    // virtual bool SendJSONRequest( const std::string & payload );
     virtual bool SendS3Request( const std::string & payload );
 
 protected:
