@@ -54,12 +54,10 @@ public:
         if( canonicalURI.empty() ) { canonicalURI = "/"; }
 
         // Now that we have the host and canonicalURI, we can build the actual url we perform the curl against.
-        // Using the previous example, we'd get a new hostUrl of "https://my-bucket.my-url.com:443/my-object".
-        if (style == "path") {
-            hostUrl = protocol + "://" + host + "/" + b + canonicalURI;
-        } else {
-            hostUrl = protocol + "://" + host + canonicalURI;            
-        }
+        // Using the previous example, we'd get a new hostUrl of
+        // --> "https://my-bucket.my-url.com:443/my-object" for virtual style requests, and
+        // --> "https://my-url.com:443/my-bucket/my-object" for path style requests.
+        hostUrl = protocol + "://" + host + canonicalURI;
 
         // If we can, set the region based on the host.
         size_t secondDot = host.find( ".", 2 + 1 );
