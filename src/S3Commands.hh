@@ -46,7 +46,7 @@ public:
         // Start off by parsing the hostUrl, which we use in conjunction with the bucket to fill in the host (for setting host header).
         // For example, if the incoming hostUrl (which we get from config) is "https://my-url.com:443", the bucket is "my-bucket", and
         // the object is "my-object", then the host will be "my-bucket.my-url.com:443" and the canonicalURI will be "/my-object".
-        if (! parseURL(hostUrl, b, o, host, canonicalURI)) {
+        if (! parseURL(hostUrl, canonicalURI)) {
             errorCode = "E_INVALID_SERVICE_URL";
             errorMessage = "Failed to parse host and canonicalURI from service URL.";
         }
@@ -75,14 +75,9 @@ public:
         return &secretKeyFile; }
 
     bool parseURL(	const std::string & url,
-            const std::string & bucket,
-            const std::string & object,
-            std::string & host,
             std::string & path );
 
     virtual bool SendRequest();
-    // virtual bool SendURIRequest();
-    // virtual bool SendJSONRequest( const std::string & payload );
     virtual bool SendS3Request( const std::string & payload );
 
 protected:

@@ -19,6 +19,9 @@
 #include "S3Directory.hh"
 #include "S3File.hh"
 #include "S3FileSystem.hh"
+#include "S3AccessInfo.hh"
+#include "S3Directory.hh"
+#include "S3File.hh"
 #include "stl_string_utils.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
@@ -52,21 +55,14 @@ S3FileSystem::~S3FileSystem() {
 
 bool
 S3FileSystem::handle_required_config(
-    const std::string & name_from_config,
-    const char * desired_name,
-    const std::string & source,
-    std::string & target
-) {
-    if( name_from_config != desired_name ) { return true; }
-
+        const char * desired_name,
+        const std::string & source) {
     if( source.empty() ) {
         std::string error;
         formatstr( error, "%s must specify a value", desired_name );
         m_log.Emsg( "Config", error.c_str() );
         return false;
     }
-
-    target = source;
     return true;
 }
 
@@ -87,34 +83,55 @@ S3FileSystem::Config(XrdSysLogger *lp, const char *configfn)
     std::string value;
     std::string attribute;
     Config.Attach(cfgFD);
+    S3AccessInfo *newAccessInfo = new S3AccessInfo();
+    std::string exposedPath;
     while ((temporary = Config.GetMyFirstWord())) {
         attribute = temporary;
         temporary = Config.GetWord();
+        if(attribute == "s3.end") {
+            s3_access_map[exposedPath] = newAccessInfo;
+            if(newAccessInfo->getS3ServiceName().empty()) {
+                m_log.Emsg("Config", "s3.service_name not specified");
+                return false;
+            }
+            if(newAccessInfo->getS3Region().empty()) {
+                m_log.Emsg("Config", "s3.region not specified");
+                return false;
+            }
+            newAccessInfo = new S3AccessInfo();
+            exposedPath = "";
+            continue;
+        }
         if(! temporary) { continue; }
         value = temporary;
 
-        if(! handle_required_config( attribute, "s3.service_name",
-            value, this->s3_service_name ) ) { Config.Close(); return false; }
-        if(! handle_required_config( attribute, "s3.region",
-            value, this->s3_region ) ) { Config.Close(); return false; }
-        if(! handle_required_config( attribute, "s3.service_url",
-            value, this->s3_service_url ) ) { Config.Close(); return false; }
-        if(! handle_required_config( attribute, "s3.access_key_file",
-            value, this->s3_access_key_file ) ) { Config.Close(); return false; }
-        if(! handle_required_config( attribute, "s3.secret_key_file",
-            value, this->s3_secret_key_file ) ) { Config.Close(); return false; }
-        if(! handle_required_config( attribute, "s3.url_style",
-            value, this->s3_url_style ) ) { Config.Close(); return false; }
+        if(!handle_required_config("s3.path_name",value) ) { Config.Close(); return false; }
+        if(!handle_required_config("s3.bucket_name",value) ) { Config.Close(); return false; }
+        if(!handle_required_config("s3.service_name",value) ) { Config.Close(); return false; }
+        if(!handle_required_config("s3.region", value ) ) { Config.Close(); return false; }
+        if(!handle_required_config("s3.service_url", value) ) { Config.Close(); return false; }
+        if(!handle_required_config("s3.access_key_file", value) ) { Config.Close(); return false; }
+        if(!handle_required_config("s3.secret_key_file", value) ) { Config.Close(); return false; }
+        if(!handle_required_config("s3.url_style", value) ) { Config.Close(); return false; }
+
+        if (attribute == "s3.path_name") {
+            // Normalize paths so that they all start with /
+            if (value[0] != '/') {
+               exposedPath = "/" + value;
+            } else {
+                exposedPath = value;
+            }
+        }
+        else if(attribute == "s3.bucket_name") newAccessInfo->setS3BucketName(value);
+        else if(attribute == "s3.service_name") newAccessInfo->setS3ServiceName(value);
+        else if(attribute == "s3.region") newAccessInfo->setS3Region(value);
+        else if(attribute == "s3.access_key_file") newAccessInfo->setS3AccessKeyFile(value);
+        else if(attribute == "s3.secret_key_file") newAccessInfo->setS3SecretKeyFile(value);
+        else if(attribute == "s3.service_url") newAccessInfo->setS3ServiceUrl(value);
+        else if(attribute == "s3.url_style") this->s3_url_style = value;
+
     }
 
-    if( this->s3_service_name.empty() ) {
-        m_log.Emsg("Config", "s3.service_name not specified");
-        return false;
-    }
-    if( this->s3_region.empty() ) {
-        m_log.Emsg("Config", "s3.region not specified");
-        return false;
-    }
     if( this->s3_url_style.empty() ) {
         m_log.Emsg("Config", "s3.url_style not specified");
         return false;
@@ -184,8 +201,8 @@ S3FileSystem::Create( const char *tid, const char *path, mode_t mode,
   XrdOucEnv &env, int opts )
 {
     // Is path valid?
-    std::string bucket, object;
-    int rv = parse_path( * this, path, bucket, object );
+    std::string exposedPath, object;
+    int rv = parse_path( * this, path, exposedPath, object );
     if( rv != 0 ) { return rv; }
 
     //

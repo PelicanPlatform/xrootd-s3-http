@@ -28,7 +28,7 @@
 
 #include <memory>
 
-int parse_path( const S3FileSystem & fs, const char * path, std::string & bucket, std::string & object );
+int parse_path( const S3FileSystem & fs, const char * path, std::string & exposedPath, std::string & object );
 
 class S3File : public XrdOssDF {
 public:
