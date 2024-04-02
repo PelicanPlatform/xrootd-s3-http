@@ -59,22 +59,33 @@ bool AmazonRequest::parseURL( const std::string & url,
                               std::string & path ) {
     auto i = url.find( "://" );
     if( i == std::string::npos ) { return false; }
-    //protocol = substring( url, 0, i );
 
     auto j = url.find( "/", i + 3 );
     if( j == std::string::npos ) {
         if (style == "path") {
+			// If we're configured for path-style requests, then the host is everything between
+			// :// and the last /
             host = substring( url, i + 3 );
+			// Likewise, the path is going to be /bucket/object
+			path = "/" + bucket + "/" + object;
         } else {
+			// In virtual-style requests, the host should be determined as everything between
+			// :// up until the last /, but with <bucket> appended to the front.
             host = bucket + "." + substring( url, i + 3 );
+			path = "/" + object;
         }
         
-        path = "/" + object;
         return true;
     }
 
-    host = bucket + "." + substring( url, i + 3, j );
-    path = substring( url, j ) + object;
+	if (style == "path") {
+		host = substring( url, i + 3, j );
+		path = substring( url, j ) + "/" + bucket + "/" + object;
+	} else {
+		host = bucket + "." + substring( url, i + 3, j );
+		path = substring( url, j ) + object;
+	}
+
     return true;
 }
 
