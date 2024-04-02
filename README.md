@@ -132,6 +132,7 @@ xrootd.async off
 #example url
 #https://<origin url>/my-magic-path/bar/foo
 # these must be in this order to allow parsing of multiple entries
+# To export a bucket requiring an access/private key:
 s3.begin
 s3.path_name        my-magic-path
 s3.bucket_name      hubzero-private-rich
@@ -142,16 +143,20 @@ s3.secret_key_file  /xrootd-dev/secret-key
 s3.service_url      https://s3.us-east-1.amazonaws.com
 s3.end
 
+# To export an unauthenticated (public) bucket, remove
+# the key-related directives
 s3.begin
 s3.path_name        my-other-magic-path
 s3.bucket_name      hubzero-private-rich-2
 s3.service_name     s3.amazonaws.com
 s3.region           us-east-1
-s3.access_key_file  /xrootd-dev/access-key-2
-s3.secret_key_file  /xrootd-dev/secret-key-2
 s3.service_url      https://s3.us-east-1.amazonaws.com
 s3.end
 
+# Specify the path style for URL queries at the endpoint. Valid
+# options are `path` and `virtual`, where path corresponds to URLs
+# like `https://my-service-url.com/bucket/object` and virtual
+# corresponds to URLs like `https://bucket.my-service-url.com/object`
 s3.url_style        virtual
 ```
 
