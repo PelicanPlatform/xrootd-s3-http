@@ -68,7 +68,7 @@ HTTPRequest::~HTTPRequest() {}
 			this->errorCode = "E_CURL_LIB";                                    \
 			this->errorMessage = "curl_easy_setopt( " #B " ) failed.";         \
 			/* dprintf( D_ALWAYS, "curl_easy_setopt( %s ) failed (%d): '%s',   \
-			   failing.\n", #B, rv##B, curl_easy_strerror( rv##B ) ); */                                  \
+			   failing.\n", #B, rv##B, curl_easy_strerror( rv##B ) ); */       \
 			return false;                                                      \
 		}                                                                      \
 	}
