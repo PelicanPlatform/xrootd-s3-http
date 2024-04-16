@@ -18,48 +18,51 @@
 
 #include "../src/S3Commands.hh"
 
-#include <gtest/gtest.h>
 #include <XrdSys/XrdSysError.hh>
 #include <XrdSys/XrdSysLogger.hh>
+#include <gtest/gtest.h>
 
 class TestAmazonRequest : public AmazonRequest {
-public:
-    XrdSysLogger log{};
-    XrdSysError  err{&log, "TestS3CommandsLog"};
+  public:
+	XrdSysLogger log{};
+	XrdSysError err{&log, "TestS3CommandsLog"};
 
-    TestAmazonRequest(const std::string& url, const std::string& akf, const std::string& skf,
-                      const std::string& bucket, const std::string& object, const std::string& path,
-                      int sigVersion)
-        : AmazonRequest(url, akf, skf, bucket, object, path, sigVersion, err) {}
+	TestAmazonRequest(const std::string &url, const std::string &akf,
+					  const std::string &skf, const std::string &bucket,
+					  const std::string &object, const std::string &path,
+					  int sigVersion)
+		: AmazonRequest(url, akf, skf, bucket, object, path, sigVersion, err) {}
 
-    // For getting access to otherwise-protected members
-    std::string getHostUrl() const {
-        return hostUrl;
-    }
+	// For getting access to otherwise-protected members
+	std::string getHostUrl() const { return hostUrl; }
 };
 
 TEST(TestS3URLGeneration, Test1) {
-    const std::string serviceUrl = "https://s3-service.com:443";
-    const std::string b = "test-bucket";
-    const std::string o = "test-object";
+	const std::string serviceUrl = "https://s3-service.com:443";
+	const std::string b = "test-bucket";
+	const std::string o = "test-object";
 
-    // Test path-style URL generation
-    TestAmazonRequest pathReq{serviceUrl, "akf", "skf", b, o, "path", 4};
-    std::string generatedHostUrl = pathReq.getHostUrl();
-    ASSERT_EQ(generatedHostUrl, "https://s3-service.com:443/test-bucket/test-object");
+	// Test path-style URL generation
+	TestAmazonRequest pathReq{serviceUrl, "akf", "skf", b, o, "path", 4};
+	std::string generatedHostUrl = pathReq.getHostUrl();
+	ASSERT_EQ(generatedHostUrl,
+			  "https://s3-service.com:443/test-bucket/test-object");
 
-    // Test virtual-style URL generation
-    TestAmazonRequest virtReq{serviceUrl, "akf", "skf", b, o, "virtual", 4};
-    generatedHostUrl = virtReq.getHostUrl();
-    ASSERT_EQ(generatedHostUrl, "https://test-bucket.s3-service.com:443/test-object");
+	// Test virtual-style URL generation
+	TestAmazonRequest virtReq{serviceUrl, "akf", "skf", b, o, "virtual", 4};
+	generatedHostUrl = virtReq.getHostUrl();
+	ASSERT_EQ(generatedHostUrl,
+			  "https://test-bucket.s3-service.com:443/test-object");
 
-    // Test path-style with empty bucket (which we use for exporting an entire endpoint)
-    TestAmazonRequest pathReqNoBucket{serviceUrl, "akf", "skf", "", o, "path", 4};
-    generatedHostUrl = pathReqNoBucket.getHostUrl();
-    ASSERT_EQ(generatedHostUrl, "https://s3-service.com:443/test-object");
+	// Test path-style with empty bucket (which we use for exporting an entire
+	// endpoint)
+	TestAmazonRequest pathReqNoBucket{serviceUrl, "akf",  "skf", "",
+									  o,		  "path", 4};
+	generatedHostUrl = pathReqNoBucket.getHostUrl();
+	ASSERT_EQ(generatedHostUrl, "https://s3-service.com:443/test-object");
 }
 
 int main(int argc, char **argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+	::testing::InitGoogleTest(&argc, argv);
+	return RUN_ALL_TESTS();
 }

@@ -18,34 +18,33 @@
 
 #include "../src/HTTPCommands.hh"
 
-#include <gtest/gtest.h>
 #include <XrdSys/XrdSysError.hh>
 #include <XrdSys/XrdSysLogger.hh>
+#include <gtest/gtest.h>
 
 class TestHTTPRequest : public HTTPRequest {
-public:
-    XrdSysLogger log{};
-    XrdSysError  err{&log, "TestS3CommandsLog"};
+  public:
+	XrdSysLogger log{};
+	XrdSysError err{&log, "TestS3CommandsLog"};
 
-    TestHTTPRequest(const std::string& url)
-        : HTTPRequest(url, err) {}
+	TestHTTPRequest(const std::string &url) : HTTPRequest(url, err) {}
 };
 
 TEST(TestHTTPParseProtocol, Test1) {
-    const std::string httpURL = "https://my-test-url.com:443";
-    TestHTTPRequest req{httpURL};
+	const std::string httpURL = "https://my-test-url.com:443";
+	TestHTTPRequest req{httpURL};
 
-    // Test parsing of https
-    std::string protocol;
-    req.parseProtocol("https://my-test-url.com:443", protocol);
-    ASSERT_EQ(protocol, "https");
+	// Test parsing of https
+	std::string protocol;
+	req.parseProtocol("https://my-test-url.com:443", protocol);
+	ASSERT_EQ(protocol, "https");
 
-    // Test parsing for http
-    req.parseProtocol("http://my-test-url.com:443", protocol);
-    ASSERT_EQ(protocol, "http");
+	// Test parsing for http
+	req.parseProtocol("http://my-test-url.com:443", protocol);
+	ASSERT_EQ(protocol, "http");
 }
 
 int main(int argc, char **argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+	::testing::InitGoogleTest(&argc, argv);
+	return RUN_ALL_TESTS();
 }
