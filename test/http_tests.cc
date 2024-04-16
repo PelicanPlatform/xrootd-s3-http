@@ -19,7 +19,6 @@
 #include "../src/HTTPCommands.hh"
 
 #include <gtest/gtest.h>
-#include <iostream>
 #include <XrdSys/XrdSysError.hh>
 #include <XrdSys/XrdSysLogger.hh>
 
