@@ -81,21 +81,6 @@ bool HTTPRequest::parseProtocol(const std::string &url, std::string &protocol) {
 	}
 	protocol = substring(url, 0, i);
 
-	// This func used to parse the entire URL according
-	// to the Amazon canonicalURI specs, but that functionality
-	// has since been moved to the Amazon subclass. Now it just
-	// grabs the protocol. Leaving the old stuff commented for
-	// now, just in case...
-
-	// auto j = url.find( "/", i + 3 );
-	// if( j == std::string::npos ) {
-	//     host = substring( url, i + 3 );
-	//     path = "/";
-	//     return true;
-	// }
-
-	// host = substring( url, i + 3, j );
-	// path = substring( url, j );
 	return true;
 }
 
