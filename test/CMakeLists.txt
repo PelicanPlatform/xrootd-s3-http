@@ -32,7 +32,7 @@ else()
     set(LIBGTEST "${CMAKE_BINARY_DIR}/external/gtest/src/gtest-build/lib/libgtest.a")
 endif()
 
-target_link_libraries(s3-gtest XrdHTTPServer XrdS3 "${LIBGTEST}" pthread)
+target_link_libraries(s3-gtest XrdS3 "${LIBGTEST}" pthread)
 target_link_libraries(http-gtest XrdHTTPServer "${LIBGTEST}" pthread)
 
 
