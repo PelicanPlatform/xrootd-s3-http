@@ -55,8 +55,8 @@ std::string AmazonRequest::canonicalizeQueryString() {
 }
 
 // Takes in the configured `s3.service_url` and uses the bucket/object requested
-// to generate the virtual host URL, as well as the canonical URI (which is the
-// path to the object).
+// to generate the host URL, as well as the canonical URI (which is the path to
+// the object).
 bool AmazonRequest::parseURL(const std::string &url, std::string &path) {
 	auto i = url.find("://");
 	if (i == std::string::npos) {
@@ -71,7 +71,14 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &path) {
 			// :// and the last /
 			host = substring(url, i + 3);
 			// Likewise, the path is going to be /bucket/object
-			path = "/" + bucket + "/" + object;
+			// Sometimes we intentionally configure the plugin with no bucket because we
+			// assume the incoming object request already encodes the bucket. This is used
+			// for exporting many buckets from a single endpoint.
+			if (bucket.empty()) {
+				path = "/" + object;
+			} else {
+				path = "/" + bucket + "/" + object;
+			}
 		} else {
 			// In virtual-style requests, the host should be determined as
 			// everything between

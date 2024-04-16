@@ -2,6 +2,9 @@ cmake_minimum_required( VERSION 3.13 )
 
 project( xrootd-http/s3 )
 
+option( XROOTD_PLUGINS_BUILD_UNITTESTS "Build the scitokens-cpp unit tests" OFF )
+option( XROOTD_PLUGINS_EXTERNAL_GTEST "Use an external/pre-installed copy of GTest" OFF )
+
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 set( CMAKE_BUILD_TYPE Debug )
 
@@ -72,6 +75,19 @@ install(
   TARGETS XrdS3 XrdHTTPServer
   LIBRARY DESTINATION ${LIB_INSTALL_DIR}
 )
+
+if( XROOTD_PLUGINS_BUILD_UNITTESTS )
+	if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
+include(ExternalProject)
+ExternalProject_Add(gtest
+    PREFIX external/gtest
+    URL ${CMAKE_CURRENT_SOURCE_DIR}/vendor/gtest
+    INSTALL_COMMAND :
+)
+endif()
+enable_testing()
+add_subdirectory(test)
+endif()
 
 #install(
 #  FILES ${CMAKE_SOURCE_DIR}/configs/60-s3.cfg
