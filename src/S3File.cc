@@ -120,11 +120,11 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
     //This flag is not set when it's going to be a read operation
     //so we check if the file exists in order to be able to return a 404
     if (!Oflag) {
-        AmazonS3Download download(this->s3_service_url, this->s3_access_key,
-                                  this->s3_secret_key, this->s3_bucket_name,
-                                  this->s3_object_name, this->s3_url_style, m_log);
+        AmazonS3Head head(this->s3_service_url, this->s3_access_key,
+                          this->s3_secret_key, this->s3_bucket_name,
+                          this->s3_object_name, this->s3_url_style, m_log);
 
-        if (!download.SendRequest(0, 10)) {
+        if (!head.SendRequest()) {
             return -ENOENT;
         }
 
