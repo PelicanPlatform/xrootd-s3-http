@@ -28,6 +28,8 @@
 
 #include <memory>
 
+#include <fcntl.h>
+
 int parse_path(const S3FileSystem &fs, const char *path,
 			   std::string &exposedPath, std::string &object);
 

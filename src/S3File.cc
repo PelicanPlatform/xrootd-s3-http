@@ -105,15 +105,6 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	std::string configured_s3_secret_key =
 		m_oss->getS3SecretKeyFile(exposedPath);
 	std::string configured_s3_bucket_name = m_oss->getS3BucketName(exposedPath);
-
-	// We used to query S3 here to see if the object existed, but of course
-	// if you're creating a file on upload, you don't care.
-
-	this->s3_object_name = object;
-	this->s3_bucket_name = configured_s3_bucket_name;
-	this->s3_service_url = configured_s3_service_url;
-	this->s3_access_key = configured_s3_access_key;
-	this->s3_secret_key = configured_s3_secret_key;
 	std::string configured_s3_url_style = m_oss->getS3URLStyle();
 
 	// We used to query S3 here to see if the object existed, but of course
@@ -125,6 +116,19 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	this->s3_access_key = configured_s3_access_key;
 	this->s3_secret_key = configured_s3_secret_key;
 	this->s3_url_style = configured_s3_url_style;
+
+	// This flag is not set when it's going to be a read operation
+	// so we check if the file exists in order to be able to return a 404
+	if (!Oflag) {
+		AmazonS3Head head(this->s3_service_url, this->s3_access_key,
+						  this->s3_secret_key, this->s3_bucket_name,
+						  this->s3_object_name, this->s3_url_style, m_log);
+
+		if (!head.SendRequest()) {
+			return -ENOENT;
+		}
+	}
+
 	return 0;
 }
 
