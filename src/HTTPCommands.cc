@@ -136,9 +136,7 @@ int debug_callback(CURL *, curl_infotype ci, char *data, size_t size, void *) {
 }
 
 size_t read_callback(char *buffer, size_t size, size_t n, void *v) {
-	// This can be static because only one curl_easy_perform() can be
-	// running at a time.
-	static size_t sentSoFar = 0;
+	thread_local size_t sentSoFar = 0;
 	std::string *payload = (std::string *)v;
 
 	if (sentSoFar == payload->size()) {
