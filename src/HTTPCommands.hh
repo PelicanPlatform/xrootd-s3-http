@@ -19,6 +19,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
 
 class XrdSysError;
@@ -48,6 +49,12 @@ class HTTPRequest {
 	unsigned long getResponseCode() const { return responseCode; }
 	const std::string &getResultString() const { return resultString; }
 
+	// Currently only used in PUTS, but potentially useful elsewhere
+	struct Payload {
+		const std::string *data;
+		size_t sentSoFar;
+	};
+
   protected:
 	bool sendPreparedRequest(const std::string &protocol,
 							 const std::string &uri,
@@ -72,6 +79,7 @@ class HTTPRequest {
 	bool includeResponseHeader;
 
 	std::string httpVerb;
+	std::unique_ptr<HTTPRequest::Payload> callback_payload;
 
 	XrdSysError &m_log;
 };

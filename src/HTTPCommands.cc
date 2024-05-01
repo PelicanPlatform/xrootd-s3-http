@@ -135,28 +135,31 @@ int debug_callback(CURL *, curl_infotype ci, char *data, size_t size, void *) {
 	return 0;
 }
 
+// A callback function that gets passed to curl_easy_setopt for reading data
+// from the payload
 size_t read_callback(char *buffer, size_t size, size_t n, void *v) {
-	// This can be static because only one curl_easy_perform() can be
-	// running at a time.
-	static size_t sentSoFar = 0;
-	std::string *payload = (std::string *)v;
+	// The callback gets the void pointer that we set with CURLOPT_READDATA. In
+	// this case, it's a pointer to an HTTPRequest::Payload struct that contains
+	// the data to be sent, along with the offset of the data that has already
+	// been sent.
+	HTTPRequest::Payload *payload = (HTTPRequest::Payload *)v;
 
-	if (sentSoFar == payload->size()) {
-		sentSoFar = 0;
+	if (payload->sentSoFar == payload->data->size()) {
+		payload->sentSoFar = 0;
 		return 0;
 	}
 
 	size_t request = size * n;
-	if (request > payload->size()) {
-		request = payload->size();
+	if (request > payload->data->size()) {
+		request = payload->data->size();
 	}
 
-	if (sentSoFar + request > payload->size()) {
-		request = payload->size() - sentSoFar;
+	if (payload->sentSoFar + request > payload->data->size()) {
+		request = payload->data->size() - payload->sentSoFar;
 	}
 
-	memcpy(buffer, payload->data() + sentSoFar, request);
-	sentSoFar += request;
+	memcpy(buffer, payload->data->data() + payload->sentSoFar, request);
+	payload->sentSoFar += request;
 
 	return request;
 }
@@ -230,7 +233,13 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 			return false;
 		}
 
-		rv = curl_easy_setopt(curl.get(), CURLOPT_READDATA, &payload);
+		// Our HTTPRequest instance should have a pointer to the payload data
+		// and the offset of the data Here, we tell curl_easy_setopt to use the
+		// read_callback function to read the data from the payload
+		this->callback_payload = std::unique_ptr<HTTPRequest::Payload>(
+			new HTTPRequest::Payload{&payload, 0});
+		rv = curl_easy_setopt(curl.get(), CURLOPT_READDATA,
+							  callback_payload.get());
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
 			this->errorMessage = "curl_easy_setopt( CURLOPT_READDATA ) failed.";
