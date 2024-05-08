@@ -88,21 +88,23 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 				m_log.Emsg("Config", "s3.region not specified");
 				return false;
 			}
-            std::string contents;
-            if(newAccessInfo->getS3AccessKeyFile() != "") {
-                if (!readShortFile(newAccessInfo->getS3AccessKeyFile(), contents)) {
-                    m_log.Emsg("Config", "s3.access_key_file not readable");
-                    return false;
-                }
-            }
-            if(newAccessInfo->getS3SecretKeyFile() != "") {
-                if (!readShortFile(newAccessInfo->getS3SecretKeyFile(), contents)) {
-                    m_log.Emsg("Config", "s3.secret_key_file not readable");
-                    return false;
-                }
-            }
-            newAccessInfo = new S3AccessInfo();
-            exposedPath = "";
+			std::string contents;
+			if (newAccessInfo->getS3AccessKeyFile() != "") {
+				if (!readShortFile(newAccessInfo->getS3AccessKeyFile(),
+								   contents)) {
+					m_log.Emsg("Config", "s3.access_key_file not readable");
+					return false;
+				}
+			}
+			if (newAccessInfo->getS3SecretKeyFile() != "") {
+				if (!readShortFile(newAccessInfo->getS3SecretKeyFile(),
+								   contents)) {
+					m_log.Emsg("Config", "s3.secret_key_file not readable");
+					return false;
+				}
+			}
+			newAccessInfo = new S3AccessInfo();
+			exposedPath = "";
 			continue;
 		}
 		if (!temporary) {
