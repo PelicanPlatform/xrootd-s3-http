@@ -2,8 +2,7 @@
 // Created by Rich Wellner on 2/29/24.
 //
 
-#ifndef XROOTD_S3_HTTP_S3ACCESSINFO_HH
-#define XROOTD_S3_HTTP_S3ACCESSINFO_HH
+#pragma once
 
 #include <string>
 
@@ -33,6 +32,12 @@ class S3AccessInfo {
 
 	void setS3SecretKeyFile(const std::string &s3SecretKeyFile);
 
+	const std::string &getS3UrlStyle() const;
+
+	void setS3UrlStyle(const std::string &s3UrlStyle);
+
+	const int getS3SignatureVersion() const {return 4;}
+
   private:
 	std::string s3_bucket_name;
 	std::string s3_service_name;
@@ -40,6 +45,5 @@ class S3AccessInfo {
 	std::string s3_service_url;
 	std::string s3_access_key_file;
 	std::string s3_secret_key_file;
+	std::string s3_url_style;
 };
-
-#endif // XROOTD_S3_HTTP_S3ACCESSINFO_HH

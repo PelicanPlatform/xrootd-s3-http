@@ -47,12 +47,19 @@ if(NOT APPLE)
   SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
 endif()
 
+if( NOT XROOTD_EXTERNAL_TINYXML2 )
+	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+	add_subdirectory(vendor/tinyxml2)
+else()
+	find_package(tinyxml2::tinyxml2)
+endif()
+
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
-add_library(XrdS3 SHARED src/S3File.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
+add_library(XrdS3 SHARED src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
 add_library(XrdHTTPServer SHARED src/HTTPFile.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
 
-target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
+target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES} tinyxml2::tinyxml2)
 target_link_libraries(XrdHTTPServer -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES})
 
 # The CMake documentation strongly advises against using these macros; instead, the pkg_check_modules

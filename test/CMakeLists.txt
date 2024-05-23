@@ -2,6 +2,7 @@ add_executable( s3-gtest s3_tests.cc
   ../src/AWSv4-impl.cc
   ../src/logging.cc
   ../src/S3AccessInfo.cc
+  ../src/S3Directory.cc
   ../src/S3File.cc
   ../src/S3FileSystem.cc
   ../src/shortfile.cc

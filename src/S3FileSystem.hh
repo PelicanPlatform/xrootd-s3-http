@@ -101,6 +101,13 @@ class S3FileSystem : public XrdOss {
 		return nullptr;
 	}
 
+	// Given a path as seen by XRootD, split it into the configured prefix and the object
+	// within the prefix.
+	//
+	// The returned `exposedPath` can be later used with the `get*` functions to fetch
+	// the required S3 configuration.
+	int parsePath(const char *fullPath, std::string &exposedPath, std::string &object) const;
+
 	bool exposedPathExists(const std::string &exposedPath) const {
 		return s3_access_map.count(exposedPath) > 0;
 	}
@@ -125,6 +132,11 @@ class S3FileSystem : public XrdOss {
 		return s3_access_map.at(exposedPath)->getS3SecretKeyFile();
 	}
 	const std::string &getS3URLStyle() const { return s3_url_style; }
+
+	const S3AccessInfo *
+	getS3AccessInfo(const std::string &exposedPath) const {
+		return s3_access_map.at(exposedPath);
+	}
 
   private:
 	XrdOucEnv *m_env;

@@ -48,81 +48,26 @@ XrdVERSIONINFO(XrdOssGetFileSystem, S3);
 S3File::S3File(XrdSysError &log, S3FileSystem *oss)
 	: m_log(log), m_oss(oss), content_length(0), last_modified(0) {}
 
-int parse_path(const S3FileSystem &fs, const char *fullPath,
-			   std::string &exposedPath, std::string &object) {
-	//
-	// Check the path for validity.
-	//
-	std::filesystem::path p(fullPath);
-	auto pathComponents = p.begin();
-
-	// Iterate through components of the fullPath until we either find a match
-	// or we've reached the end of the path.
-	std::filesystem::path currentPath = *pathComponents;
-	while (pathComponents != p.end()) {
-		if (fs.exposedPathExists(currentPath.string())) {
-			exposedPath = currentPath.string();
-			break;
-		}
-		++pathComponents;
-		if (pathComponents != p.end()) {
-			currentPath /= *pathComponents;
-		} else {
-			return -ENOENT;
-		}
-	}
-
-	// Objects names may contain path separators.
-	++pathComponents;
-	if (pathComponents == p.end()) {
-		return -ENOENT;
-	}
-
-	std::filesystem::path objectPath = *pathComponents++;
-	for (; pathComponents != p.end(); ++pathComponents) {
-		objectPath /= (*pathComponents);
-	}
-	object = objectPath.string();
-
-	fprintf(stderr, "object = %s\n", object.c_str());
-
-	return 0;
-}
-
 int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
+	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
+		m_log.Log(LogMask::Warning, "S3File::Open", "Opening file", path);
+	}
+
 	std::string exposedPath, object;
-	int rv = parse_path(*m_oss, path, exposedPath, object);
+	auto rv = m_oss->parsePath(path, exposedPath, object);
 	if (rv != 0) {
 		return rv;
 	}
-	if (!m_oss->exposedPathExists(exposedPath))
+	auto ai = m_oss->getS3AccessInfo(exposedPath);
+	if (!ai) {
 		return -ENOENT;
-
-	std::string configured_s3_region = m_oss->getS3Region(exposedPath);
-	std::string configured_s3_service_url = m_oss->getS3ServiceURL(exposedPath);
-	std::string configured_s3_access_key =
-		m_oss->getS3AccessKeyFile(exposedPath);
-	std::string configured_s3_secret_key =
-		m_oss->getS3SecretKeyFile(exposedPath);
-	std::string configured_s3_bucket_name = m_oss->getS3BucketName(exposedPath);
-	std::string configured_s3_url_style = m_oss->getS3URLStyle();
-
-	// We used to query S3 here to see if the object existed, but of course
-	// if you're creating a file on upload, you don't care.
-
-	this->s3_object_name = object;
-	this->s3_bucket_name = configured_s3_bucket_name;
-	this->s3_service_url = configured_s3_service_url;
-	this->s3_access_key = configured_s3_access_key;
-	this->s3_secret_key = configured_s3_secret_key;
-	this->s3_url_style = configured_s3_url_style;
+	}
+	m_ai = *ai;
 
 	// This flag is not set when it's going to be a read operation
 	// so we check if the file exists in order to be able to return a 404
 	if (!Oflag) {
-		AmazonS3Head head(this->s3_service_url, this->s3_access_key,
-						  this->s3_secret_key, this->s3_bucket_name,
-						  this->s3_object_name, this->s3_url_style, m_log);
+		AmazonS3Head head(m_ai, s3_object_name, m_log);
 
 		if (!head.SendRequest()) {
 			return -ENOENT;
@@ -133,9 +78,7 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 }
 
 ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
-	AmazonS3Download download(this->s3_service_url, this->s3_access_key,
-							  this->s3_secret_key, this->s3_bucket_name,
-							  this->s3_object_name, this->s3_url_style, m_log);
+	AmazonS3Download download(m_ai, s3_object_name, m_log);
 
 	if (!download.SendRequest(offset, size)) {
 		std::stringstream ss;
@@ -151,9 +94,7 @@ ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
 }
 
 int S3File::Fstat(struct stat *buff) {
-	AmazonS3Head head(this->s3_service_url, this->s3_access_key,
-					  this->s3_secret_key, this->s3_bucket_name,
-					  this->s3_object_name, this->s3_url_style, m_log);
+	AmazonS3Head head(m_ai, s3_object_name, m_log);
 
 	if (!head.SendRequest()) {
 		// SendRequest() returns false for all errors, including ones
@@ -218,9 +159,7 @@ int S3File::Fstat(struct stat *buff) {
 }
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
-	AmazonS3Upload upload(this->s3_service_url, this->s3_access_key,
-						  this->s3_secret_key, this->s3_bucket_name,
-						  this->s3_object_name, this->s3_url_style, m_log);
+	AmazonS3Upload upload(m_ai, s3_object_name, m_log);
 
 	std::string payload((char *)buffer, size);
 	if (!upload.SendRequest(payload, offset, size)) {

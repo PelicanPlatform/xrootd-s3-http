@@ -24,6 +24,7 @@
 #include <XrdSys/XrdSysError.hh>
 #include <curl/curl.h>
 #include <openssl/hmac.h>
+#include <tinyxml2.h>
 
 #include <algorithm>
 #include <cassert>
@@ -44,8 +45,6 @@ bool AmazonRequest::SendRequest() {
 	default:
 		this->errorCode = "E_INTERNAL";
 		this->errorMessage = "Invalid signature version.";
-		// dprintf( D_ALWAYS, "Invalid signature version (%d), failing.\n",
-		// signatureVersion );
 		return false;
 	}
 }
@@ -57,7 +56,8 @@ std::string AmazonRequest::canonicalizeQueryString() {
 // Takes in the configured `s3.service_url` and uses the bucket/object requested
 // to generate the host URL, as well as the canonical URI (which is the path to
 // the object).
-bool AmazonRequest::parseURL(const std::string &url, std::string &path) {
+bool AmazonRequest::parseURL(const std::string &url, std::string &bucket_path,
+							 std::string &path) {
 	auto i = url.find("://");
 	if (i == std::string::npos) {
 		return false;
@@ -76,8 +76,10 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &path) {
 			// for exporting many buckets from a single endpoint.
 			if (bucket.empty()) {
 				path = "/" + object;
+				bucket_path = "/" + object.substr(0, object.find('/'));
 			} else {
 				path = "/" + bucket + "/" + object;
+				bucket_path = bucket;
 			}
 		} else {
 			// In virtual-style requests, the host should be determined as
@@ -85,6 +87,7 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &path) {
 			// :// up until the last /, but with <bucket> appended to the front.
 			host = bucket + "." + substring(url, i + 3);
 			path = "/" + object;
+			bucket_path = "/";
 		}
 
 		return true;
@@ -136,6 +139,8 @@ bool AmazonRequest::createV4Signature(const std::string &payload,
 		}
 		trim(saKey);
 	} else {
+		canonicalQueryString = canonicalizeQueryString();
+
 		requiresSignature =
 			false;	 // If we don't create a signature, it must not be needed...
 		return true; // If there was no saKey, we need not generate a signature
@@ -176,14 +181,8 @@ bool AmazonRequest::createV4Signature(const std::string &payload,
 	canonicalURI = pathEncode(canonicalURI);
 
 	// The canonical query string is the alphabetically sorted list of
-	// URI-encoded parameter names '=' values, separated by '&'s.  That
-	// wouldn't be hard to do, but we don't need to, since we send
-	// everything in the POST body, instead.
-	std::string canonicalQueryString;
-
-	// This function doesn't (currently) support query parameters,
-	// but no current caller attempts to use them.
-	assert((httpVerb != "GET") || query_parameters.size() == 0);
+	// URI-encoded parameter names '=' values, separated by '&'s.
+	canonicalQueryString = canonicalizeQueryString();
 
 	// The canonical headers must include the Host header, so add that
 	// now if we don't have it.
@@ -209,7 +208,6 @@ bool AmazonRequest::createV4Signature(const std::string &payload,
 	if (!doSha256(payload, messageDigest, &mdLength)) {
 		this->errorCode = "E_INTERNAL";
 		this->errorMessage = "Unable to hash payload.";
-		// dprintf( D_ALWAYS, "Unable to hash payload, failing.\n" );
 		return false;
 	}
 	std::string payloadHash;
@@ -396,10 +394,6 @@ bool AmazonRequest::sendV4Request(const std::string &payload,
 		return false;
 	}
 
-	if (!sendContentSHA) {
-		// dprintf( D_FULLDEBUG, "Payload is '%s'\n", payload.c_str() );
-	}
-
 	std::string authorizationValue;
 	if (!createV4Signature(payload, authorizationValue, sendContentSHA)) {
 		if (this->errorCode.empty()) {
@@ -417,7 +411,12 @@ bool AmazonRequest::sendV4Request(const std::string &payload,
 		headers["Authorization"] = authorizationValue;
 	}
 
-	return sendPreparedRequest(protocol, hostUrl, payload);
+	// This operation is on the bucket itself; alter the URL
+	auto url = hostUrl;
+	if (!canonicalQueryString.empty()) {
+		url += "?" + canonicalQueryString;
+	}
+	return sendPreparedRequest(protocol, url, payload);
 }
 
 // It's stated in the API documentation that you can upload to any region
@@ -484,3 +483,94 @@ bool AmazonS3Head::SendRequest() {
 }
 
 // ---------------------------------------------------------------------------
+
+bool AmazonS3List::SendRequest(const std::string &continuationToken,
+							   size_t max_keys) {
+	query_parameters["list-type"] = "2";
+	query_parameters["delimiter"] = "/";
+	query_parameters["prefix"] = urlquote(object);
+	if (!continuationToken.empty()) {
+		query_parameters["continuation-token"] = urlquote(continuationToken);
+	}
+	query_parameters["max-keys"] = std::to_string(max_keys);
+	httpVerb = "GET";
+
+	// Operation is on the bucket itself; alter the URL to remove the object
+	hostUrl = protocol + "://" + host + bucketPath;
+
+	return SendS3Request("");
+}
+
+bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
+						   std::vector<std::string> &commonPrefixes,
+						   std::string &ct, std::string &errMsg) {
+	tinyxml2::XMLDocument doc;
+	auto err = doc.Parse(resultString.c_str());
+	if (err != tinyxml2::XML_SUCCESS) {
+		errMsg = doc.ErrorStr();
+		return false;
+	}
+
+	auto elem = doc.RootElement();
+	if (strcmp(elem->Name(), "ListBucketResult")) {
+		errMsg = "S3 ListBucket response is not rooted with ListBucketResult "
+				 "element";
+		return false;
+	}
+
+	bool isTruncated = false;
+	for (auto child = elem->FirstChildElement(); child != nullptr;
+		 child = child->NextSiblingElement()) {
+		if (!strcmp(child->Name(), "IsTruncated")) {
+			bool isTrunc;
+			if (child->QueryBoolText(&isTrunc) == tinyxml2::XML_SUCCESS) {
+				isTruncated = true;
+			}
+		} else if (!strcmp(child->Name(), "CommonPrefixes")) {
+			auto prefix = child->FirstChildElement("Prefix");
+			if (prefix != nullptr) {
+				auto prefixChar = prefix->GetText();
+				if (prefixChar != nullptr) {
+					auto prefixStr = std::string(prefixChar);
+					trim(prefixStr);
+					if (!prefixStr.empty()) {
+						commonPrefixes.emplace_back(prefixStr);
+					}
+				}
+			}
+		} else if (!strcmp(child->Name(), "Contents")) {
+			std::string keyStr;
+			int64_t size;
+			bool goodSize = false;
+			auto key = child->FirstChildElement("Key");
+			if (key != nullptr) {
+				auto keyChar = key->GetText();
+				if (keyChar != nullptr) {
+					keyStr = std::string(keyChar);
+					trim(keyStr);
+				}
+			}
+			auto sizeElem = child->FirstChildElement("Size");
+			if (sizeElem != nullptr) {
+				goodSize =
+					(sizeElem->QueryInt64Text(&size) == tinyxml2::XML_SUCCESS);
+			}
+			if (goodSize && !keyStr.empty()) {
+				S3ObjectInfo obj;
+				obj.m_key = keyStr;
+				obj.m_size = size;
+				objInfo.emplace_back(obj);
+			}
+		} else if (!strcmp(child->Name(), "NextContinuationToken")) {
+			auto ctChar = child->GetText();
+			if (ctChar) {
+				ct = ctChar;
+				trim(ct);
+			}
+		}
+	}
+	if (!isTruncated) {
+		ct = "";
+	}
+	return true;
+}

@@ -20,6 +20,7 @@
 #include "S3AccessInfo.hh"
 #include "S3Directory.hh"
 #include "S3File.hh"
+#include "logging.hh"
 #include "stl_string_utils.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
@@ -27,7 +28,9 @@
 #include <XrdSec/XrdSecEntity.hh>
 #include <XrdVersion.hh>
 
+#include <filesystem>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -180,7 +183,7 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 // Object Allocation Functions
 //
 XrdOssDF *S3FileSystem::newDir(const char *user) {
-	return new S3Directory(m_log);
+	return new S3Directory(m_log, *this);
 }
 
 XrdOssDF *S3FileSystem::newFile(const char *user) {
@@ -189,23 +192,91 @@ XrdOssDF *S3FileSystem::newFile(const char *user) {
 
 int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 					   XrdOucEnv *env) {
-	std::string error;
+	m_log.Log(XrdHTTPServer::Debug, "Stat", "Stat'ing path", path);
 
-	m_log.Emsg("Stat", "Stat'ing path", path);
-
-	S3File s3file(m_log, this);
-	int rv = s3file.Open(path, 0, (mode_t)0, *env);
-	if (rv) {
-		m_log.Emsg("Stat", "Failed to open path:", path);
-	}
-	// Assume that S3File::FStat() doesn't write to buff unless it succeeds.
-	rv = s3file.Fstat(buff);
+	std::string exposedPath, object;
+	auto rv = parsePath(path, exposedPath, object);
 	if (rv != 0) {
-		formatstr(error, "File %s not found.", path);
-		m_log.Emsg("Stat", error.c_str());
+		return rv;
+	}
+	auto ai = getS3AccessInfo(exposedPath);
+	if (!ai) {
 		return -ENOENT;
 	}
 
+	trimslashes(object);
+	AmazonS3List listCommand(*ai, object, m_log);
+	auto res = listCommand.SendRequest("");
+	if (!res) {
+		if (m_log.getMsgMask() & XrdHTTPServer::Info) {
+			std::stringstream ss;
+			ss << "Failed to stat path " << path << "; response code "
+			   << listCommand.getResponseCode();
+			m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
+		}
+		switch (listCommand.getResponseCode()) {
+		case 404:
+			return -ENOENT;
+		case 500:
+			return -EIO;
+		case 403:
+			return -EPERM;
+		default:
+			return -EIO;
+		}
+	}
+
+	std::string errMsg;
+	std::vector<S3ObjectInfo> objInfo;
+	std::vector<std::string> commonPrefixes;
+	std::string ct;
+	res = listCommand.Results(objInfo, commonPrefixes, ct, errMsg);
+	if (!res) {
+		m_log.Log(XrdHTTPServer::Warning, "Stat",
+				  "Failed to parse S3 results:", errMsg.c_str());
+		return -EIO;
+	}
+
+	bool foundObj = false;
+	size_t objSize = 0;
+	for (const auto &obj : objInfo) {
+		if (obj.m_key == object) {
+			foundObj = true;
+			objSize = obj.m_size;
+			break;
+		}
+	}
+	if (foundObj) {
+		buff->st_mode = 0600 | S_IFREG;
+		buff->st_nlink = 1;
+		buff->st_uid = buff->st_gid = 1;
+		buff->st_size = objSize;
+		buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+		buff->st_dev = 0;
+		buff->st_ino = 1;
+		return 0;
+	}
+
+	auto desiredPrefix = object + "/";
+	bool foundPrefix = false;
+	for (const auto &prefix : commonPrefixes) {
+		if (prefix == desiredPrefix) {
+			foundPrefix = true;
+			break;
+		}
+	}
+	if (!foundPrefix) {
+		return -ENOENT;
+	}
+
+	buff->st_mode = 0700 | S_IFDIR;
+	buff->st_nlink = 0;
+	buff->st_uid = 1;
+	buff->st_gid = 1;
+	buff->st_size = 4096;
+	buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+	buff->st_dev = 0;
+	buff->st_ino = 1;
 	return 0;
 }
 
@@ -213,7 +284,7 @@ int S3FileSystem::Create(const char *tid, const char *path, mode_t mode,
 						 XrdOucEnv &env, int opts) {
 	// Is path valid?
 	std::string exposedPath, object;
-	int rv = parse_path(*this, path, exposedPath, object);
+	int rv = parsePath(path, exposedPath, object);
 	if (rv != 0) {
 		return rv;
 	}
@@ -224,6 +295,45 @@ int S3FileSystem::Create(const char *tid, const char *path, mode_t mode,
 	// S3File::Open(), checking if the file exists) than to add one
 	// (here, creating the file if it doesn't exist).
 	//
+
+	return 0;
+}
+
+int S3FileSystem::parsePath(const char *fullPath, std::string &exposedPath,
+							std::string &object) const {
+	//
+	// Check the path for validity.
+	//
+	std::filesystem::path p(fullPath);
+	auto pathComponents = p.begin();
+
+	// Iterate through components of the fullPath until we either find a match
+	// or we've reached the end of the path.
+	std::filesystem::path currentPath = *pathComponents;
+	while (pathComponents != p.end()) {
+		if (exposedPathExists(currentPath.string())) {
+			exposedPath = currentPath.string();
+			break;
+		}
+		++pathComponents;
+		if (pathComponents != p.end()) {
+			currentPath /= *pathComponents;
+		} else {
+			return -ENOENT;
+		}
+	}
+
+	// Objects names may contain path separators.
+	++pathComponents;
+	if (pathComponents == p.end()) {
+		return -ENOENT;
+	}
+
+	std::filesystem::path objectPath = *pathComponents++;
+	for (; pathComponents != p.end(); ++pathComponents) {
+		objectPath /= (*pathComponents);
+	}
+	object = objectPath.string();
 
 	return 0;
 }

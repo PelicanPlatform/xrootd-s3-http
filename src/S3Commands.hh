@@ -18,12 +18,20 @@
 
 #pragma once
 
+#include "S3AccessInfo.hh"
 #include "HTTPCommands.hh"
 
 #include <string>
+#include <vector>
 
 class AmazonRequest : public HTTPRequest {
   public:
+	AmazonRequest(const S3AccessInfo &ai, const std::string objectName, XrdSysError &log)
+		: AmazonRequest(ai.getS3ServiceUrl(), ai.getS3AccessKeyFile(),
+			ai.getS3SecretKeyFile(), ai.getS3BucketName(),
+			objectName, ai.getS3UrlStyle(), ai.getS3SignatureVersion(), log)
+	{}
+
 	AmazonRequest(const std::string &s, const std::string &akf,
 				  const std::string &skf, const std::string &b,
 				  const std::string &o, const std::string &style, int sv,
@@ -37,7 +45,7 @@ class AmazonRequest : public HTTPRequest {
 		// "https://my-url.com:443", the bucket is "my-bucket", and the object
 		// is "my-object", then the host will be "my-bucket.my-url.com:443" and
 		// the canonicalURI will be "/my-object".
-		if (!parseURL(hostUrl, canonicalURI)) {
+		if (!parseURL(hostUrl, bucketPath, canonicalURI)) {
 			errorCode = "E_INVALID_SERVICE_URL";
 			errorMessage =
 				"Failed to parse host and canonicalURI from service URL.";
@@ -67,7 +75,7 @@ class AmazonRequest : public HTTPRequest {
 	virtual const std::string *getAccessKey() const { return &accessKeyFile; }
 	virtual const std::string *getSecretKey() const { return &secretKeyFile; }
 
-	bool parseURL(const std::string &url, std::string &path);
+	bool parseURL(const std::string &url, std::string &bucket_path, std::string &path);
 
 	virtual bool SendRequest();
 	virtual bool SendS3Request(const std::string &payload);
@@ -82,6 +90,8 @@ class AmazonRequest : public HTTPRequest {
 
 	std::string host;
 	std::string canonicalURI;
+	std::string bucketPath; // Path to use for bucket-level operations (such as listings).  May be empty for DNS-style buckets
+	std::string canonicalQueryString;
 
 	std::string bucket;
 	std::string object;
@@ -103,6 +113,10 @@ class AmazonS3Upload : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
+    AmazonS3Upload(const S3AccessInfo &ai, const std::string &objectName, XrdSysError &log)
+		: AmazonRequest(ai, objectName, log)
+	{}
+
 	AmazonS3Upload(const std::string &s, const std::string &akf,
 				   const std::string &skf, const std::string &b,
 				   const std::string &o, const std::string &style,
@@ -122,6 +136,10 @@ class AmazonS3Download : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
+    AmazonS3Download(const S3AccessInfo &ai, const std::string &objectName, XrdSysError &log)
+		: AmazonRequest(ai, objectName, log)
+	{}
+
 	AmazonS3Download(const std::string &s, const std::string &akf,
 					 const std::string &skf, const std::string &b,
 					 const std::string &o, const std::string &style,
@@ -137,6 +155,10 @@ class AmazonS3Head : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
+    AmazonS3Head(const S3AccessInfo &ai, const std::string &objectName, XrdSysError &log)
+		: AmazonRequest(ai, objectName, log)
+	{}
+
 	AmazonS3Head(const std::string &s, const std::string &akf,
 				 const std::string &skf, const std::string &b,
 				 const std::string &o, const std::string &style,
@@ -146,4 +168,21 @@ class AmazonS3Head : public AmazonRequest {
 	virtual ~AmazonS3Head();
 
 	virtual bool SendRequest();
+};
+
+struct S3ObjectInfo {
+	size_t m_size;
+	std::string m_key;
+};
+
+class AmazonS3List : public AmazonRequest {
+  public:
+    AmazonS3List(const S3AccessInfo &ai, const std::string &objectName, XrdSysError &log)
+		: AmazonRequest(ai, objectName, log)
+	{}
+
+	virtual ~AmazonS3List() {}
+
+	bool SendRequest(const std::string &continuationToken, size_t max_keys=1000);
+	bool Results(std::vector<S3ObjectInfo> &objInfo, std::vector<std::string> &commonPrefixes, std::string &ct, std::string &errMsg);
 };

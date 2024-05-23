@@ -49,3 +49,9 @@ const std::string &S3AccessInfo::getS3SecretKeyFile() const {
 void S3AccessInfo::setS3SecretKeyFile(const std::string &s3SecretKeyFile) {
 	s3_secret_key_file = s3SecretKeyFile;
 }
+
+const std::string &S3AccessInfo::getS3UrlStyle() const { return s3_url_style; }
+
+void S3AccessInfo::setS3UrlStyle(const std::string &s3UrlStyle) {
+	s3_url_style = s3UrlStyle;
+}
