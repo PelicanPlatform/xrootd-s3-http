@@ -21,6 +21,7 @@
 #include "S3Directory.hh"
 #include "S3File.hh"
 #include "logging.hh"
+#include "shortfile.hh"
 #include "stl_string_utils.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
@@ -89,6 +90,21 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 			if (newAccessInfo->getS3Region().empty()) {
 				m_log.Emsg("Config", "s3.region not specified");
 				return false;
+			}
+			std::string contents;
+			if (newAccessInfo->getS3AccessKeyFile() != "") {
+				if (!readShortFile(newAccessInfo->getS3AccessKeyFile(),
+								   contents)) {
+					m_log.Emsg("Config", "s3.access_key_file not readable");
+					return false;
+				}
+			}
+			if (newAccessInfo->getS3SecretKeyFile() != "") {
+				if (!readShortFile(newAccessInfo->getS3SecretKeyFile(),
+								   contents)) {
+					m_log.Emsg("Config", "s3.secret_key_file not readable");
+					return false;
+				}
 			}
 			newAccessInfo.reset(new S3AccessInfo());
 			exposedPath = "";
