@@ -75,13 +75,13 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	std::string value;
 	std::string attribute;
 	Config.Attach(cfgFD);
-	S3AccessInfo *newAccessInfo = new S3AccessInfo();
+	std::shared_ptr<S3AccessInfo> newAccessInfo(new S3AccessInfo());
 	std::string exposedPath;
 	while ((temporary = Config.GetMyFirstWord())) {
 		attribute = temporary;
 		temporary = Config.GetWord();
 		if (attribute == "s3.end") {
-			s3_access_map[exposedPath] = newAccessInfo;
+			m_s3_access_map[exposedPath] = newAccessInfo;
 			if (newAccessInfo->getS3ServiceName().empty()) {
 				m_log.Emsg("Config", "s3.service_name not specified");
 				return false;
@@ -90,7 +90,7 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 				m_log.Emsg("Config", "s3.region not specified");
 				return false;
 			}
-			newAccessInfo = new S3AccessInfo();
+			newAccessInfo.reset(new S3AccessInfo());
 			exposedPath = "";
 			continue;
 		}
@@ -151,18 +151,20 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 			newAccessInfo->setS3SecretKeyFile(value);
 		else if (attribute == "s3.service_url")
 			newAccessInfo->setS3ServiceUrl(value);
-		else if (attribute == "s3.url_style")
-			this->s3_url_style = value;
+		else if (attribute == "s3.url_style") {
+			s3_url_style = value;
+			newAccessInfo->setS3UrlStyle(s3_url_style);
+		}
 	}
 
-	if (this->s3_url_style.empty()) {
+	if (s3_url_style.empty()) {
 		m_log.Emsg("Config", "s3.url_style not specified");
 		return false;
 	} else {
 		// We want this to be case-insensitive.
-		toLower(this->s3_url_style);
+		toLower(s3_url_style);
 	}
-	if (this->s3_url_style != "virtual" && this->s3_url_style != "path") {
+	if (s3_url_style != "virtual" && s3_url_style != "path") {
 		m_log.Emsg(
 			"Config",
 			"invalid s3.url_style specified. Must be 'virtual' or 'path'");
@@ -199,30 +201,44 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	if (rv != 0) {
 		return rv;
 	}
-	auto ai = getS3AccessInfo(exposedPath);
+	auto ai = getS3AccessInfo(exposedPath, object);
 	if (!ai) {
 		return -ENOENT;
 	}
+	if (ai->getS3BucketName().empty()) {
+		return -EINVAL;
+	}
 
 	trimslashes(object);
-	AmazonS3List listCommand(*ai, object, m_log);
+	AmazonS3List listCommand(*ai, object, 1, m_log);
 	auto res = listCommand.SendRequest("");
 	if (!res) {
-		if (m_log.getMsgMask() & XrdHTTPServer::Info) {
-			std::stringstream ss;
-			ss << "Failed to stat path " << path << "; response code "
-			   << listCommand.getResponseCode();
-			m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
-		}
-		switch (listCommand.getResponseCode()) {
-		case 404:
-			return -ENOENT;
-		case 500:
+		auto httpCode = listCommand.getResponseCode();
+		if (httpCode == 0) {
+			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
+				std::stringstream ss;
+				ss << "Failed to stat path " << path << "; error: " << listCommand.getErrorMessage()
+				<< " (code=" << listCommand.getErrorCode() << ")";
+				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
+			}
 			return -EIO;
-		case 403:
-			return -EPERM;
-		default:
-			return -EIO;
+		} else {
+			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
+				std::stringstream ss;
+				ss << "Failed to stat path " << path << "; response code "
+				<< httpCode;
+				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
+			}
+			switch (httpCode) {
+			case 404:
+				return -ENOENT;
+			case 500:
+				return -EIO;
+			case 403:
+				return -EPERM;
+			default:
+				return -EIO;
+			}
 		}
 	}
 
@@ -235,6 +251,23 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		m_log.Log(XrdHTTPServer::Warning, "Stat",
 				  "Failed to parse S3 results:", errMsg.c_str());
 		return -EIO;
+	}
+	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
+		std::stringstream ss;
+		ss << "Stat on object returned " << objInfo.size() << " objects and " << commonPrefixes.size() << " prefixes";
+		m_log.Log(XrdHTTPServer::Debug, "Stat", ss.str().c_str());
+	}
+
+	if (object.empty()) {
+		buff->st_mode = 0700 | S_IFDIR;
+		buff->st_nlink = 0;
+		buff->st_uid = 1;
+		buff->st_gid = 1;
+		buff->st_size = 4096;
+		buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+		buff->st_dev = 0;
+		buff->st_ino = 1;
+		return 0;
 	}
 
 	bool foundObj = false;
@@ -336,4 +369,27 @@ int S3FileSystem::parsePath(const char *fullPath, std::string &exposedPath,
 	object = objectPath.string();
 
 	return 0;
+}
+
+const std::shared_ptr<S3AccessInfo>
+S3FileSystem::getS3AccessInfo(const std::string &exposedPath, std::string &object) const {
+	auto ai = m_s3_access_map.at(exposedPath);
+	if (!ai) {
+		return ai;
+	}
+	if (ai->getS3BucketName().empty()) {
+		// Bucket name is embedded in the "object" name.  Split it into the bucket and
+		// "real" object.
+		std::shared_ptr<S3AccessInfo> aiCopy(new S3AccessInfo(*ai));
+		auto firstSlashIdx = object.find('/');
+		if (firstSlashIdx == std::string::npos) {
+			aiCopy->setS3BucketName(object);
+			object = "";
+		} else {
+			aiCopy->setS3BucketName(object.substr(0, firstSlashIdx));
+			object = object.substr(firstSlashIdx + 1);
+		}
+		return aiCopy;
+	}
+	return ai;
 }

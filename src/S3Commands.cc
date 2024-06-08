@@ -58,18 +58,22 @@ std::string AmazonRequest::canonicalizeQueryString() {
 // the object).
 bool AmazonRequest::parseURL(const std::string &url, std::string &bucket_path,
 							 std::string &path) {
-	auto i = url.find("://");
-	if (i == std::string::npos) {
+	auto schemeEndIdx = url.find("://");
+	if (schemeEndIdx == std::string::npos) {
 		return false;
 	}
+	if (url.size() < schemeEndIdx + 3) {
+		return false;
+	}
+	auto hostStartIdx = schemeEndIdx + 3;
 
-	auto j = url.find("/", i + 3);
-	if (j == std::string::npos) {
-		if (style == "path") {
+	auto resourceStartIdx = url.find("/", hostStartIdx);
+	if (resourceStartIdx == std::string::npos) {
+		if (m_style == "path") {
 			// If we're configured for path-style requests, then the host is
 			// everything between
 			// :// and the last /
-			host = substring(url, i + 3);
+			host = substring(url, hostStartIdx);
 			// Likewise, the path is going to be /bucket/object
 			// Sometimes we intentionally configure the plugin with no bucket because we
 			// assume the incoming object request already encodes the bucket. This is used
@@ -79,13 +83,13 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &bucket_path,
 				bucket_path = "/" + object.substr(0, object.find('/'));
 			} else {
 				path = "/" + bucket + "/" + object;
-				bucket_path = bucket;
+				bucket_path = "/" + bucket;
 			}
 		} else {
 			// In virtual-style requests, the host should be determined as
 			// everything between
 			// :// up until the last /, but with <bucket> appended to the front.
-			host = bucket + "." + substring(url, i + 3);
+			host = bucket + "." + substring(url, hostStartIdx);
 			path = "/" + object;
 			bucket_path = "/";
 		}
@@ -93,12 +97,12 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &bucket_path,
 		return true;
 	}
 
-	if (style == "path") {
-		host = substring(url, i + 3, j);
-		path = substring(url, j) + "/" + bucket + "/" + object;
+	if (m_style == "path") {
+		host = substring(url, hostStartIdx, resourceStartIdx);
+		path = substring(url, resourceStartIdx) + "/" + bucket + "/" + object;
 	} else {
-		host = bucket + "." + substring(url, i + 3, j);
-		path = substring(url, j) + object;
+		host = bucket + "." + substring(url, hostStartIdx, resourceStartIdx);
+		path = substring(url, resourceStartIdx) + object;
 	}
 
 	return true;
@@ -484,15 +488,14 @@ bool AmazonS3Head::SendRequest() {
 
 // ---------------------------------------------------------------------------
 
-bool AmazonS3List::SendRequest(const std::string &continuationToken,
-							   size_t max_keys) {
-	query_parameters["list-type"] = "2";
+bool AmazonS3List::SendRequest(const std::string &continuationToken) {
+	query_parameters["list-type"] = "2"; // Version 2 of the object-listing API
 	query_parameters["delimiter"] = "/";
 	query_parameters["prefix"] = urlquote(object);
 	if (!continuationToken.empty()) {
 		query_parameters["continuation-token"] = urlquote(continuationToken);
 	}
-	query_parameters["max-keys"] = std::to_string(max_keys);
+	query_parameters["max-keys"] = std::to_string(m_maxKeys);
 	httpVerb = "GET";
 
 	// Operation is on the bucket itself; alter the URL to remove the object
@@ -501,6 +504,21 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken,
 	return SendS3Request("");
 }
 
+// Parse the results of the AWS directory listing
+//
+// S3 returns an XML structure for directory listings so we must pick it apart and
+// convert it to `objInfo` and `commonPrefixes`.  The `objInfo` is a list of objects
+// that match the current prefix but don't have a subsequent `/` in the object name.
+// The `commonPrefixes` are the unique prefixes of other objects that have the same
+// prefix as the original query but also have an `/`.
+//
+// Example.  Suppose we have the following objects in the bucket:
+// - /foo/bar.txt
+// - /foo/bar/example.txt
+// - /foo/baz/example.txt
+// Then, a query to list with prefix `/foo/` would return object info for `/foo/bar.txt`
+// while the common prefixes would be `/foo/bar/` and `/foo/baz`.  Note this is quite
+// close to returning a list of files in a directory and a list of sub-directories.
 bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 						   std::vector<std::string> &commonPrefixes,
 						   std::string &ct, std::string &errMsg) {
@@ -518,13 +536,47 @@ bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 		return false;
 	}
 
+	// Example response from S3:
+	// <?xml version="1.0" encoding="utf-8"?>
+	// <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+	//   <Name>genome-browser</Name>
+	//   <Prefix>cells/muscle-ibm/endothelial-stromal-cells</Prefix>
+	//   <KeyCount>40</KeyCount>
+	//   <MaxKeys>40</MaxKeys>
+	//   <NextContinuationToken>1PnsptbFFpBSb6UBNN4F/RrxtBvIHjNpdXNYlX8E7IyqXRK26w2y36KViUAbyPPsjzikVY0Zj4jMvQHRhsGWZbcKKrEVvaR0HaZDtfUXUwnc=</NextContinuationToken>
+	// <IsTruncated>false</IsTruncated>
+	//   <Contents>
+	//     <Key>cells/muscle-ibm/endothelial-stromal-cells/UMAP.coords.tsv.gz</Key>
+	//     <LastModified>2023-08-21T11:02:53.000Z</LastModified>
+	//     <ETag>"b9b0065f10cbd91c9d341acc235c63b0"</ETag>
+	//     <Size>360012</Size>
+	//     <StorageClass>STANDARD</StorageClass>
+	//   </Contents>
+	//   <Contents>
+	//     <Key>cells/muscle-ibm/endothelial-stromal-cells/barcodes.tsv.gz</Key>
+	//     <LastModified>2023-07-17T11:02:19.000Z</LastModified>
+	//     <ETag>"048feef5d340e2dd4d2d2d495c24ad7e"</ETag>
+	//     <Size>118061</Size>
+	//     <StorageClass>STANDARD</StorageClass>
+	//   </Contents>
+	// ... (truncated some entries for readability) ...
+	//   <CommonPrefixes>
+	//     <Prefix>cells/muscle-ibm/endothelial-stromal-cells/coords/</Prefix>
+	//   </CommonPrefixes>
+	//   <CommonPrefixes>
+	//     <Prefix>cells/muscle-ibm/endothelial-stromal-cells/markers/</Prefix>
+	//   </CommonPrefixes>
+	//  <CommonPrefixes>
+	//    <Prefix>cells/muscle-ibm/endothelial-stromal-cells/metaFields/</Prefix>
+	//  </CommonPrefixes>
+	// </ListBucketResult>
 	bool isTruncated = false;
 	for (auto child = elem->FirstChildElement(); child != nullptr;
 		 child = child->NextSiblingElement()) {
 		if (!strcmp(child->Name(), "IsTruncated")) {
 			bool isTrunc;
 			if (child->QueryBoolText(&isTrunc) == tinyxml2::XML_SUCCESS) {
-				isTruncated = true;
+				isTruncated = isTrunc;
 			}
 		} else if (!strcmp(child->Name(), "CommonPrefixes")) {
 			auto prefix = child->FirstChildElement("Prefix");

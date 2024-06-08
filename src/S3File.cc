@@ -58,16 +58,21 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	if (rv != 0) {
 		return rv;
 	}
-	auto ai = m_oss->getS3AccessInfo(exposedPath);
+	auto ai = m_oss->getS3AccessInfo(exposedPath, object);
 	if (!ai) {
 		return -ENOENT;
 	}
+	if (ai->getS3BucketName().empty()) {
+		return -EINVAL;
+	}
+
 	m_ai = *ai;
+	m_object = object;
 
 	// This flag is not set when it's going to be a read operation
 	// so we check if the file exists in order to be able to return a 404
 	if (!Oflag) {
-		AmazonS3Head head(m_ai, s3_object_name, m_log);
+		AmazonS3Head head(m_ai, m_object, m_log);
 
 		if (!head.SendRequest()) {
 			return -ENOENT;
@@ -78,7 +83,7 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 }
 
 ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
-	AmazonS3Download download(m_ai, s3_object_name, m_log);
+	AmazonS3Download download(m_ai, m_object, m_log);
 
 	if (!download.SendRequest(offset, size)) {
 		std::stringstream ss;
@@ -94,7 +99,7 @@ ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
 }
 
 int S3File::Fstat(struct stat *buff) {
-	AmazonS3Head head(m_ai, s3_object_name, m_log);
+	AmazonS3Head head(m_ai, m_object, m_log);
 
 	if (!head.SendRequest()) {
 		// SendRequest() returns false for all errors, including ones
@@ -159,7 +164,7 @@ int S3File::Fstat(struct stat *buff) {
 }
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
-	AmazonS3Upload upload(m_ai, s3_object_name, m_log);
+	AmazonS3Upload upload(m_ai, m_object, m_log);
 
 	std::string payload((char *)buffer, size);
 	if (!upload.SendRequest(payload, offset, size)) {

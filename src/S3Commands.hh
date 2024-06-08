@@ -37,7 +37,7 @@ class AmazonRequest : public HTTPRequest {
 				  const std::string &o, const std::string &style, int sv,
 				  XrdSysError &log)
 		: HTTPRequest(s, log), accessKeyFile(akf), secretKeyFile(skf),
-		  signatureVersion(sv), bucket(b), object(o), style(style) {
+		  signatureVersion(sv), bucket(b), object(o), m_style(style) {
 		requiresSignature = true;
 		// Start off by parsing the hostUrl, which we use in conjunction with
 		// the bucket to fill in the host (for setting host header). For
@@ -99,7 +99,7 @@ class AmazonRequest : public HTTPRequest {
 	std::string region;
 	std::string service;
 
-	std::string style;
+	std::string m_style;
 
   private:
 	bool createV4Signature(const std::string &payload,
@@ -176,13 +176,18 @@ struct S3ObjectInfo {
 };
 
 class AmazonS3List : public AmazonRequest {
+	using AmazonRequest::SendRequest;
+
   public:
-    AmazonS3List(const S3AccessInfo &ai, const std::string &objectName, XrdSysError &log)
-		: AmazonRequest(ai, objectName, log)
+    AmazonS3List(const S3AccessInfo &ai, const std::string &objectName, size_t maxKeys, XrdSysError &log)
+		: AmazonRequest(ai, objectName, log), m_maxKeys(maxKeys)
 	{}
 
 	virtual ~AmazonS3List() {}
 
-	bool SendRequest(const std::string &continuationToken, size_t max_keys=1000);
+	bool SendRequest(const std::string &continuationToken);
 	bool Results(std::vector<S3ObjectInfo> &objInfo, std::vector<std::string> &commonPrefixes, std::string &ct, std::string &errMsg);
+
+  private:
+	size_t m_maxKeys{1000};
 };

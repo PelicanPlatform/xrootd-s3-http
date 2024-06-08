@@ -98,7 +98,7 @@ class S3File : public XrdOssDF {
 	XrdSysError &m_log;
 	S3FileSystem *m_oss;
 
-	std::string s3_object_name;
+	std::string m_object;
 	S3AccessInfo m_ai;
 
 	size_t content_length;

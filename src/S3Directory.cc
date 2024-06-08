@@ -25,6 +25,8 @@
 
 #include <tinyxml2.h>
 
+#include <sstream>
+
 void S3Directory::Reset() {
 	m_opened = false;
 	m_ct = "";
@@ -37,7 +39,7 @@ void S3Directory::Reset() {
 }
 
 int S3Directory::ListS3Dir(const std::string &ct) {
-	AmazonS3List listCommand(m_ai, m_object, m_log);
+	AmazonS3List listCommand(m_ai, m_object, 1000, m_log);
 	auto res = listCommand.SendRequest(ct);
 	if (!res) {
 		switch (listCommand.getResponseCode()) {
@@ -59,6 +61,12 @@ int S3Directory::ListS3Dir(const std::string &ct) {
 				  "Failed to parse S3 results:", errMsg.c_str());
 		return -EIO;
 	}
+    if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
+		std::stringstream ss;
+		ss << "Directory listing returned " << m_objInfo.size() << " objects and " << m_commonPrefixes.size() << " prefixes";
+		m_log.Log(XrdHTTPServer::Debug, "Stat", ss.str().c_str());
+	}
+
 	m_opened = true;
 	return 0;
 }
@@ -75,11 +83,23 @@ int S3Directory::Opendir(const char *path, XrdOucEnv &env) {
 		return rv;
 	}
 
-	auto ai = m_fs.getS3AccessInfo(exposedPath);
+	auto ai = m_fs.getS3AccessInfo(exposedPath, object);
 	if (!ai) {
 		return -ENOENT;
 	}
+
+	if (ai->getS3BucketName().empty()) {
+		return -EINVAL;
+	}
+
 	m_ai = *ai;
+	// If the prefix is "foo" and there's an object "foo/bar", then
+	// the lookup only returns "foo/" (as it's the longest common prefix prior
+	// to a delimiter).  Instead, we want to query for "foo/", which returns
+	// "foo/bar".
+	if (!object.empty() && (object[object.size() - 1] != '/')) {
+		object += "/";
+	}
 	m_object = object;
 
 	return ListS3Dir("");
@@ -112,7 +132,10 @@ int S3Directory::Readdir(char *buff, int blen) {
 	} else if (idx >= 0 && idx < static_cast<ssize_t>(m_objInfo.size())) {
 		m_idx++;
 		std::string full_name = m_objInfo[idx].m_key;
-		full_name.erase(0, full_name.rfind("/"));
+		auto lastSlashIdx = full_name.rfind("/");
+		if (lastSlashIdx != std::string::npos) {
+			full_name.erase(0, lastSlashIdx);
+		}
 		trimslashes(full_name);
 		strncpy(buff, full_name.c_str(), blen);
 		if (buff[blen - 1] != '\0') {
@@ -131,7 +154,7 @@ int S3Directory::Readdir(char *buff, int blen) {
 			m_idx = 0;
 			m_objInfo.clear();
 			m_commonPrefixes.clear();
-			memset(&m_stat_buf, '\0', sizeof(struct stat));
+			memset(m_stat_buf, '\0', sizeof(struct stat));
 			auto rv = ListS3Dir(m_ct);
 			if (rv != 0) {
 				m_opened = false;
@@ -150,7 +173,7 @@ int S3Directory::Readdir(char *buff, int blen) {
 				m_idx = 0;
 				m_objInfo.clear();
 				m_commonPrefixes.clear();
-				memset(&m_stat_buf, '\0', sizeof(struct stat));
+				memset(m_stat_buf, '\0', sizeof(struct stat));
 				auto rv = ListS3Dir(m_ct);
 				if (rv != 0) {
 					m_opened = false;
@@ -171,7 +194,10 @@ int S3Directory::Readdir(char *buff, int blen) {
 		}
 		std::string full_name = m_commonPrefixes[idx];
 		trimslashes(full_name);
-		full_name.erase(0, full_name.rfind("/"));
+		auto lastSlashIdx = full_name.rfind("/");
+		if (lastSlashIdx != std::string::npos) {
+			full_name.erase(0, lastSlashIdx);
+		}
 		trimslashes(full_name);
 		strncpy(buff, full_name.c_str(), blen);
 		if (buff[blen - 1] != '\0') {
