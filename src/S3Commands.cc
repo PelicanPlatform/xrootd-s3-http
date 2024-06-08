@@ -75,9 +75,10 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &bucket_path,
 			// :// and the last /
 			host = substring(url, hostStartIdx);
 			// Likewise, the path is going to be /bucket/object
-			// Sometimes we intentionally configure the plugin with no bucket because we
-			// assume the incoming object request already encodes the bucket. This is used
-			// for exporting many buckets from a single endpoint.
+			// Sometimes we intentionally configure the plugin with no bucket
+			// because we assume the incoming object request already encodes the
+			// bucket. This is used for exporting many buckets from a single
+			// endpoint.
 			if (bucket.empty()) {
 				path = "/" + object;
 				bucket_path = "/" + object.substr(0, object.find('/'));
@@ -506,19 +507,20 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken) {
 
 // Parse the results of the AWS directory listing
 //
-// S3 returns an XML structure for directory listings so we must pick it apart and
-// convert it to `objInfo` and `commonPrefixes`.  The `objInfo` is a list of objects
-// that match the current prefix but don't have a subsequent `/` in the object name.
-// The `commonPrefixes` are the unique prefixes of other objects that have the same
-// prefix as the original query but also have an `/`.
+// S3 returns an XML structure for directory listings so we must pick it apart
+// and convert it to `objInfo` and `commonPrefixes`.  The `objInfo` is a list of
+// objects that match the current prefix but don't have a subsequent `/` in the
+// object name. The `commonPrefixes` are the unique prefixes of other objects
+// that have the same prefix as the original query but also have an `/`.
 //
 // Example.  Suppose we have the following objects in the bucket:
 // - /foo/bar.txt
 // - /foo/bar/example.txt
 // - /foo/baz/example.txt
-// Then, a query to list with prefix `/foo/` would return object info for `/foo/bar.txt`
-// while the common prefixes would be `/foo/bar/` and `/foo/baz`.  Note this is quite
-// close to returning a list of files in a directory and a list of sub-directories.
+// Then, a query to list with prefix `/foo/` would return object info for
+// `/foo/bar.txt` while the common prefixes would be `/foo/bar/` and `/foo/baz`.
+// Note this is quite close to returning a list of files in a directory and a
+// list of sub-directories.
 bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 						   std::vector<std::string> &commonPrefixes,
 						   std::string &ct, std::string &errMsg) {

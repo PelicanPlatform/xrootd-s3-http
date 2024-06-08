@@ -217,8 +217,9 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		if (httpCode == 0) {
 			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
 				std::stringstream ss;
-				ss << "Failed to stat path " << path << "; error: " << listCommand.getErrorMessage()
-				<< " (code=" << listCommand.getErrorCode() << ")";
+				ss << "Failed to stat path " << path
+				   << "; error: " << listCommand.getErrorMessage()
+				   << " (code=" << listCommand.getErrorCode() << ")";
 				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
 			}
 			return -EIO;
@@ -226,7 +227,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
 				std::stringstream ss;
 				ss << "Failed to stat path " << path << "; response code "
-				<< httpCode;
+				   << httpCode;
 				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
 			}
 			switch (httpCode) {
@@ -254,7 +255,8 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	}
 	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
 		std::stringstream ss;
-		ss << "Stat on object returned " << objInfo.size() << " objects and " << commonPrefixes.size() << " prefixes";
+		ss << "Stat on object returned " << objInfo.size() << " objects and "
+		   << commonPrefixes.size() << " prefixes";
 		m_log.Log(XrdHTTPServer::Debug, "Stat", ss.str().c_str());
 	}
 
@@ -372,14 +374,15 @@ int S3FileSystem::parsePath(const char *fullPath, std::string &exposedPath,
 }
 
 const std::shared_ptr<S3AccessInfo>
-S3FileSystem::getS3AccessInfo(const std::string &exposedPath, std::string &object) const {
+S3FileSystem::getS3AccessInfo(const std::string &exposedPath,
+							  std::string &object) const {
 	auto ai = m_s3_access_map.at(exposedPath);
 	if (!ai) {
 		return ai;
 	}
 	if (ai->getS3BucketName().empty()) {
-		// Bucket name is embedded in the "object" name.  Split it into the bucket and
-		// "real" object.
+		// Bucket name is embedded in the "object" name.  Split it into the
+		// bucket and "real" object.
 		std::shared_ptr<S3AccessInfo> aiCopy(new S3AccessInfo(*ai));
 		auto firstSlashIdx = object.find('/');
 		if (firstSlashIdx == std::string::npos) {

@@ -36,7 +36,7 @@ class S3AccessInfo {
 
 	void setS3UrlStyle(const std::string &s3UrlStyle);
 
-	const int getS3SignatureVersion() const {return 4;}
+	const int getS3SignatureVersion() const { return 4; }
 
   private:
 	std::string s3_bucket_name;

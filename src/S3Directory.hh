@@ -30,9 +30,7 @@ class XrdSysError;
 class S3Directory : public HTTPDirectory {
   public:
 	S3Directory(XrdSysError &log, const S3FileSystem &fs)
-		: HTTPDirectory(log),
-		  m_fs(fs)
-	{}
+		: HTTPDirectory(log), m_fs(fs) {}
 
 	virtual ~S3Directory() {}
 

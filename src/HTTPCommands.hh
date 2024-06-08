@@ -47,8 +47,8 @@ class HTTPRequest {
 	virtual bool SendHTTPRequest(const std::string &payload);
 
 	unsigned long getResponseCode() const { return responseCode; }
-	const std::string & getErrorCode() const {return errorCode;}
-	const std::string & getErrorMessage() const {return errorMessage;}
+	const std::string &getErrorCode() const { return errorCode; }
+	const std::string &getErrorMessage() const { return errorMessage; }
 	const std::string &getResultString() const { return resultString; }
 
 	// Currently only used in PUTS, but potentially useful elsewhere

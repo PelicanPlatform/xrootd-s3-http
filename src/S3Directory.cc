@@ -61,9 +61,10 @@ int S3Directory::ListS3Dir(const std::string &ct) {
 				  "Failed to parse S3 results:", errMsg.c_str());
 		return -EIO;
 	}
-    if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
+	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
 		std::stringstream ss;
-		ss << "Directory listing returned " << m_objInfo.size() << " objects and " << m_commonPrefixes.size() << " prefixes";
+		ss << "Directory listing returned " << m_objInfo.size()
+		   << " objects and " << m_commonPrefixes.size() << " prefixes";
 		m_log.Log(XrdHTTPServer::Debug, "Stat", ss.str().c_str());
 	}
 
