@@ -111,7 +111,9 @@ int S3Directory::Readdir(char *buff, int blen) {
 		return -EBADF;
 	}
 
-	memset(m_stat_buf, '\0', sizeof(struct stat));
+	if (m_stat_buf) {
+		memset(m_stat_buf, '\0', sizeof(struct stat));
+	}
 
 	// m_idx encodes the location inside the current directory.
 	// - m_idx in [0, m_objInfo.size) means return a "file" from the object
@@ -155,7 +157,9 @@ int S3Directory::Readdir(char *buff, int blen) {
 			m_idx = 0;
 			m_objInfo.clear();
 			m_commonPrefixes.clear();
-			memset(m_stat_buf, '\0', sizeof(struct stat));
+			if (m_stat_buf) {
+				memset(m_stat_buf, '\0', sizeof(struct stat));
+			}
 			auto rv = ListS3Dir(m_ct);
 			if (rv != 0) {
 				m_opened = false;
@@ -174,7 +178,9 @@ int S3Directory::Readdir(char *buff, int blen) {
 				m_idx = 0;
 				m_objInfo.clear();
 				m_commonPrefixes.clear();
-				memset(m_stat_buf, '\0', sizeof(struct stat));
+				if (m_stat_buf) {
+					memset(m_stat_buf, '\0', sizeof(struct stat));
+				}
 				auto rv = ListS3Dir(m_ct);
 				if (rv != 0) {
 					m_opened = false;
