@@ -21,15 +21,12 @@ add_executable( http-gtest http_tests.cc
 )
 
 
-if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
-    add_dependencies(s3-gtest gtest)
-    add_dependencies(http-gtest gtest)
-    include_directories("${PROJECT_SOURCE_DIR}/vendor/gtest/googletest/include")
-endif()
-
 if(XROOTD_PLUGINS_EXTERNAL_GTEST)
     set(LIBGTEST "gtest")
 else()
+    add_dependencies(s3-gtest gtest)
+    add_dependencies(http-gtest gtest)
+    include_directories("${PROJECT_SOURCE_DIR}/vendor/gtest/googletest/include")
     set(LIBGTEST "${CMAKE_BINARY_DIR}/external/gtest/src/gtest-build/lib/libgtest.a")
 endif()
 

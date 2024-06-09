@@ -65,8 +65,8 @@ target_link_libraries(XrdHTTPServer -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB
 # The CMake documentation strongly advises against using these macros; instead, the pkg_check_modules
 # is supposed to fill out the full path to ${LIBCRYPTO_LIBRARIES}.  As of cmake 3.26.1, this does not
 # appear to be the case on Mac OS X.  Remove once no longer necessary!
-target_link_directories(XrdS3 PRIVATE ${LIBCRYPTO_LIBRARY_DIRS})
-target_link_directories(XrdHTTPServer PRIVATE ${LIBCRYPTO_LIBRARY_DIRS})
+target_link_directories(XrdS3 PUBLIC ${LIBCRYPTO_LIBRARY_DIRS})
+target_link_directories(XrdHTTPServer PUBLIC ${LIBCRYPTO_LIBRARY_DIRS})
 
 if(NOT APPLE)
   set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
@@ -84,16 +84,17 @@ install(
 )
 
 if( XROOTD_PLUGINS_BUILD_UNITTESTS )
-	if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
-include(ExternalProject)
-ExternalProject_Add(gtest
-    PREFIX external/gtest
-    URL ${CMAKE_CURRENT_SOURCE_DIR}/vendor/gtest
-    INSTALL_COMMAND :
-)
-endif()
-enable_testing()
-add_subdirectory(test)
+  if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
+    include(ExternalProject)
+    ExternalProject_Add(gtest
+      PREFIX external/gtest
+      URL ${CMAKE_CURRENT_SOURCE_DIR}/vendor/gtest
+      BUILD_BYPRODUCTS external/gtest/src/gtest-build/lib/libgtest.a
+      INSTALL_COMMAND :
+    )
+  endif()
+  enable_testing()
+  add_subdirectory(test)
 endif()
 
 #install(
