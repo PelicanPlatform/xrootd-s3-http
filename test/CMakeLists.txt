@@ -7,6 +7,7 @@ add_executable( s3-gtest s3_tests.cc
   ../src/S3FileSystem.cc
   ../src/shortfile.cc
   ../src/stl_string_utils.cc
+  ../src/TokenFile.cc
   ../src/HTTPCommands.cc
   ../src/S3Commands.cc
 )
@@ -16,6 +17,7 @@ add_executable( http-gtest http_tests.cc
   ../src/HTTPFileSystem.cc
   ../src/HTTPCommands.cc
   ../src/stl_string_utils.cc
+  ../src/TokenFile.cc
   ../src/shortfile.cc
   ../src/logging.cc
 )

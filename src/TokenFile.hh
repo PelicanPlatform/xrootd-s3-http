@@ -22,6 +22,7 @@
 #include <XrdSys/XrdSysPthread.hh>
 
 #include <chrono>
+#include <memory>
 #include <string>
 
 // A class representing a bearer token found from a file on disk
