@@ -161,14 +161,7 @@ int HTTPFileSystem::Stat(const char *path, struct stat *buff, int opts,
 		m_log.Emsg("Stat", "Failed to open path:", path);
 	}
 	// Assume that HTTPFile::FStat() doesn't write to buff unless it succeeds.
-	rv = httpFile.Fstat(buff);
-	if (rv != 0) {
-		formatstr(error, "File %s not found.", path);
-		m_log.Emsg("Stat", error.c_str());
-		return -ENOENT;
-	}
-
-	return 0;
+	return httpFile.Fstat(buff);
 }
 
 int HTTPFileSystem::Create(const char *tid, const char *path, mode_t mode,

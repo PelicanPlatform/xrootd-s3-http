@@ -102,16 +102,29 @@ int S3File::Fstat(struct stat *buff) {
 	AmazonS3Head head(m_ai, m_object, m_log);
 
 	if (!head.SendRequest()) {
-		// SendRequest() returns false for all errors, including ones
-		// where the server properly responded with something other
-		// than code 200.  If xrootd wants us to distinguish between
-		// these cases, head.getResponseCode() is initialized to 0, so
-		// we can check.
-		std::stringstream ss;
-		ss << "Failed to send HeadObject command: " << head.getResponseCode()
-		   << "'" << head.getResultString() << "'";
-		m_log.Log(LogMask::Warning, "S3File::Fstat", ss.str().c_str());
-		return -ENOENT;
+		auto httpCode = head.getResponseCode();
+		if (httpCode) {
+			std::stringstream ss;
+			ss << "HEAD command failed: " << head.getResponseCode() << ": "
+			   << head.getResultString();
+			m_log.Log(LogMask::Warning, "S3ile::Fstat", ss.str().c_str());
+			switch (httpCode) {
+			case 404:
+				return -ENOENT;
+			case 500:
+				return -EIO;
+			case 403:
+				return -EPERM;
+			default:
+				return -EIO;
+			}
+		} else {
+			std::stringstream ss;
+			ss << "Failed to send HEAD command: " << head.getErrorCode() << ": "
+			   << head.getErrorMessage();
+			m_log.Log(LogMask::Warning, "S3File::Fstat", ss.str().c_str());
+			return -EIO;
+		}
 	}
 
 	std::string headers = head.getResultString();

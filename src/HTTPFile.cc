@@ -142,6 +142,20 @@ ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
 }
 
 int HTTPFile::Fstat(struct stat *buff) {
+	if (m_stat) {
+		buff->st_mode = 0600 | S_IFREG;
+		buff->st_nlink = 1;
+		buff->st_uid = 1;
+		buff->st_gid = 1;
+		buff->st_size = content_length;
+		buff->st_mtime = last_modified;
+		buff->st_atime = 0;
+		buff->st_ctime = 0;
+		buff->st_dev = 0;
+		buff->st_ino = 0;
+		return 0;
+	}
+
 	m_log.Log(LogMask::Debug, "HTTPFile::Fstat",
 			  "About to perform HTTPFile::Fstat():", hostUrl.c_str(),
 			  object.c_str());
@@ -153,11 +167,29 @@ int HTTPFile::Fstat(struct stat *buff) {
 		// than code 200.  If xrootd wants us to distinguish between
 		// these cases, head.getResponseCode() is initialized to 0, so
 		// we can check.
-		std::stringstream ss;
-		ss << "Failed to send HeadObject command: " << head.getResponseCode()
-		   << "'" << head.getResultString() << "'";
-		m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
-		return -ENOENT;
+		auto httpCode = head.getResponseCode();
+		if (httpCode) {
+			std::stringstream ss;
+			ss << "HEAD command failed: " << head.getResponseCode() << ": "
+			   << head.getResultString();
+			m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
+			switch (httpCode) {
+			case 404:
+				return -ENOENT;
+			case 500:
+				return -EIO;
+			case 403:
+				return -EPERM;
+			default:
+				return -EIO;
+			}
+		} else {
+			std::stringstream ss;
+			ss << "Failed to send HEAD command: " << head.getErrorCode() << ": "
+			   << head.getErrorMessage();
+			m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
+			return -EIO;
+		}
 	}
 
 	std::string headers = head.getResultString();
@@ -197,16 +229,19 @@ int HTTPFile::Fstat(struct stat *buff) {
 		current_newline = next_newline;
 	}
 
-	buff->st_mode = 0600 | S_IFREG;
-	buff->st_nlink = 1;
-	buff->st_uid = 1;
-	buff->st_gid = 1;
-	buff->st_size = this->content_length;
-	buff->st_mtime = this->last_modified;
-	buff->st_atime = 0;
-	buff->st_ctime = 0;
-	buff->st_dev = 0;
-	buff->st_ino = 0;
+	if (buff) {
+		buff->st_mode = 0600 | S_IFREG;
+		buff->st_nlink = 1;
+		buff->st_uid = 1;
+		buff->st_gid = 1;
+		buff->st_size = this->content_length;
+		buff->st_mtime = this->last_modified;
+		buff->st_atime = 0;
+		buff->st_ctime = 0;
+		buff->st_dev = 0;
+		buff->st_ino = 0;
+	}
+	m_stat = true;
 
 	return 0;
 }
