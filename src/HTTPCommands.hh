@@ -57,6 +57,12 @@ class HTTPRequest {
 		size_t sentSoFar;
 	};
 
+	// Initialize libraries for HTTP.
+	//
+	// Should be called at least once per application from a non-threaded
+	// context.
+	static void init();
+
   protected:
 	bool sendPreparedRequest(const std::string &protocol,
 							 const std::string &uri,

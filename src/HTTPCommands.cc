@@ -168,12 +168,6 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 
 	m_log.Log(XrdHTTPServer::Debug, "SendRequest", "Sending HTTP request",
 			  uri.c_str());
-	CURLcode rv = curl_global_init(CURL_GLOBAL_ALL);
-	if (rv != 0) {
-		this->errorCode = "E_CURL_LIB";
-		this->errorMessage = "curl_global_init() failed.";
-		return false;
-	}
 
 	std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(
 		curl_easy_init(), &curl_easy_cleanup);
@@ -185,7 +179,7 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 	}
 
 	char errorBuffer[CURL_ERROR_SIZE];
-	rv = curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errorBuffer);
+	auto rv = curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errorBuffer);
 	if (rv != CURLE_OK) {
 		this->errorCode = "E_CURL_LIB";
 		this->errorMessage = "curl_easy_setopt( CURLOPT_ERRORBUFFER ) failed.";
@@ -446,6 +440,13 @@ bool HTTPUpload::SendRequest(const std::string &payload, off_t offset,
 
 	httpVerb = "PUT";
 	return SendHTTPRequest(payload);
+}
+
+void HTTPRequest::init() {
+	CURLcode rv = curl_global_init(CURL_GLOBAL_ALL);
+	if (rv != 0) {
+		throw std::runtime_error("libcurl failed to initialize");
+	}
 }
 
 // ---------------------------------------------------------------------------

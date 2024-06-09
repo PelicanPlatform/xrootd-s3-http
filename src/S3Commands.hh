@@ -82,6 +82,8 @@ class AmazonRequest : public HTTPRequest {
 	virtual bool SendRequest();
 	virtual bool SendS3Request(const std::string &payload);
 
+	static void init() { HTTPRequest::init(); }
+
   protected:
 	bool sendV4Request(const std::string &payload, bool sendContentSHA = false);
 

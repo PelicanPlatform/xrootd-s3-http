@@ -208,6 +208,7 @@ XrdOss *XrdOssGetStorageSystem2(XrdOss *native_oss, XrdSysLogger *Logger,
 	envP->Export("XRDXROOTD_NOPOSC", "1");
 
 	try {
+		AmazonRequest::init();
 		g_s3_oss = new S3FileSystem(Logger, config_fn, envP);
 		return g_s3_oss;
 	} catch (std::runtime_error &re) {
