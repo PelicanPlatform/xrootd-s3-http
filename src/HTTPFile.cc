@@ -111,22 +111,24 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		return rv;
 	}
 
-	// We used to query S3 here to see if the object existed, but of course
-	// if you're creating a file on upload, you don't care.
+	m_object = object;
+	m_hostname = configured_hostname;
+	m_hostUrl = configured_hostUrl;
 
-	this->object = object;
-	this->hostname = configured_hostname;
-	this->hostUrl = configured_hostUrl;
+	if (!Oflag) {
+		struct stat buf;
+		return Fstat(&buf);
+	}
 
 	return 0;
 }
 
 ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
-	HTTPDownload download(this->hostUrl, this->object, m_log);
+	HTTPDownload download(m_hostUrl, m_object, m_log, m_oss->getToken());
 	m_log.Log(
 		LogMask::Debug, "HTTPFile::Read",
 		"About to perform download from HTTPFile::Read(): hostname / object:",
-		hostname.c_str(), object.c_str());
+		m_hostname.c_str(), m_object.c_str());
 
 	if (!download.SendRequest(offset, size)) {
 		std::stringstream ss;
@@ -157,9 +159,9 @@ int HTTPFile::Fstat(struct stat *buff) {
 	}
 
 	m_log.Log(LogMask::Debug, "HTTPFile::Fstat",
-			  "About to perform HTTPFile::Fstat():", hostUrl.c_str(),
-			  object.c_str());
-	HTTPHead head(hostUrl, object, m_log);
+			  "About to perform HTTPFile::Fstat():", m_hostUrl.c_str(),
+			  m_object.c_str());
+	HTTPHead head(m_hostUrl, m_object, m_log, m_oss->getToken());
 
 	if (!head.SendRequest()) {
 		// SendRequest() returns false for all errors, including ones
@@ -247,7 +249,7 @@ int HTTPFile::Fstat(struct stat *buff) {
 }
 
 ssize_t HTTPFile::Write(const void *buffer, off_t offset, size_t size) {
-	HTTPUpload upload(this->hostUrl, this->object, m_log);
+	HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
 
 	std::string payload((char *)buffer, size);
 	if (!upload.SendRequest(payload, offset, size)) {

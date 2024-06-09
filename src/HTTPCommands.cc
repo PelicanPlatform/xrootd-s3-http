@@ -341,6 +341,24 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 		}
 	}
 
+	if (m_token) {
+		const auto iter = headers.find("Authorization");
+		if (iter == headers.end()) {
+			std::string token;
+			if (m_token->Get(token) && !token.empty()) {
+				headers["Authorization"] = "Bearer " + token;
+			} else {
+				errorCode = "E_TOKEN";
+				errorMessage = "failed to load authorization token from file";
+			}
+		}
+	}
+	{
+		const auto iter = headers.find("User-Agent");
+		if (iter == headers.end()) {
+			headers["User-Agent"] = "xrootd-http/devel";
+		}
+	}
 	std::string headerPair;
 	struct curl_slist *header_slist = NULL;
 	for (auto i = headers.begin(); i != headers.end(); ++i) {

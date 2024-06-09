@@ -95,12 +95,14 @@ class HTTPFile : public XrdOssDF {
 	time_t getLastModified() { return last_modified; }
 
   private:
+	bool m_stat{false};
+
 	XrdSysError &m_log;
 	HTTPFileSystem *m_oss;
 
-	std::string hostname;
-	std::string hostUrl;
-	std::string object;
+	std::string m_hostname;
+	std::string m_hostUrl;
+	std::string m_object;
 
 	size_t content_length;
 	time_t last_modified;

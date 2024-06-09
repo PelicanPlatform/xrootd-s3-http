@@ -27,7 +27,7 @@ class TestHTTPRequest : public HTTPRequest {
 	XrdSysLogger log{};
 	XrdSysError err{&log, "TestS3CommandsLog"};
 
-	TestHTTPRequest(const std::string &url) : HTTPRequest(url, err) {}
+	TestHTTPRequest(const std::string &url) : HTTPRequest(url, err, nullptr) {}
 };
 
 TEST(TestHTTPParseProtocol, Test1) {

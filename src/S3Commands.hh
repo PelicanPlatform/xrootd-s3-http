@@ -37,7 +37,7 @@ class AmazonRequest : public HTTPRequest {
 				  const std::string &skf, const std::string &b,
 				  const std::string &o, const std::string &style, int sv,
 				  XrdSysError &log)
-		: HTTPRequest(s, log), accessKeyFile(akf), secretKeyFile(skf),
+		: HTTPRequest(s, log, nullptr), accessKeyFile(akf), secretKeyFile(skf),
 		  signatureVersion(sv), bucket(b), object(o), m_style(style) {
 		requiresSignature = true;
 		// Start off by parsing the hostUrl, which we use in conjunction with
