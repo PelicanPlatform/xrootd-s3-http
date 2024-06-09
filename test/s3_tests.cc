@@ -179,35 +179,41 @@ void TestDirectoryContents(S3FileSystem &fs, const std::string &dirname) {
 	rv = dir->Readdir(&name[0], 255);
 	ASSERT_EQ(rv, 0);
 	ASSERT_EQ(std::string(&name[0]), "cellbrowser.json.bak");
-	ASSERT_EQ(buf.st_mode & S_IFREG, static_cast<decltype(buf.st_mode)>(S_IFREG));
+	ASSERT_EQ(buf.st_mode & S_IFREG,
+			  static_cast<decltype(buf.st_mode)>(S_IFREG));
 	ASSERT_EQ(buf.st_size, 672);
 
 	rv = dir->Readdir(&name[0], 255);
 	ASSERT_EQ(rv, 0);
 	ASSERT_EQ(std::string(&name[0]), "dataset.json");
-	ASSERT_EQ(buf.st_mode & S_IFREG, static_cast<decltype(buf.st_mode)>(S_IFREG));
+	ASSERT_EQ(buf.st_mode & S_IFREG,
+			  static_cast<decltype(buf.st_mode)>(S_IFREG));
 	ASSERT_EQ(buf.st_size, 1847);
 
 	rv = dir->Readdir(&name[0], 255);
 	ASSERT_EQ(rv, 0);
 	ASSERT_EQ(std::string(&name[0]), "desc.json");
-	ASSERT_EQ(buf.st_mode & S_IFREG, static_cast<decltype(buf.st_mode)>(S_IFREG));
+	ASSERT_EQ(buf.st_mode & S_IFREG,
+			  static_cast<decltype(buf.st_mode)>(S_IFREG));
 	ASSERT_EQ(buf.st_size, 1091);
 
 	rv = dir->Readdir(&name[0], 255);
 	ASSERT_EQ(rv, 0);
 	ASSERT_EQ(std::string(&name[0]), "all");
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<decltype(buf.st_mode)>(S_IFDIR));
+	ASSERT_EQ(buf.st_mode & S_IFDIR,
+			  static_cast<decltype(buf.st_mode)>(S_IFDIR));
 
 	rv = dir->Readdir(&name[0], 255);
 	ASSERT_EQ(rv, 0);
 	ASSERT_EQ(std::string(&name[0]), "by-organ");
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<decltype(buf.st_mode)>(S_IFDIR));
+	ASSERT_EQ(buf.st_mode & S_IFDIR,
+			  static_cast<decltype(buf.st_mode)>(S_IFDIR));
 
 	rv = dir->Readdir(&name[0], 255);
 	ASSERT_EQ(rv, 0);
 	ASSERT_EQ(std::string(&name[0]), "func-compart");
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<decltype(buf.st_mode)>(S_IFDIR));
+	ASSERT_EQ(buf.st_mode & S_IFDIR,
+			  static_cast<decltype(buf.st_mode)>(S_IFDIR));
 
 	rv = dir->Readdir(&name[0], 255);
 	ASSERT_EQ(rv, 0);
