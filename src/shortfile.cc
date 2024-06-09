@@ -84,7 +84,8 @@ bool readShortFile(const std::string &fileName, std::string &contents) {
 	return true;
 }
 
-bool writeShortFile(const std::string &fileName, std::string &contents, int flags) {
+bool writeShortFile(const std::string &fileName, std::string &contents,
+					int flags) {
 	int fd = open(fileName.c_str(), O_WRONLY | flags, 0600);
 	if (fd < 0) {
 		return false;

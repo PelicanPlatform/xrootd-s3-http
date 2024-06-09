@@ -219,7 +219,8 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	}
 	auto ai = getS3AccessInfo(exposedPath, object);
 	if (!ai) {
-		m_log.Log(XrdHTTPServer::Info, "Stat", "Prefix not configured for Stat");
+		m_log.Log(XrdHTTPServer::Info, "Stat",
+				  "Prefix not configured for Stat");
 		return -ENOENT;
 	}
 	if (ai->getS3BucketName().empty()) {
