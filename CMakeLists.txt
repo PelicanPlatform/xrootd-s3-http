@@ -39,7 +39,7 @@ endmacro(use_cxx17)
 use_cxx17()
 
 if( CMAKE_COMPILER_IS_GNUCXX )
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" ) 
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" )
 endif()
 
 if(NOT APPLE)

@@ -7,7 +7,7 @@ add_executable( s3-gtest s3_tests.cc
   ../src/S3FileSystem.cc
   ../src/shortfile.cc
   ../src/stl_string_utils.cc
-  ../src/HTTPCommands.cc 
+  ../src/HTTPCommands.cc
   ../src/S3Commands.cc
 )
 
