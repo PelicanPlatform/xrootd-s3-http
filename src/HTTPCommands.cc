@@ -67,8 +67,6 @@ HTTPRequest::~HTTPRequest() {}
 		if (rv##B != CURLE_OK) {                                               \
 			this->errorCode = "E_CURL_LIB";                                    \
 			this->errorMessage = "curl_easy_setopt( " #B " ) failed.";         \
-			/* dprintf( D_ALWAYS, "curl_easy_setopt( %s ) failed (%d): '%s',   \
-			   failing.\n", #B, rv##B, curl_easy_strerror( rv##B ) ); */       \
 			return false;                                                      \
 		}                                                                      \
 	}
@@ -168,6 +166,8 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 									  const std::string &uri,
 									  const std::string &payload) {
 
+	m_log.Log(XrdHTTPServer::Debug, "SendRequest", "Sending HTTP request",
+			  uri.c_str());
 	CURLcode rv = curl_global_init(CURL_GLOBAL_ALL);
 	if (rv != 0) {
 		this->errorCode = "E_CURL_LIB";
@@ -315,20 +315,6 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 	char *x509_ca_file = getenv("X509_CERT_FILE");
 	if (x509_ca_file != NULL) {
 		CAFile = x509_ca_file;
-	}
-
-	if (CAPath.empty()) {
-		char *soap_ssl_ca_dir = getenv("GAHP_SSL_CADIR");
-		if (soap_ssl_ca_dir != NULL) {
-			CAPath = soap_ssl_ca_dir;
-		}
-	}
-
-	if (CAFile.empty()) {
-		char *soap_ssl_ca_file = getenv("GAHP_SSL_CAFILE");
-		if (soap_ssl_ca_file != NULL) {
-			CAFile = soap_ssl_ca_file;
-		}
 	}
 
 	if (!CAPath.empty()) {

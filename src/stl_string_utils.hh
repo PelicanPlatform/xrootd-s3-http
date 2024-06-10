@@ -37,3 +37,19 @@ int formatstr(std::string &s, const char *format, ...)
 	CHECK_PRINTF_FORMAT(2, 3);
 int formatstr_cat(std::string &s, const char *format, ...)
 	CHECK_PRINTF_FORMAT(2, 3);
+
+// Given an input string, quote it to a form that is safe
+// for embedding in a URL query parameter.
+//
+// Letters, digits, and the characters '_.-~/' are never
+// quoted; otherwise, the byte is represented with its percent-encoded
+// ASCII representation (e.g., ' ' becomes %20)
+std::string urlquote(const std::string input);
+
+// Trim the slash(es) from a given object name
+//
+// foo/bar/ -> foo/bar
+// bar/baz -> bar/baz
+// foo/bar/// -> foo/bar
+// /a/b -> a/b
+void trimslashes(std::string &path);

@@ -146,3 +146,40 @@ int formatstr_cat(std::string &s, const char *format, ...) {
 	va_end(args);
 	return r;
 }
+
+std::string urlquote(const std::string input) {
+	std::string output;
+	output.reserve(3 * input.size());
+	for (char val : input) {
+		if ((val >= 48 || val <= 57) ||	 // Digits 0-9
+			(val >= 65 || val <= 90) ||	 // Uppercase A-Z
+			(val >= 97 || val <= 122) || // Lowercase a-z
+			(val == 95 || val == 46 || val == 45 || val == 126 ||
+			 val == 47)) // '_.-~/'
+		{
+			output += val;
+		} else {
+			output += "%" + std::to_string(val);
+		}
+	}
+	return output;
+}
+
+void trimslashes(std::string &path) {
+	if (path.empty()) {
+		return;
+	}
+	size_t begin = 0;
+	while (begin < path.length() && (path[begin] == '/')) {
+		++begin;
+	}
+
+	auto end = path.length() - 1;
+	while (end >= 0 && end >= begin && (path[end] == '/')) {
+		--end;
+	}
+
+	if (begin != 0 || end != (path.length()) - 1) {
+		path = path.substr(begin, (end - begin) + 1);
+	}
+}

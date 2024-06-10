@@ -101,30 +101,41 @@ class S3FileSystem : public XrdOss {
 		return nullptr;
 	}
 
+	// Given a path as seen by XRootD, split it into the configured prefix and
+	// the object within the prefix.
+	//
+	// The returned `exposedPath` can be later used with the `get*` functions to
+	// fetch the required S3 configuration.
+	int parsePath(const char *fullPath, std::string &exposedPath,
+				  std::string &object) const;
+
 	bool exposedPathExists(const std::string &exposedPath) const {
-		return s3_access_map.count(exposedPath) > 0;
+		return m_s3_access_map.count(exposedPath) > 0;
 	}
 	const std::string &getS3ServiceName(const std::string &exposedPath) const {
-		return s3_access_map.at(exposedPath)->getS3ServiceName();
+		return m_s3_access_map.at(exposedPath)->getS3ServiceName();
 	}
 	const std::string &getS3Region(const std::string &exposedPath) const {
-		return s3_access_map.at(exposedPath)->getS3Region();
+		return m_s3_access_map.at(exposedPath)->getS3Region();
 	}
 	const std::string &getS3ServiceURL(const std::string &exposedPath) const {
-		return s3_access_map.at(exposedPath)->getS3ServiceUrl();
+		return m_s3_access_map.at(exposedPath)->getS3ServiceUrl();
 	}
 	const std::string &getS3BucketName(const std::string &exposedPath) const {
-		return s3_access_map.at(exposedPath)->getS3BucketName();
+		return m_s3_access_map.at(exposedPath)->getS3BucketName();
 	}
 	const std::string &
 	getS3AccessKeyFile(const std::string &exposedPath) const {
-		return s3_access_map.at(exposedPath)->getS3AccessKeyFile();
+		return m_s3_access_map.at(exposedPath)->getS3AccessKeyFile();
 	}
 	const std::string &
 	getS3SecretKeyFile(const std::string &exposedPath) const {
-		return s3_access_map.at(exposedPath)->getS3SecretKeyFile();
+		return m_s3_access_map.at(exposedPath)->getS3SecretKeyFile();
 	}
 	const std::string &getS3URLStyle() const { return s3_url_style; }
+
+	const std::shared_ptr<S3AccessInfo>
+	getS3AccessInfo(const std::string &exposedPath, std::string &object) const;
 
   private:
 	XrdOucEnv *m_env;
@@ -132,6 +143,6 @@ class S3FileSystem : public XrdOss {
 
 	bool handle_required_config(const char *desired_name,
 								const std::string &source);
-	std::map<std::string, S3AccessInfo *> s3_access_map;
+	std::map<std::string, std::shared_ptr<S3AccessInfo>> m_s3_access_map;
 	std::string s3_url_style;
 };

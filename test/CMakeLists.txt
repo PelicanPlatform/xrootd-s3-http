@@ -2,11 +2,12 @@ add_executable( s3-gtest s3_tests.cc
   ../src/AWSv4-impl.cc
   ../src/logging.cc
   ../src/S3AccessInfo.cc
+  ../src/S3Directory.cc
   ../src/S3File.cc
   ../src/S3FileSystem.cc
   ../src/shortfile.cc
   ../src/stl_string_utils.cc
-  ../src/HTTPCommands.cc 
+  ../src/HTTPCommands.cc
   ../src/S3Commands.cc
 )
 
@@ -20,15 +21,12 @@ add_executable( http-gtest http_tests.cc
 )
 
 
-if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
-    add_dependencies(s3-gtest gtest)
-    add_dependencies(http-gtest gtest)
-    include_directories("${PROJECT_SOURCE_DIR}/vendor/gtest/googletest/include")
-endif()
-
 if(XROOTD_PLUGINS_EXTERNAL_GTEST)
     set(LIBGTEST "gtest")
 else()
+    add_dependencies(s3-gtest gtest)
+    add_dependencies(http-gtest gtest)
+    include_directories("${PROJECT_SOURCE_DIR}/vendor/gtest/googletest/include")
     set(LIBGTEST "${CMAKE_BINARY_DIR}/external/gtest/src/gtest-build/lib/libgtest.a")
 endif()
 

@@ -83,3 +83,34 @@ bool readShortFile(const std::string &fileName, std::string &contents) {
 
 	return true;
 }
+
+bool writeShortFile(const std::string &fileName, std::string &contents,
+					int flags) {
+	int fd = open(fileName.c_str(), O_WRONLY | flags, 0600);
+	if (fd < 0) {
+		return false;
+	}
+
+	auto ptr = &contents[0];
+	ssize_t nwrite;
+	auto nleft = contents.size();
+
+	while (nleft > 0) {
+	REISSUE_WRITE:
+		nwrite = write(fd, ptr, nleft);
+		if (nwrite < 0) {
+			/* error happened, ignore if EINTR, otherwise inform the caller */
+			if (errno == EINTR) {
+				goto REISSUE_WRITE;
+			}
+			close(fd);
+			return false;
+		}
+
+		nleft -= nwrite;
+		ptr += nwrite;
+	}
+
+	close(fd);
+	return true;
+}

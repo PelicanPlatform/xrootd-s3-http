@@ -19,27 +19,41 @@
 #pragma once
 
 #include "HTTPDirectory.hh"
+#include "S3Commands.hh"
+#include "S3FileSystem.hh"
 
-// Leaving in duplicate definitions for now. It remains
-// to be seen if we'll need to change these and have specific
-// behaviors for either HTTP or S3 variants in the future.
+#include <string>
+#include <vector>
+
+class XrdSysError;
 
 class S3Directory : public HTTPDirectory {
   public:
-	S3Directory(XrdSysError &log)
-		: HTTPDirectory(log)
-	// m_log(log)
-	{}
+	S3Directory(XrdSysError &log, const S3FileSystem &fs)
+		: HTTPDirectory(log), m_fs(fs) {}
 
 	virtual ~S3Directory() {}
 
-	virtual int Opendir(const char *path, XrdOucEnv &env) override {
-		return -ENOSYS;
-	}
+	virtual int Opendir(const char *path, XrdOucEnv &env) override;
 
-	int Readdir(char *buff, int blen) override { return -ENOSYS; }
+	int Readdir(char *buff, int blen) override;
 
-	int StatRet(struct stat *statStruct) override { return -ENOSYS; }
+	int StatRet(struct stat *statStruct) override;
 
-	int Close(long long *retsz = 0) override { return -ENOSYS; }
+	int Close(long long *retsz = 0) override;
+
+  private:
+	void Reset();
+	int ListS3Dir(const std::string &ct);
+
+	bool m_opened{false};
+	ssize_t m_idx{0};
+	std::vector<S3ObjectInfo> m_objInfo;
+	std::vector<std::string> m_commonPrefixes;
+	std::string m_prefix;
+	std::string m_ct;
+	std::string m_object;
+	const S3FileSystem &m_fs;
+	S3AccessInfo m_ai;
+	struct stat *m_stat_buf{nullptr};
 };

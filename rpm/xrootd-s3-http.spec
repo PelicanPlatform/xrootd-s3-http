@@ -52,4 +52,3 @@ make install DESTDIR=$RPM_BUILD_ROOT
 
 * Tue Dec 06 2022 Brian Bockelman <bbockelman@morgridge.org> - 0.0.1-1
 - Initial, "Hello world" version of the S3 filesystem plugin
-

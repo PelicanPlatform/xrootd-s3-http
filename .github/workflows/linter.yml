@@ -9,7 +9,7 @@ name: Lint
 
 # If the linter fails, the PR can still be completed, but none of the linter changes will be made.
 
-on:         
+on:
   push:
     branches:
       - main
@@ -31,7 +31,7 @@ jobs:
       - name: Check out repository (push)
         if: ${{ github.event_name == 'push' }}
         uses: actions/checkout@v3
-      
+
       - name: Check out repository (pull_request_target)
         if: ${{ github.event_name == 'pull_request_target' }}
         uses: actions/checkout@v3
@@ -57,4 +57,3 @@ jobs:
         uses: reviewdog/action-suggester@v1
         with:
           tool_name: lint
-          

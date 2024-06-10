@@ -21,3 +21,6 @@
 #include <string>
 
 bool readShortFile(const std::string &fileName, std::string &contents);
+
+bool writeShortFile(const std::string &fileName, std::string &contents,
+					int flags);
