@@ -42,7 +42,7 @@ using namespace XrdHTTPServer;
 
 HTTPFileSystem::HTTPFileSystem(XrdSysLogger *lp, const char *configfn,
 							   XrdOucEnv *envP)
-	: m_env(envP), m_log(lp, "httpserver_") {
+	: m_env(envP), m_log(lp, "httpserver_"), m_token("", &m_log) {
 	m_log.Say("------ Initializing the HTTP filesystem plugin.");
 	if (!Config(lp, configfn)) {
 		throw std::runtime_error("Failed to configure HTTP filesystem plugin.");
@@ -86,6 +86,7 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	char *temporary;
 	std::string value;
 	std::string attribute;
+	std::string token_file;
 	Config.Attach(cfgFD);
 	while ((temporary = Config.GetMyFirstWord())) {
 		attribute = temporary;
@@ -109,7 +110,9 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 			!handle_required_config(attribute, "httpserver.url_base", value,
 									m_url_base) ||
 			!handle_required_config(attribute, "httpserver.storage_prefix",
-									value, m_storage_prefix)) {
+									value, m_storage_prefix) ||
+			!handle_required_config(attribute, "httpserver.token_file", value,
+									token_file)) {
 			Config.Close();
 			return false;
 		}
@@ -126,6 +129,10 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 								 "httpserver.url_base are required");
 			return false;
 		}
+	}
+
+	if (!token_file.empty()) {
+		m_token = std::move(TokenFile(token_file, &m_log));
 	}
 
 	int retc = Config.LastError();
@@ -161,14 +168,7 @@ int HTTPFileSystem::Stat(const char *path, struct stat *buff, int opts,
 		m_log.Emsg("Stat", "Failed to open path:", path);
 	}
 	// Assume that HTTPFile::FStat() doesn't write to buff unless it succeeds.
-	rv = httpFile.Fstat(buff);
-	if (rv != 0) {
-		formatstr(error, "File %s not found.", path);
-		m_log.Emsg("Stat", error.c_str());
-		return -ENOENT;
-	}
-
-	return 0;
+	return httpFile.Fstat(buff);
 }
 
 int HTTPFileSystem::Create(const char *tid, const char *path, mode_t mode,

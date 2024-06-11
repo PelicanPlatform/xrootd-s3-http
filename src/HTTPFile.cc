@@ -111,22 +111,24 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		return rv;
 	}
 
-	// We used to query S3 here to see if the object existed, but of course
-	// if you're creating a file on upload, you don't care.
+	m_object = object;
+	m_hostname = configured_hostname;
+	m_hostUrl = configured_hostUrl;
 
-	this->object = object;
-	this->hostname = configured_hostname;
-	this->hostUrl = configured_hostUrl;
+	if (!Oflag) {
+		struct stat buf;
+		return Fstat(&buf);
+	}
 
 	return 0;
 }
 
 ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
-	HTTPDownload download(this->hostUrl, this->object, m_log);
+	HTTPDownload download(m_hostUrl, m_object, m_log, m_oss->getToken());
 	m_log.Log(
 		LogMask::Debug, "HTTPFile::Read",
 		"About to perform download from HTTPFile::Read(): hostname / object:",
-		hostname.c_str(), object.c_str());
+		m_hostname.c_str(), m_object.c_str());
 
 	if (!download.SendRequest(offset, size)) {
 		std::stringstream ss;
@@ -142,10 +144,24 @@ ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
 }
 
 int HTTPFile::Fstat(struct stat *buff) {
+	if (m_stat) {
+		buff->st_mode = 0600 | S_IFREG;
+		buff->st_nlink = 1;
+		buff->st_uid = 1;
+		buff->st_gid = 1;
+		buff->st_size = content_length;
+		buff->st_mtime = last_modified;
+		buff->st_atime = 0;
+		buff->st_ctime = 0;
+		buff->st_dev = 0;
+		buff->st_ino = 0;
+		return 0;
+	}
+
 	m_log.Log(LogMask::Debug, "HTTPFile::Fstat",
-			  "About to perform HTTPFile::Fstat():", hostUrl.c_str(),
-			  object.c_str());
-	HTTPHead head(hostUrl, object, m_log);
+			  "About to perform HTTPFile::Fstat():", m_hostUrl.c_str(),
+			  m_object.c_str());
+	HTTPHead head(m_hostUrl, m_object, m_log, m_oss->getToken());
 
 	if (!head.SendRequest()) {
 		// SendRequest() returns false for all errors, including ones
@@ -153,11 +169,29 @@ int HTTPFile::Fstat(struct stat *buff) {
 		// than code 200.  If xrootd wants us to distinguish between
 		// these cases, head.getResponseCode() is initialized to 0, so
 		// we can check.
-		std::stringstream ss;
-		ss << "Failed to send HeadObject command: " << head.getResponseCode()
-		   << "'" << head.getResultString() << "'";
-		m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
-		return -ENOENT;
+		auto httpCode = head.getResponseCode();
+		if (httpCode) {
+			std::stringstream ss;
+			ss << "HEAD command failed: " << head.getResponseCode() << ": "
+			   << head.getResultString();
+			m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
+			switch (httpCode) {
+			case 404:
+				return -ENOENT;
+			case 500:
+				return -EIO;
+			case 403:
+				return -EPERM;
+			default:
+				return -EIO;
+			}
+		} else {
+			std::stringstream ss;
+			ss << "Failed to send HEAD command: " << head.getErrorCode() << ": "
+			   << head.getErrorMessage();
+			m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
+			return -EIO;
+		}
 	}
 
 	std::string headers = head.getResultString();
@@ -197,22 +231,25 @@ int HTTPFile::Fstat(struct stat *buff) {
 		current_newline = next_newline;
 	}
 
-	buff->st_mode = 0600 | S_IFREG;
-	buff->st_nlink = 1;
-	buff->st_uid = 1;
-	buff->st_gid = 1;
-	buff->st_size = this->content_length;
-	buff->st_mtime = this->last_modified;
-	buff->st_atime = 0;
-	buff->st_ctime = 0;
-	buff->st_dev = 0;
-	buff->st_ino = 0;
+	if (buff) {
+		buff->st_mode = 0600 | S_IFREG;
+		buff->st_nlink = 1;
+		buff->st_uid = 1;
+		buff->st_gid = 1;
+		buff->st_size = this->content_length;
+		buff->st_mtime = this->last_modified;
+		buff->st_atime = 0;
+		buff->st_ctime = 0;
+		buff->st_dev = 0;
+		buff->st_ino = 0;
+	}
+	m_stat = true;
 
 	return 0;
 }
 
 ssize_t HTTPFile::Write(const void *buffer, off_t offset, size_t size) {
-	HTTPUpload upload(this->hostUrl, this->object, m_log);
+	HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
 
 	std::string payload((char *)buffer, size);
 	if (!upload.SendRequest(payload, offset, size)) {
@@ -256,6 +293,7 @@ XrdOss *XrdOssGetStorageSystem2(XrdOss *native_oss, XrdSysLogger *Logger,
 	envP->Export("XRDXROOTD_NOPOSC", "1");
 
 	try {
+		HTTPRequest::init();
 		g_http_oss = new HTTPFileSystem(Logger, config_fn, envP);
 		return g_http_oss;
 	} catch (std::runtime_error &re) {

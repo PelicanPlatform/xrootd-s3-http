@@ -18,9 +18,12 @@
 
 #pragma once
 
+#include "TokenFile.hh"
+
 #include <XrdOss/XrdOss.hh>
 #include <XrdOuc/XrdOucStream.hh>
 #include <XrdSec/XrdSecEntity.hh>
+#include <XrdSys/XrdSysPthread.hh>
 #include <XrdVersion.hh>
 
 #include <memory>
@@ -103,6 +106,7 @@ class HTTPFileSystem : public XrdOss {
 	const std::string &getHTTPHostUrl() const { return http_host_url; }
 	const std::string &getHTTPUrlBase() const { return m_url_base; }
 	const std::string &getStoragePrefix() const { return m_storage_prefix; }
+	const TokenFile *getToken() const { return &m_token; }
 
   protected:
 	XrdOucEnv *m_env;
@@ -117,4 +121,5 @@ class HTTPFileSystem : public XrdOss {
 	std::string http_host_url;
 	std::string m_url_base;
 	std::string m_storage_prefix;
+	TokenFile m_token;
 };

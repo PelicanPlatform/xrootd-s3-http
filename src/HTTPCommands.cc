@@ -168,12 +168,6 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 
 	m_log.Log(XrdHTTPServer::Debug, "SendRequest", "Sending HTTP request",
 			  uri.c_str());
-	CURLcode rv = curl_global_init(CURL_GLOBAL_ALL);
-	if (rv != 0) {
-		this->errorCode = "E_CURL_LIB";
-		this->errorMessage = "curl_global_init() failed.";
-		return false;
-	}
 
 	std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(
 		curl_easy_init(), &curl_easy_cleanup);
@@ -185,7 +179,7 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 	}
 
 	char errorBuffer[CURL_ERROR_SIZE];
-	rv = curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errorBuffer);
+	auto rv = curl_easy_setopt(curl.get(), CURLOPT_ERRORBUFFER, errorBuffer);
 	if (rv != CURLE_OK) {
 		this->errorCode = "E_CURL_LIB";
 		this->errorMessage = "curl_easy_setopt( CURLOPT_ERRORBUFFER ) failed.";
@@ -347,6 +341,24 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 		}
 	}
 
+	if (m_token) {
+		const auto iter = headers.find("Authorization");
+		if (iter == headers.end()) {
+			std::string token;
+			if (m_token->Get(token) && !token.empty()) {
+				headers["Authorization"] = "Bearer " + token;
+			} else {
+				errorCode = "E_TOKEN";
+				errorMessage = "failed to load authorization token from file";
+			}
+		}
+	}
+	{
+		const auto iter = headers.find("User-Agent");
+		if (iter == headers.end()) {
+			headers["User-Agent"] = "xrootd-http/devel";
+		}
+	}
 	std::string headerPair;
 	struct curl_slist *header_slist = NULL;
 	for (auto i = headers.begin(); i != headers.end(); ++i) {
@@ -446,6 +458,13 @@ bool HTTPUpload::SendRequest(const std::string &payload, off_t offset,
 
 	httpVerb = "PUT";
 	return SendHTTPRequest(payload);
+}
+
+void HTTPRequest::init() {
+	CURLcode rv = curl_global_init(CURL_GLOBAL_ALL);
+	if (rv != 0) {
+		throw std::runtime_error("libcurl failed to initialize");
+	}
 }
 
 // ---------------------------------------------------------------------------

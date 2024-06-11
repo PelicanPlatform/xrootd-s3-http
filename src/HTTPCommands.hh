@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "TokenFile.hh"
+
 #include <map>
 #include <memory>
 #include <string>
@@ -26,9 +28,9 @@ class XrdSysError;
 
 class HTTPRequest {
   public:
-	HTTPRequest(const std::string &hostUrl, XrdSysError &log)
-		: hostUrl(hostUrl), requiresSignature(false), responseCode(0),
-		  includeResponseHeader(false), httpVerb("POST"), m_log(log) {
+	HTTPRequest(const std::string &hostUrl, XrdSysError &log,
+				const TokenFile *token)
+		: hostUrl(hostUrl), m_log(log), m_token(token) {
 		// Parse the URL and populate
 		// What to do if the function returns false?
 		// TODO: Figure out best way to deal with this
@@ -57,6 +59,12 @@ class HTTPRequest {
 		size_t sentSoFar;
 	};
 
+	// Initialize libraries for HTTP.
+	//
+	// Should be called at least once per application from a non-threaded
+	// context.
+	static void init();
+
   protected:
 	bool sendPreparedRequest(const std::string &protocol,
 							 const std::string &uri,
@@ -69,7 +77,7 @@ class HTTPRequest {
 	std::string hostUrl;
 	std::string protocol;
 
-	bool requiresSignature;
+	bool requiresSignature{false};
 	struct timespec signatureTime;
 
 	std::string errorMessage;
@@ -78,18 +86,22 @@ class HTTPRequest {
 	std::string resultString;
 	unsigned long responseCode{0};
 	unsigned long expectedResponseCode = 200;
-	bool includeResponseHeader;
+	bool includeResponseHeader{false};
 
-	std::string httpVerb;
+	std::string httpVerb{"POST"};
 	std::unique_ptr<HTTPRequest::Payload> callback_payload;
 
 	XrdSysError &m_log;
+
+  private:
+	const TokenFile *m_token;
 };
 
 class HTTPUpload : public HTTPRequest {
   public:
-	HTTPUpload(const std::string &h, const std::string &o, XrdSysError &log)
-		: HTTPRequest(h, log), object(o) {
+	HTTPUpload(const std::string &h, const std::string &o, XrdSysError &log,
+			   const TokenFile *token)
+		: HTTPRequest(h, log, token), object(o) {
 		hostUrl = hostUrl + "/" + object;
 	}
 
@@ -105,8 +117,9 @@ class HTTPUpload : public HTTPRequest {
 
 class HTTPDownload : public HTTPRequest {
   public:
-	HTTPDownload(const std::string &h, const std::string &o, XrdSysError &log)
-		: HTTPRequest(h, log), object(o) {
+	HTTPDownload(const std::string &h, const std::string &o, XrdSysError &log,
+				 const TokenFile *token)
+		: HTTPRequest(h, log, token), object(o) {
 		hostUrl = hostUrl + "/" + object;
 	}
 
@@ -120,8 +133,9 @@ class HTTPDownload : public HTTPRequest {
 
 class HTTPHead : public HTTPRequest {
   public:
-	HTTPHead(const std::string &h, const std::string &o, XrdSysError &log)
-		: HTTPRequest(h, log), object(o) {
+	HTTPHead(const std::string &h, const std::string &o, XrdSysError &log,
+			 const TokenFile *token)
+		: HTTPRequest(h, log, token), object(o) {
 		hostUrl = hostUrl + "/" + object;
 	}
 
