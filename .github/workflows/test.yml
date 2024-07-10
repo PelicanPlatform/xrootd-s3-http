@@ -72,5 +72,5 @@ jobs:
       working-directory: ${{runner.workspace}}/build
       shell: bash
       # Execute the build.  You can specify a specific target with "--target <NAME>"
-      run: xrootd -c ${{runner.workspace}}/test/s3-xrootd-origin.cfg
+      run: xrootd -c ${{runner.workspace}}/xrootd-s3-http/test/s3-xrootd-origin.cfg
 
