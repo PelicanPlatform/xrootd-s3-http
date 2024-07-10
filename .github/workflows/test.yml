@@ -66,7 +66,7 @@ jobs:
       working-directory: ${{runner.workspace}}/build
       shell: bash
       # Execute the build.  You can specify a specific target with "--target <NAME>"
-      run: pwd; ls -l ${{runner.workspace}}/build
+      run: pwd; ls -l ${{runner.workspace}}/test
 
     - name: Start xrootd
       working-directory: ${{runner.workspace}}/build
