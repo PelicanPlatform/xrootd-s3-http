@@ -62,21 +62,13 @@ jobs:
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest -C $BUILD_TYPE --verbose
 
-    - name: Look at runtime environment
-      working-directory: ${{runner.workspace}}/build
-      shell: bash
-      # Execute the build.  You can specify a specific target with "--target <NAME>"
-      run: pwd; ls -l ${{runner.workspace}}/xrootd-s3-http/test
-
     - name: Start xrootd
       working-directory: ${{runner.workspace}}/build
       shell: bash
-      # Execute the build.  You can specify a specific target with "--target <NAME>"
       run: xrootd -c ${{runner.workspace}}/xrootd-s3-http/test/s3-xrootd-test.cfg &
 
     - name: Get a file
       working-directory: ${{runner.workspace}}/build
       shell: bash
-      # Execute the build.  You can specify a specific target with "--target <NAME>"
       run: curl -v http://localhost:8080/aws-opendata/2024/wod_apb_2024.nc -o wod_apb_2024.nc
 
