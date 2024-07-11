@@ -72,3 +72,7 @@ jobs:
       shell: bash
       run: curl -v http://localhost:8080/aws-opendata/2024/wod_apb_2024.nc -o wod_apb_2024.nc
 
+    - name: Get metadata
+      working-directory: ${{runner.workspace}}/build
+      shell: bash
+      run: curl -k -X PROPFIND http://localhost:8080/aws-opendata/2024/wod_apb_2024.nc -d prop_query
