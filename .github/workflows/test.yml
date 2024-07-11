@@ -78,5 +78,5 @@ jobs:
       working-directory: ${{runner.workspace}}/build
       shell: bash
       # Execute the build.  You can specify a specific target with "--target <NAME>"
-      run: curl -k -X PROPFIND http://localhost:8080/aws-opendata/MD5SUMS -d prop_query
+      run: curl -v http://localhost:8080/aws-opendata/2024/wod_apb_2024.nc -o wod_apb_2024.nc
 
