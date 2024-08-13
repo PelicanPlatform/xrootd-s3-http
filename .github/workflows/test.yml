@@ -3,14 +3,13 @@ name: Test
 on:
   workflow_dispatch:
     branches:
-      - gtest-xrootd-system-test
+      - main
   pull_request:
     branches:
       - main
   push:
     branches:
       - main
-      - gtest-xrootd-system-test
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
