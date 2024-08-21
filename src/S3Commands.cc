@@ -446,65 +446,63 @@ bool AmazonRequest::SendS3Request(const std::string &payload) {
 AmazonS3Upload::~AmazonS3Upload() {}
 
 bool AmazonS3Upload::SendRequest(const std::string &payload, off_t offset,
-                                 size_t size) {
-    if (offset != 0 || size != 0) {
-        std::string range;
-        formatstr(range, "bytes=%lld-%lld", static_cast<long long int>(offset),
-                  static_cast<long long int>(offset + size - 1));
-        headers["Range"] = range.c_str();
-    }
+								 size_t size) {
+	if (offset != 0 || size != 0) {
+		std::string range;
+		formatstr(range, "bytes=%lld-%lld", static_cast<long long int>(offset),
+				  static_cast<long long int>(offset + size - 1));
+		headers["Range"] = range.c_str();
+	}
 
-    httpVerb = "PUT";
-    return SendS3Request(payload);
+	httpVerb = "PUT";
+	return SendS3Request(payload);
 }
 
 // ---------------------------------------------------------------------------
-
 
 AmazonS3CompleteMultipartUpload::~AmazonS3CompleteMultipartUpload() {}
 
-bool AmazonS3CompleteMultipartUpload::SendRequest(const std::vector<std::string> &eTags,
-                                                  int partNumber,
-                                                  const std::string &uploadId) {
-    query_parameters["uploadId"] = uploadId;
+bool AmazonS3CompleteMultipartUpload::SendRequest(
+	const std::vector<std::string> &eTags, int partNumber,
+	const std::string &uploadId) {
+	query_parameters["uploadId"] = uploadId;
 
-    httpVerb = "POST";
-    std::string payload;
-    payload += "<CompleteMultipartUpload xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">";
-    for (int i = 1; i < partNumber; i++) {
-        payload += "<Part>";
-        payload += "<ETag>" + eTags[i-1] + "</ETag>";
-        payload += "<PartNumber>" + std::to_string(i) + "</PartNumber>";
-        payload += "</Part>";
-    }
-    payload += "</CompleteMultipartUpload>";
+	httpVerb = "POST";
+	std::string payload;
+	payload += "<CompleteMultipartUpload "
+			   "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">";
+	for (int i = 1; i < partNumber; i++) {
+		payload += "<Part>";
+		payload += "<ETag>" + eTags[i - 1] + "</ETag>";
+		payload += "<PartNumber>" + std::to_string(i) + "</PartNumber>";
+		payload += "</Part>";
+	}
+	payload += "</CompleteMultipartUpload>";
 
-    return SendS3Request(payload);
+	return SendS3Request(payload);
 }
 // ---------------------------------------------------------------------------
-
 
 AmazonS3CreateMultipartUpload::~AmazonS3CreateMultipartUpload() {}
 AmazonS3SendMultipartPart::~AmazonS3SendMultipartPart() {}
 
 bool AmazonS3CreateMultipartUpload::SendRequest() {
-    query_parameters["uploads"] = "";
-    query_parameters["x-id"] = "CreateMultipartUpload";
+	query_parameters["uploads"] = "";
+	query_parameters["x-id"] = "CreateMultipartUpload";
 
-    httpVerb = "POST";
-    return SendS3Request("");
+	httpVerb = "POST";
+	return SendS3Request("");
 }
 
 bool AmazonS3SendMultipartPart::SendRequest(const std::string &payload,
-                                            const std::string &partNumber,
-                                            const std::string &uploadId) {
-    query_parameters["partNumber"] = partNumber;
-    query_parameters["uploadId"] = uploadId;
-    includeResponseHeader = true;
-    httpVerb = "PUT";
-    return SendS3Request(payload);
+											const std::string &partNumber,
+											const std::string &uploadId) {
+	query_parameters["partNumber"] = partNumber;
+	query_parameters["uploadId"] = uploadId;
+	includeResponseHeader = true;
+	httpVerb = "PUT";
+	return SendS3Request(payload);
 }
-
 
 // ---------------------------------------------------------------------------
 
@@ -554,30 +552,30 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken) {
 }
 
 bool AmazonS3CreateMultipartUpload::Results(std::string &uploadId,
-             std::string &errMsg) {
-    tinyxml2::XMLDocument doc;
-    auto err = doc.Parse(resultString.c_str());
-    if (err != tinyxml2::XML_SUCCESS) {
-        errMsg = doc.ErrorStr();
-        return false;
-    }
+											std::string &errMsg) {
+	tinyxml2::XMLDocument doc;
+	auto err = doc.Parse(resultString.c_str());
+	if (err != tinyxml2::XML_SUCCESS) {
+		errMsg = doc.ErrorStr();
+		return false;
+	}
 
-    auto elem = doc.RootElement();
-    if (strcmp(elem->Name(), "InitiateMultipartUploadResult")) {
-        errMsg = "S3 Uploads response is not rooted with InitiateMultipartUploadResult "
-                 "element";
-        return false;
-    }
+	auto elem = doc.RootElement();
+	if (strcmp(elem->Name(), "InitiateMultipartUploadResult")) {
+		errMsg = "S3 Uploads response is not rooted with "
+				 "InitiateMultipartUploadResult "
+				 "element";
+		return false;
+	}
 
-    for (auto child = elem->FirstChildElement(); child != nullptr;
-         child = child->NextSiblingElement()) {
-        if (!strcmp(child->Name(), "UploadId")) {
-            uploadId = child->GetText();
-        }
-    }
-    return true;
+	for (auto child = elem->FirstChildElement(); child != nullptr;
+		 child = child->NextSiblingElement()) {
+		if (!strcmp(child->Name(), "UploadId")) {
+			uploadId = child->GetText();
+		}
+	}
+	return true;
 }
-
 
 // Parse the results of the AWS directory listing
 //

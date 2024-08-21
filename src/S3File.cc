@@ -36,9 +36,9 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <stdlib.h>
 #include <string>
 #include <vector>
-#include <stdlib.h>
 
 using namespace XrdHTTPServer;
 
@@ -47,17 +47,18 @@ S3FileSystem *g_s3_oss = nullptr;
 XrdVERSIONINFO(XrdOssGetFileSystem, S3);
 
 S3File::S3File(XrdSysError &log, S3FileSystem *oss)
-	: m_log(log), m_oss(oss), content_length(0), last_modified(0), write_buffer(""), partNumber(1) {}
+	: m_log(log), m_oss(oss), content_length(0), last_modified(0),
+	  write_buffer(""), partNumber(1) {}
 
 int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
-	if(Oflag && O_CREAT) {
-        m_log.Log(LogMask::Info, "File opened for creation: ", path);
-    }
-    if(Oflag && O_APPEND) {
-        m_log.Log(LogMask::Info, "File opened for append: ", path);
-    }
+	if (Oflag && O_CREAT) {
+		m_log.Log(LogMask::Info, "File opened for creation: ", path);
+	}
+	if (Oflag && O_APPEND) {
+		m_log.Log(LogMask::Info, "File opened for append: ", path);
+	}
 
-    if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
+	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
 		m_log.Log(LogMask::Warning, "S3File::Open", "Opening file", path);
 	}
 
@@ -87,15 +88,15 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		}
 	}
 
-    AmazonS3CreateMultipartUpload startUpload(m_ai, m_object, m_log);
-    if (!startUpload.SendRequest()) {
-        m_log.Emsg("Open", "S3 multipart request failed");
-        return -ENOENT;
-    }
-    std::string errMsg;
-    startUpload.Results(uploadId, errMsg);
+	AmazonS3CreateMultipartUpload startUpload(m_ai, m_object, m_log);
+	if (!startUpload.SendRequest()) {
+		m_log.Emsg("Open", "S3 multipart request failed");
+		return -ENOENT;
+	}
+	std::string errMsg;
+	startUpload.Results(uploadId, errMsg);
 
-    return 0;
+	return 0;
 }
 
 ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
@@ -193,68 +194,71 @@ int S3File::Fstat(struct stat *buff) {
 }
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
-    std::string payload((char *)buffer, size);
-    write_buffer += payload;
-    write_buffer += (char *)buffer;
+	std::string payload((char *)buffer, size);
+	write_buffer += payload;
+	write_buffer += (char *)buffer;
 
-    //XXX should this be configurable? 100mb gives us a TB of file size. It doesn't seem
-    //terribly useful to be much smaller and it's not clear the S3 API will work if
-    //it's much larger.
-    if (write_buffer.length() > 100000000) {
-        if (SendPart() == -ENOENT) {
-            return -ENOENT;
-        }
-    }
-    return size;
+	// XXX should this be configurable? 100mb gives us a TB of file size. It
+	// doesn't seem terribly useful to be much smaller and it's not clear the S3
+	// API will work if it's much larger.
+	if (write_buffer.length() > 100000000) {
+		if (SendPart() == -ENOENT) {
+			return -ENOENT;
+		}
+	}
+	return size;
 }
 
 int S3File::SendPart() {
-    int length = write_buffer.length();
-    AmazonS3SendMultipartPart upload_part_request = AmazonS3SendMultipartPart(m_ai, m_object, m_log);
-    if (!upload_part_request.SendRequest(write_buffer, std::to_string(partNumber), uploadId)) {
-        m_log.Emsg("SendPart", "upload.SendRequest() failed");
-        return -ENOENT;
-    } else {
-        m_log.Emsg("SendPart", "upload.SendRequest() succeeded");
-        std::string resultString = upload_part_request.getResultString();
-        std::size_t startPos = resultString.find("ETag:");
-        std::size_t endPos = resultString.find("\"", startPos + 7);
-        eTags.push_back(resultString.substr(startPos+7, endPos-startPos-7));
+	int length = write_buffer.length();
+	AmazonS3SendMultipartPart upload_part_request =
+		AmazonS3SendMultipartPart(m_ai, m_object, m_log);
+	if (!upload_part_request.SendRequest(
+			write_buffer, std::to_string(partNumber), uploadId)) {
+		m_log.Emsg("SendPart", "upload.SendRequest() failed");
+		return -ENOENT;
+	} else {
+		m_log.Emsg("SendPart", "upload.SendRequest() succeeded");
+		std::string resultString = upload_part_request.getResultString();
+		std::size_t startPos = resultString.find("ETag:");
+		std::size_t endPos = resultString.find("\"", startPos + 7);
+		eTags.push_back(
+			resultString.substr(startPos + 7, endPos - startPos - 7));
 
-        partNumber++;
-        write_buffer = "";
-    }
+		partNumber++;
+		write_buffer = "";
+	}
 
-    return length;
+	return length;
 }
 
 int S3File::Close(long long *retsz) {
-    if(SendPart() == -ENOENT) {
-        return -ENOENT;
-    } else {
-        m_log.Emsg("Close", "Closed our S3 file");
-    }
+	if (SendPart() == -ENOENT) {
+		return -ENOENT;
+	} else {
+		m_log.Emsg("Close", "Closed our S3 file");
+	}
 
-    AmazonS3CompleteMultipartUpload complete_upload_request = AmazonS3CompleteMultipartUpload(m_ai, m_object, m_log);
-    if (!complete_upload_request.SendRequest(eTags, partNumber, uploadId)) {
-        m_log.Emsg("SendPart", "close.SendRequest() failed");
-        return -ENOENT;
-    } else {
-        m_log.Emsg("SendPart", "close.SendRequest() succeeded");
-    }
+	AmazonS3CompleteMultipartUpload complete_upload_request =
+		AmazonS3CompleteMultipartUpload(m_ai, m_object, m_log);
+	if (!complete_upload_request.SendRequest(eTags, partNumber, uploadId)) {
+		m_log.Emsg("SendPart", "close.SendRequest() failed");
+		return -ENOENT;
+	} else {
+		m_log.Emsg("SendPart", "close.SendRequest() succeeded");
+	}
 
-    return 0;
+	return 0;
 
-
-    /* Original write code
-    std::string payload((char *)buffer, size);
-    if (!upload.SendRequest(payload, offset, size)) {
-        m_log.Emsg("Open", "upload.SendRequest() failed");
-        return -ENOENT;
-    } else {
-        m_log.Emsg("Open", "upload.SendRequest() succeeded");
-        return 0;
-    } */
+	/* Original write code
+	std::string payload((char *)buffer, size);
+	if (!upload.SendRequest(payload, offset, size)) {
+		m_log.Emsg("Open", "upload.SendRequest() failed");
+		return -ENOENT;
+	} else {
+		m_log.Emsg("Open", "upload.SendRequest() succeeded");
+		return 0;
+	} */
 }
 
 extern "C" {

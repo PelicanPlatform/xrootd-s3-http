@@ -145,5 +145,4 @@ class S3FileSystem : public XrdOss {
 								const std::string &source);
 	std::map<std::string, std::shared_ptr<S3AccessInfo>> m_s3_access_map;
 	std::string s3_url_style;
-
 };

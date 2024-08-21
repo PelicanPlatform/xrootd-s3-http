@@ -138,77 +138,78 @@ class AmazonS3Upload : public AmazonRequest {
 };
 
 class AmazonS3CreateMultipartUpload : public AmazonRequest {
-    using AmazonRequest::SendRequest;
+	using AmazonRequest::SendRequest;
 
-public:
-    AmazonS3CreateMultipartUpload(const S3AccessInfo &ai, const std::string &objectName,
-                   XrdSysError &log)
-            : AmazonRequest(ai, objectName, log) {}
+  public:
+	AmazonS3CreateMultipartUpload(const S3AccessInfo &ai,
+								  const std::string &objectName,
+								  XrdSysError &log)
+		: AmazonRequest(ai, objectName, log) {}
 
-    AmazonS3CreateMultipartUpload(const std::string &s, const std::string &akf,
-                   const std::string &skf, const std::string &b,
-                   const std::string &o, const std::string &style,
-                   XrdSysError &log)
-            : AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
+	AmazonS3CreateMultipartUpload(const std::string &s, const std::string &akf,
+								  const std::string &skf, const std::string &b,
+								  const std::string &o,
+								  const std::string &style, XrdSysError &log)
+		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
 
-    bool Results(std::string &uploadId,
-                 std::string &errMsg);
+	bool Results(std::string &uploadId, std::string &errMsg);
 
-    virtual ~AmazonS3CreateMultipartUpload();
+	virtual ~AmazonS3CreateMultipartUpload();
 
-    virtual bool SendRequest();
+	virtual bool SendRequest();
 
-protected:
-    //std::string path;
+  protected:
+	// std::string path;
 };
 
 class AmazonS3CompleteMultipartUpload : public AmazonRequest {
-    using AmazonRequest::SendRequest;
+	using AmazonRequest::SendRequest;
 
-public:
-    AmazonS3CompleteMultipartUpload(const S3AccessInfo &ai, const std::string &objectName,
-                                  XrdSysError &log)
-            : AmazonRequest(ai, objectName, log) {}
+  public:
+	AmazonS3CompleteMultipartUpload(const S3AccessInfo &ai,
+									const std::string &objectName,
+									XrdSysError &log)
+		: AmazonRequest(ai, objectName, log) {}
 
-    AmazonS3CompleteMultipartUpload(const std::string &s, const std::string &akf,
-                                  const std::string &skf, const std::string &b,
-                                  const std::string &o, const std::string &style,
-                                  XrdSysError &log)
-            : AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
+	AmazonS3CompleteMultipartUpload(const std::string &s,
+									const std::string &akf,
+									const std::string &skf,
+									const std::string &b, const std::string &o,
+									const std::string &style, XrdSysError &log)
+		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
 
-    virtual ~AmazonS3CompleteMultipartUpload();
+	virtual ~AmazonS3CompleteMultipartUpload();
 
-    virtual bool SendRequest(const std::vector<std::string> &eTags, int partNumber, const std::string &uploadId);
+	virtual bool SendRequest(const std::vector<std::string> &eTags,
+							 int partNumber, const std::string &uploadId);
 
-protected:
+  protected:
 };
 
 class AmazonS3SendMultipartPart : public AmazonRequest {
-    using AmazonRequest::SendRequest;
+	using AmazonRequest::SendRequest;
 
-public:
-    AmazonS3SendMultipartPart(const S3AccessInfo &ai, const std::string &objectName,
-                                  XrdSysError &log)
-            : AmazonRequest(ai, objectName, log) {}
+  public:
+	AmazonS3SendMultipartPart(const S3AccessInfo &ai,
+							  const std::string &objectName, XrdSysError &log)
+		: AmazonRequest(ai, objectName, log) {}
 
-    AmazonS3SendMultipartPart(const std::string &s, const std::string &akf,
-                                  const std::string &skf, const std::string &b,
-                                  const std::string &o, const std::string &style,
-                                  XrdSysError &log)
-            : AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
+	AmazonS3SendMultipartPart(const std::string &s, const std::string &akf,
+							  const std::string &skf, const std::string &b,
+							  const std::string &o, const std::string &style,
+							  XrdSysError &log)
+		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
 
-    bool Results(std::string &uploadId,
-                 std::string &errMsg);
+	bool Results(std::string &uploadId, std::string &errMsg);
 
-    virtual ~AmazonS3SendMultipartPart();
+	virtual ~AmazonS3SendMultipartPart();
 
-    virtual bool SendRequest(const std::string &payload,
-                             const std::string &partNumber,
-                             const std::string &uploadId);
+	virtual bool SendRequest(const std::string &payload,
+							 const std::string &partNumber,
+							 const std::string &uploadId);
 
-protected:
+  protected:
 };
-
 
 class AmazonS3Download : public AmazonRequest {
 	using AmazonRequest::SendRequest;

@@ -95,7 +95,7 @@ class S3File : public XrdOssDF {
 	time_t getLastModified() { return last_modified; }
 
   private:
-    int SendPart();
+	int SendPart();
 	XrdSysError &m_log;
 	S3FileSystem *m_oss;
 
@@ -105,10 +105,8 @@ class S3File : public XrdOssDF {
 	size_t content_length;
 	time_t last_modified;
 
-    std::string write_buffer;
-    std::string uploadId;
-    int partNumber;
-    std::vector<std::string> eTags;
-
-
+	std::string write_buffer;
+	std::string uploadId;
+	int partNumber;
+	std::vector<std::string> eTags;
 };
