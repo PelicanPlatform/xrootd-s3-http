@@ -195,8 +195,17 @@ int S3File::Fstat(struct stat *buff) {
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
 	std::string payload((char *)buffer, size);
+	size_t payload_size = payload.length();
+	if (payload_size != size) {
+		return -ENOENT;
+	}
 	write_buffer += payload;
-	write_buffer += (char *)buffer;
+	// write_buffer += (char *) buffer;
+	size_t write_buffer_size = write_buffer.length();
+	size_t write_buffer_expected = offset + size;
+	if (write_buffer_size != write_buffer_expected) {
+		return -ENOENT;
+	}
 
 	// XXX should this be configurable? 100mb gives us a TB of file size. It
 	// doesn't seem terribly useful to be much smaller and it's not clear the S3
@@ -233,19 +242,25 @@ int S3File::SendPart() {
 }
 
 int S3File::Close(long long *retsz) {
-	if (SendPart() == -ENOENT) {
-		return -ENOENT;
-	} else {
-		m_log.Emsg("Close", "Closed our S3 file");
+	// this is only true if a buffer exists that needs to be drained
+	if (write_buffer.length() > 0) {
+		if (SendPart() == -ENOENT) {
+			return -ENOENT;
+		} else {
+			m_log.Emsg("Close", "Closed our S3 file");
+		}
 	}
-
-	AmazonS3CompleteMultipartUpload complete_upload_request =
-		AmazonS3CompleteMultipartUpload(m_ai, m_object, m_log);
-	if (!complete_upload_request.SendRequest(eTags, partNumber, uploadId)) {
-		m_log.Emsg("SendPart", "close.SendRequest() failed");
-		return -ENOENT;
-	} else {
-		m_log.Emsg("SendPart", "close.SendRequest() succeeded");
+	// this is only true if some parts have been written and need to be
+	// finalized
+	if (partNumber > 1) {
+		AmazonS3CompleteMultipartUpload complete_upload_request =
+			AmazonS3CompleteMultipartUpload(m_ai, m_object, m_log);
+		if (!complete_upload_request.SendRequest(eTags, partNumber, uploadId)) {
+			m_log.Emsg("SendPart", "close.SendRequest() failed");
+			return -ENOENT;
+		} else {
+			m_log.Emsg("SendPart", "close.SendRequest() succeeded");
+		}
 	}
 
 	return 0;
