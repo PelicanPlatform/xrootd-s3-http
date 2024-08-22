@@ -200,12 +200,6 @@ ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
 		return -ENOENT;
 	}
 	write_buffer += payload;
-	// write_buffer += (char *) buffer;
-	size_t write_buffer_size = write_buffer.length();
-	size_t write_buffer_expected = offset + size;
-	if (write_buffer_size != write_buffer_expected) {
-		return -ENOENT;
-	}
 
 	// XXX should this be configurable? 100mb gives us a TB of file size. It
 	// doesn't seem terribly useful to be much smaller and it's not clear the S3
