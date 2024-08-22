@@ -69,9 +69,20 @@ jobs:
     - name: Get a file
       working-directory: ${{runner.workspace}}/build
       shell: bash
-      run: curl -v http://localhost:8080/aws-opendata/2024/wod_apb_2024.nc -o wod_apb_2024.nc
+      run: curl -f http://localhost:8080/aws-opendata/2024/wod_apb_2024.nc -o wod_apb_2024.nc
+
+    - name: Get a file
+      working-directory: ${{runner.workspace}}/build
+      shell: bash
+      run: |
+        if curl -f http://localhost:8080/aws-opendata/2024/bogus_file_name; then
+          echo "Error: Command unexpectedly succeeded."
+          exit 1
+        else
+          echo "Command failed as expected."
+        fi
 
     - name: Get metadata
       working-directory: ${{runner.workspace}}/build
       shell: bash
-      run: curl -k -X PROPFIND http://localhost:8080/aws-opendata/2024/wod_apb_2024.nc -d prop_query
+      run: curl -f -k -X PROPFIND http://localhost:8080/aws-opendata/2024/wod_apb_2024.nc -d prop_query
