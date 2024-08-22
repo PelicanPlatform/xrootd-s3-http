@@ -162,6 +162,23 @@ s3.end
 	}
 };
 
+// Regression test for when the service_url ends in a `/`
+class FileSystemS3PathBucketSlash : public FileSystemFixtureBase {
+  protected:
+	virtual std::string GetConfig() override {
+		return R"(
+s3.begin
+s3.path_name        /test
+s3.service_name     s3.amazonaws.com
+s3.region           us-east-1
+s3.bucket_name      genome-browser
+s3.service_url      https://s3.us-east-1.amazonaws.com/
+s3.url_style        path
+s3.end
+)";
+	}
+};
+
 void TestDirectoryContents(S3FileSystem &fs, const std::string &dirname) {
 	std::unique_ptr<XrdOssDF> dir(fs.newDir());
 	ASSERT_TRUE(dir);
@@ -277,6 +294,18 @@ TEST_F(FileSystemS3PathNoBucket, Stat) {
 TEST_F(FileSystemS3PathNoBucket, List) {
 	S3FileSystem fs(m_log.get(), m_configfn.c_str(), nullptr);
 	TestDirectoryContents(fs, "/test/genome-browser/cells/tabula-sapiens/");
+}
+
+TEST_F(FileSystemS3PathBucketSlash, Stat) {
+	S3FileSystem fs(m_log.get(), m_configfn.c_str(), nullptr);
+	struct stat buff;
+	auto rv = fs.Stat("/test/cells/tabula-sapiens/cellbrowser.json.bak", &buff);
+	ASSERT_EQ(rv, 0) << "Failed to stat AWS bucket (" << strerror(-rv) << ")";
+}
+
+TEST_F(FileSystemS3PathBucketSlash, List) {
+	S3FileSystem fs(m_log.get(), m_configfn.c_str(), nullptr);
+	TestDirectoryContents(fs, "/test/cells/tabula-sapiens");
 }
 
 int main(int argc, char **argv) {

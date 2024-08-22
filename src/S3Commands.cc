@@ -100,10 +100,22 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &bucket_path,
 
 	if (m_style == "path") {
 		host = substring(url, hostStartIdx, resourceStartIdx);
-		path = substring(url, resourceStartIdx) + "/" + bucket + "/" + object;
+		auto resourcePrefix = substring(url, resourceStartIdx);
+		if (resourcePrefix[resourcePrefix.size() - 1] == '/') {
+			resourcePrefix =
+				substring(resourcePrefix, 0, resourcePrefix.size() - 1);
+		}
+		if (bucket.empty()) {
+			path = resourcePrefix + object;
+			bucket_path = resourcePrefix + object.substr(0, object.find('/'));
+		} else {
+			path = resourcePrefix + "/" + bucket + "/" + object;
+			bucket_path = resourcePrefix + "/" + bucket;
+		}
 	} else {
 		host = bucket + "." + substring(url, hostStartIdx, resourceStartIdx);
 		path = substring(url, resourceStartIdx) + object;
+		bucket_path = "/";
 	}
 
 	return true;
