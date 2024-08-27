@@ -88,14 +88,6 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		}
 	}
 
-	AmazonS3CreateMultipartUpload startUpload(m_ai, m_object, m_log);
-	if (!startUpload.SendRequest()) {
-		m_log.Emsg("Open", "S3 multipart request failed");
-		return -ENOENT;
-	}
-	std::string errMsg;
-	startUpload.Results(uploadId, errMsg);
-
 	return 0;
 }
 
@@ -194,6 +186,16 @@ int S3File::Fstat(struct stat *buff) {
 }
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
+	if (uploadId == "") {
+		AmazonS3CreateMultipartUpload startUpload(m_ai, m_object, m_log);
+		if (!startUpload.SendRequest()) {
+			m_log.Emsg("Open", "S3 multipart request failed");
+			return -ENOENT;
+		}
+		std::string errMsg;
+		startUpload.Results(uploadId, errMsg);
+	}
+
 	std::string payload((char *)buffer, size);
 	size_t payload_size = payload.length();
 	if (payload_size != size) {
