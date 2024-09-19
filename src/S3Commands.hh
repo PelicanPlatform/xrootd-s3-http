@@ -27,19 +27,20 @@
 class AmazonRequest : public HTTPRequest {
   public:
 	AmazonRequest(const S3AccessInfo &ai, const std::string objectName,
-				  XrdSysError &log)
+				  XrdSysError &log, bool ro = true)
 		: AmazonRequest(ai.getS3ServiceUrl(), ai.getS3AccessKeyFile(),
 						ai.getS3SecretKeyFile(), ai.getS3BucketName(),
 						objectName, ai.getS3UrlStyle(),
-						ai.getS3SignatureVersion(), log) {}
+						ai.getS3SignatureVersion(), log, ro) {}
 
 	AmazonRequest(const std::string &s, const std::string &akf,
 				  const std::string &skf, const std::string &b,
 				  const std::string &o, const std::string &style, int sv,
-				  XrdSysError &log)
+				  XrdSysError &log, bool ro = true)
 		: HTTPRequest(s, log, nullptr), accessKeyFile(akf), secretKeyFile(skf),
 		  signatureVersion(sv), bucket(b), object(o), m_style(style) {
 		requiresSignature = true;
+		retain_object = ro;
 		// Start off by parsing the hostUrl, which we use in conjunction with
 		// the bucket to fill in the host (for setting host header). For
 		// example, if the incoming hostUrl (which we get from config) is
@@ -86,6 +87,8 @@ class AmazonRequest : public HTTPRequest {
 
   protected:
 	bool sendV4Request(const std::string &payload, bool sendContentSHA = false);
+
+	bool retain_object;
 
 	std::string accessKeyFile;
 	std::string secretKeyFile;
@@ -260,7 +263,9 @@ class AmazonS3List : public AmazonRequest {
   public:
 	AmazonS3List(const S3AccessInfo &ai, const std::string &objectName,
 				 size_t maxKeys, XrdSysError &log)
-		: AmazonRequest(ai, objectName, log), m_maxKeys(maxKeys) {}
+		: AmazonRequest(ai, objectName, log, false), m_maxKeys(maxKeys) {
+		retain_object = false;
+	}
 
 	virtual ~AmazonS3List() {}
 

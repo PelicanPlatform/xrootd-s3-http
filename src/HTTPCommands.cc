@@ -103,32 +103,79 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 	return sendPreparedRequest(protocol, hostUrl, payload);
 }
 
-int debug_callback(CURL *, curl_infotype ci, char *data, size_t size, void *) {
+static void dump(const char *text, FILE *stream, unsigned char *ptr,
+				 size_t size) {
+	size_t i;
+	size_t c;
+	unsigned int width = 0x10;
+
+	fprintf(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
+			(long)size);
+
+	for (i = 0; i < size; i += width) {
+		fprintf(stream, "%4.4lx: ", (long)i);
+
+		/* show hex to the left */
+		for (c = 0; c < width; c++) {
+			if (i + c < size)
+				fprintf(stream, "%02x ", ptr[i + c]);
+			else
+				fputs("   ", stream);
+		}
+
+		/* show data on the right */
+		for (c = 0; (c < width) && (i + c < size); c++) {
+			char x =
+				(ptr[i + c] >= 0x20 && ptr[i + c] < 0x80) ? ptr[i + c] : '.';
+			fputc(x, stream);
+		}
+
+		fputc('\n', stream); /* newline */
+	}
+}
+
+static void dump_plain(const char *text, FILE *stream, unsigned char *ptr,
+					   size_t size) {
+	fprintf(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
+			(long)size);
+	fprintf(stream, "%s\n", ptr);
+}
+
+int debug_callback(CURL *handle, curl_infotype ci, char *data, size_t size,
+				   void *clientp) {
+	const char *text;
+	(void)handle; /* prevent compiler warning */
+	(void)clientp;
+
 	switch (ci) {
-	default:
-		break;
-
 	case CURLINFO_TEXT:
-		break;
-
-	case CURLINFO_HEADER_IN:
-		break;
+		fputs("== Info: ", stderr);
+		fwrite(data, size, 1, stderr);
+	default: /* in case a new one is introduced to shock us */
+		return 0;
 
 	case CURLINFO_HEADER_OUT:
+		text = "=> Send header";
+		dump_plain(text, stderr, (unsigned char *)data, size);
 		break;
-
-	case CURLINFO_DATA_IN:
-		break;
-
 	case CURLINFO_DATA_OUT:
+		text = "=> Send data";
 		break;
-
-	case CURLINFO_SSL_DATA_IN:
-		break;
-
 	case CURLINFO_SSL_DATA_OUT:
+		text = "=> Send SSL data";
+		break;
+	case CURLINFO_HEADER_IN:
+		text = "<= Recv header";
+		break;
+	case CURLINFO_DATA_IN:
+		text = "<= Recv data";
+		break;
+	case CURLINFO_SSL_DATA_IN:
+		text = "<= Recv SSL data";
 		break;
 	}
+
+	dump(text, stderr, (unsigned char *)data, size);
 
 	return 0;
 }
@@ -380,6 +427,8 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 		}
 		return false;
 	}
+	// rv = curl_easy_setopt(curl.get(), CURLOPT_DEBUGFUNCTION, debug_callback);
+	// rv = curl_easy_setopt(curl.get(), CURLOPT_VERBOSE, 1L);
 
 retry:
 	rv = curl_easy_perform(curl.get());
