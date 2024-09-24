@@ -88,7 +88,7 @@ class AmazonRequest : public HTTPRequest {
   protected:
 	bool sendV4Request(const std::string &payload, bool sendContentSHA = false);
 
-	bool retain_object;
+	bool retainObject{true};
 
 	std::string accessKeyFile;
 	std::string secretKeyFile;
