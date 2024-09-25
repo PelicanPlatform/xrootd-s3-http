@@ -40,7 +40,7 @@ class AmazonRequest : public HTTPRequest {
 		: HTTPRequest(s, log, nullptr), accessKeyFile(akf), secretKeyFile(skf),
 		  signatureVersion(sv), bucket(b), object(o), m_style(style) {
 		requiresSignature = true;
-		retain_object = ro;
+		retainObject = ro;
 		// Start off by parsing the hostUrl, which we use in conjunction with
 		// the bucket to fill in the host (for setting host header). For
 		// example, if the incoming hostUrl (which we get from config) is
@@ -88,7 +88,7 @@ class AmazonRequest : public HTTPRequest {
   protected:
 	bool sendV4Request(const std::string &payload, bool sendContentSHA = false);
 
-	bool retain_object;
+	bool retainObject;
 
 	std::string accessKeyFile;
 	std::string secretKeyFile;
@@ -263,9 +263,7 @@ class AmazonS3List : public AmazonRequest {
   public:
 	AmazonS3List(const S3AccessInfo &ai, const std::string &objectName,
 				 size_t maxKeys, XrdSysError &log)
-		: AmazonRequest(ai, objectName, log, false), m_maxKeys(maxKeys) {
-		retain_object = false;
-	}
+		: AmazonRequest(ai, objectName, log, false), m_maxKeys(maxKeys) {}
 
 	virtual ~AmazonS3List() {}
 

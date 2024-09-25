@@ -141,8 +141,8 @@ static void dump_plain(const char *text, FILE *stream, unsigned char *ptr,
 	fprintf(stream, "%s\n", ptr);
 }
 
-int debug_callback(CURL *handle, curl_infotype ci, char *data, size_t size,
-				   void *clientp) {
+int debugCallback(CURL *handle, curl_infotype ci, char *data, size_t size,
+				  void *clientp) {
 	const char *text;
 	(void)handle; /* prevent compiler warning */
 	(void)clientp;
@@ -174,7 +174,6 @@ int debug_callback(CURL *handle, curl_infotype ci, char *data, size_t size,
 		text = "<= Recv SSL data";
 		break;
 	}
-
 	dump(text, stderr, (unsigned char *)data, size);
 
 	return 0;
@@ -427,8 +426,10 @@ bool HTTPRequest::sendPreparedRequest(const std::string &protocol,
 		}
 		return false;
 	}
-	// rv = curl_easy_setopt(curl.get(), CURLOPT_DEBUGFUNCTION, debug_callback);
-	// rv = curl_easy_setopt(curl.get(), CURLOPT_VERBOSE, 1L);
+	if (m_log.getMsgMask() & LogMask::Dump) {
+		rv = curl_easy_setopt(curl.get(), CURLOPT_DEBUGFUNCTION, debugCallback);
+		rv = curl_easy_setopt(curl.get(), CURLOPT_VERBOSE, 1L);
+	}
 
 retry:
 	rv = curl_easy_perform(curl.get());

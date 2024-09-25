@@ -78,8 +78,16 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	Config.Attach(cfgFD);
 	std::shared_ptr<S3AccessInfo> newAccessInfo(new S3AccessInfo());
 	std::string exposedPath;
+	m_log.setMsgMask(0);
 	while ((temporary = Config.GetMyFirstWord())) {
 		attribute = temporary;
+		if (attribute == "s3.trace") {
+			if (!XrdHTTPServer::ConfigLog(Config, m_log)) {
+				m_log.Emsg("Config", "Failed to configure the log level");
+			}
+			continue;
+		}
+
 		temporary = Config.GetWord();
 		if (attribute == "s3.end") {
 			m_s3_access_map[exposedPath] = newAccessInfo;

@@ -91,7 +91,7 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &bucket_path,
 			// everything between
 			// :// up until the last /, but with <bucket> appended to the front.
 			host = bucket + "." + substring(url, hostStartIdx);
-			if (retain_object) {
+			if (retainObject) {
 				path = "/" + object;
 			} else {
 				path = "/";
