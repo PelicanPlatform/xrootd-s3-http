@@ -30,7 +30,8 @@ enum LogMask {
 	Info = 0x02,
 	Warning = 0x04,
 	Error = 0x08,
-	All = 0xff
+	All = 0x0f,
+	Dump = 0x10
 };
 
 // Given a bitset based on LogMask, return a human-readable string of the set

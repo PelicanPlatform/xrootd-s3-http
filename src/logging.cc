@@ -32,6 +32,10 @@ std::string XrdHTTPServer::LogMaskToString(int mask) {
 
 	bool has_entry = false;
 	std::stringstream ss;
+	if (mask & LogMask::Dump) {
+		ss << "dump";
+		has_entry = true;
+	}
 	if (mask & LogMask::Debug) {
 		ss << "debug";
 		has_entry = true;
@@ -53,7 +57,6 @@ std::string XrdHTTPServer::LogMaskToString(int mask) {
 
 bool XrdHTTPServer::ConfigLog(XrdOucStream &conf, XrdSysError &log) {
 	std::string map_filename;
-	log.setMsgMask(0);
 	char *val = nullptr;
 	if (!(val = conf.GetToken())) {
 		log.Emsg("Config",
@@ -70,6 +73,8 @@ bool XrdHTTPServer::ConfigLog(XrdOucStream &conf, XrdSysError &log) {
 			log.setMsgMask(log.getMsgMask() | LogMask::Warning);
 		} else if (!strcmp(val, "info")) {
 			log.setMsgMask(log.getMsgMask() | LogMask::Info);
+		} else if (!strcmp(val, "dump")) {
+			log.setMsgMask(log.getMsgMask() | LogMask::Dump);
 		} else if (!strcmp(val, "debug")) {
 			log.setMsgMask(log.getMsgMask() | LogMask::Debug);
 		} else if (!strcmp(val, "none")) {
