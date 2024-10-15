@@ -274,7 +274,7 @@ extern "C" {
 XrdOss *XrdOssAddStorageSystem2(XrdOss *curr_oss, XrdSysLogger *Logger,
 								const char *config_fn, const char *parms,
 								XrdOucEnv *envP) {
-	XrdSysError log(Logger, "s3_");
+	XrdSysError log(Logger, "httpserver_");
 
 	log.Emsg("Initialize",
 			 "HTTP filesystem cannot be stacked with other filesystems");
@@ -288,16 +288,16 @@ XrdOss *XrdOssAddStorageSystem2(XrdOss *curr_oss, XrdSysLogger *Logger,
 XrdOss *XrdOssGetStorageSystem2(XrdOss *native_oss, XrdSysLogger *Logger,
 								const char *config_fn, const char *parms,
 								XrdOucEnv *envP) {
-	XrdSysError log(Logger, "httpserver_");
+	auto log = new XrdSysError(Logger, "httpserver_");
 
 	envP->Export("XRDXROOTD_NOPOSC", "1");
 
 	try {
-		HTTPRequest::init();
+		HTTPRequest::Init(*log);
 		g_http_oss = new HTTPFileSystem(Logger, config_fn, envP);
 		return g_http_oss;
 	} catch (std::runtime_error &re) {
-		log.Emsg("Initialize", "Encountered a runtime failure", re.what());
+		log->Emsg("Initialize", "Encountered a runtime failure", re.what());
 		return nullptr;
 	}
 }

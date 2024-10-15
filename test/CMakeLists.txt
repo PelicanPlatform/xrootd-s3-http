@@ -1,5 +1,6 @@
 add_executable( s3-gtest s3_tests.cc
   ../src/AWSv4-impl.cc
+  ../src/CurlUtil.cc
   ../src/logging.cc
   ../src/S3AccessInfo.cc
   ../src/S3Directory.cc
@@ -13,6 +14,7 @@ add_executable( s3-gtest s3_tests.cc
 )
 
 add_executable( http-gtest http_tests.cc
+  ../src/CurlUtil.cc
   ../src/HTTPFile.cc
   ../src/HTTPFileSystem.cc
   ../src/HTTPCommands.cc
