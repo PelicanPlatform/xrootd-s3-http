@@ -90,3 +90,37 @@ set_tests_properties(HTTP::basic::test
     ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
     ATTACHED_FILES_ON_FAIL "${BASIC_TEST_LOGS}"
 )
+
+####
+#   Start of S3 tests
+####
+add_test(NAME S3::s3_basic::setup
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/s3-setup.sh" s3_basic)
+
+set_tests_properties(S3::s3_basic::setup
+  PROPERTIES
+    FIXTURES_SETUP S3::s3_basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+)
+
+add_test(NAME S3::s3_basic::teardown
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/s3-teardown.sh" s3_basic)
+
+set_tests_properties(S3::s3_basic::teardown
+  PROPERTIES
+    FIXTURES_CLEANUP S3::s3_basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+)
+
+add_test(NAME S3::s3_basic::test
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/s3-test.sh" s3_basic)
+
+list(APPEND S3_BASIC_TEST_LOGS ${CMAKE_CURRENT_BINARY_DIR}/tests/s3_basic/server.log)
+list(APPEND S3_BASIC_TEST_LOGS ${CMAKE_CURRENT_BINARY_DIR}/tests/s3_basic/client.log)
+
+set_tests_properties(S3::s3_basic::test
+  PROPERTIES
+    FIXTURES_REQUIRED S3::s3_basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+    ATTACHED_FILES_ON_FAIL "${S3_BASIC_TEST_LOGS}"
+)
