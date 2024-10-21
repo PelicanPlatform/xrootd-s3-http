@@ -20,7 +20,7 @@
 
 #include <string>
 
-class XrdOucStream;
+class XrdOucGatherConf;
 class XrdSysError;
 
 namespace XrdHTTPServer {
@@ -40,6 +40,6 @@ std::string LogMaskToString(int mask);
 
 // Given an xrootd configuration object that matched on httpserver.trace, parse
 // the remainder of the line and configure the logger appropriately.
-bool ConfigLog(XrdOucStream &conf, XrdSysError &log);
+bool ConfigLog(XrdOucGatherConf &conf, XrdSysError &log);
 
 } // namespace XrdHTTPServer
