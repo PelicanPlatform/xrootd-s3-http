@@ -418,11 +418,14 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		const auto iter = headers.find("Authorization");
 		if (iter == headers.end()) {
 			std::string token;
-			if (m_token->Get(token) && !token.empty()) {
-				headers["Authorization"] = "Bearer " + token;
+			if (m_token->Get(token)) {
+				if (!token.empty()) {
+					headers["Authorization"] = "Bearer " + token;
+				}
 			} else {
 				errorCode = "E_TOKEN";
 				errorMessage = "failed to load authorization token from file";
+				return false;
 			}
 		}
 	}
