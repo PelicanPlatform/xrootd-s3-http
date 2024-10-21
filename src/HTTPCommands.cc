@@ -150,7 +150,8 @@ static void dump_plain(const char *text, FILE *stream, unsigned char *ptr,
 					   size_t size) {
 	fprintf(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
 			(long)size);
-	fprintf(stream, "%s\n", ptr);
+	fwrite(ptr, 1, size, stream);
+	fputs("\n", stream);
 }
 
 int debugCallback(CURL *handle, curl_infotype ci, char *data, size_t size,
