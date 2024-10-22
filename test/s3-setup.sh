@@ -2,6 +2,11 @@
 
 TEST_NAME=$1
 
+VALGRIND=0
+if [ "$2" = "valgrind" ]; then
+  VALGRIND=1
+fi
+
 if [ -z "$BINARY_DIR" ]; then
   echo "\$BINARY_DIR environment variable is not set; cannot run test"
   exit 1
@@ -250,7 +255,11 @@ echo "$MINIO_USER" > $XROOTD_CONFIGDIR/access_key
 echo "$MINIO_PASSWORD" > $XROOTD_CONFIGDIR/secret_key
 
 export X509_CERT_FILE=$MINIO_CERTSDIR/CAs/tlsca.pem
-"$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>/dev/null >/dev/null &
+if [ "$VALGRIND" -eq 1 ]; then
+  valgrind --leak-check=full --track-origins=yes "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" >>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
+else
+  "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" >>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
+fi
 XROOTD_PID=$!
 echo "xrootd daemon PID: $XROOTD_PID"
 
@@ -263,7 +272,7 @@ while [ -z "$XROOTD_URL" ]; do
   if [ $IDX -gt 1 ]; then
     echo "Waiting for xrootd to start ($IDX seconds so far) ..."
   fi
-  if [ $IDX -eq 10 ]; then
+  if [ $IDX -eq 20 ]; then
     echo "xrootd failed to start - failing"
     exit 1
   fi

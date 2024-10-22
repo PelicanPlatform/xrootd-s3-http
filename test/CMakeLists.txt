@@ -115,10 +115,20 @@ set_tests_properties(S3::s3_basic::teardown
 add_test(NAME S3::s3_basic::test
   COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/s3-test.sh" s3_basic)
 
+add_test(NAME S3::s3_basic::stress_test
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/s3-stress-test.sh" s3_basic)
+
 list(APPEND S3_BASIC_TEST_LOGS ${CMAKE_CURRENT_BINARY_DIR}/tests/s3_basic/server.log)
 list(APPEND S3_BASIC_TEST_LOGS ${CMAKE_CURRENT_BINARY_DIR}/tests/s3_basic/client.log)
 
 set_tests_properties(S3::s3_basic::test
+  PROPERTIES
+    FIXTURES_REQUIRED S3::s3_basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+    ATTACHED_FILES_ON_FAIL "${S3_BASIC_TEST_LOGS}"
+)
+
+set_tests_properties(S3::s3_basic::stress_test
   PROPERTIES
     FIXTURES_REQUIRED S3::s3_basic
     ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
