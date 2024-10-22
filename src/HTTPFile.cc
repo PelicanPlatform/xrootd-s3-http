@@ -145,6 +145,7 @@ ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
 
 int HTTPFile::Fstat(struct stat *buff) {
 	if (m_stat) {
+		memset(buff, '\0', sizeof(struct stat));
 		buff->st_mode = 0600 | S_IFREG;
 		buff->st_nlink = 1;
 		buff->st_uid = 1;
@@ -232,6 +233,7 @@ int HTTPFile::Fstat(struct stat *buff) {
 	}
 
 	if (buff) {
+		memset(buff, '\0', sizeof(struct stat));
 		buff->st_mode = 0600 | S_IFREG;
 		buff->st_nlink = 1;
 		buff->st_uid = 1;

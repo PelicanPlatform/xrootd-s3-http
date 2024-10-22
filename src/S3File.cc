@@ -172,6 +172,7 @@ int S3File::Fstat(struct stat *buff) {
 		current_newline = next_newline;
 	}
 
+	memset(buff, '\0', sizeof(struct stat));
 	buff->st_mode = 0600 | S_IFREG;
 	buff->st_nlink = 1;
 	buff->st_uid = 1;

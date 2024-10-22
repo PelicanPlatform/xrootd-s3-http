@@ -270,6 +270,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	}
 
 	if (object.empty()) {
+		memset(buff, '\0', sizeof(struct stat));
 		buff->st_mode = 0700 | S_IFDIR;
 		buff->st_nlink = 0;
 		buff->st_uid = 1;
@@ -291,6 +292,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		}
 	}
 	if (foundObj) {
+		memset(buff, '\0', sizeof(struct stat));
 		buff->st_mode = 0600 | S_IFREG;
 		buff->st_nlink = 1;
 		buff->st_uid = buff->st_gid = 1;
@@ -313,6 +315,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		return -ENOENT;
 	}
 
+	memset(buff, '\0', sizeof(struct stat));
 	buff->st_mode = 0700 | S_IFDIR;
 	buff->st_nlink = 0;
 	buff->st_uid = 1;
