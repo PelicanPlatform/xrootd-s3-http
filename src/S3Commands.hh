@@ -64,7 +64,7 @@ class AmazonRequest : public HTTPRequest {
 		// requests, and
 		// --> "https://my-url.com:443/my-bucket/my-object" for path style
 		// requests.
-		hostUrl = protocol + "://" + host + canonicalURI;
+		hostUrl = getProtocol() + "://" + host + canonicalURI;
 
 		// If we can, set the region based on the host.
 		size_t secondDot = host.find(".", 2 + 1);
@@ -83,7 +83,7 @@ class AmazonRequest : public HTTPRequest {
 	virtual bool SendRequest();
 	virtual bool SendS3Request(const std::string &payload);
 
-	static void init() { HTTPRequest::init(); }
+	static void Init(XrdSysError &log) { HTTPRequest::Init(log); }
 
   protected:
 	bool sendV4Request(const std::string &payload, bool sendContentSHA = false);

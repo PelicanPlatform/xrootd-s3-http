@@ -18,28 +18,35 @@
 
 #pragma once
 
-#include <string>
+#include <memory>
+#include <unordered_map>
 
-class XrdOucGatherConf;
+typedef void CURL;
+
 class XrdSysError;
 
-namespace XrdHTTPServer {
+class HTTPRequest;
+class HandlerQueue;
 
-enum LogMask {
-	Debug = 0x01,
-	Info = 0x02,
-	Warning = 0x04,
-	Error = 0x08,
-	All = 0x0f,
-	Dump = 0x10
+class CurlWorker {
+public:
+    CurlWorker(std::shared_ptr<HandlerQueue> queue, XrdSysError &logger) :
+        m_queue(queue),
+        m_logger(logger)
+    {}
+
+    CurlWorker(const CurlWorker &) = delete;
+
+    void Run();
+    static void RunStatic(CurlWorker *myself);
+    static unsigned GetPollThreads() {return m_workers;}
+
+private:
+    std::shared_ptr<HandlerQueue> m_queue;
+    std::unordered_map<CURL*, HTTPRequest *> m_op_map;
+    XrdSysError &m_logger;
+
+    const static unsigned m_workers{5};
+    const static unsigned m_max_ops{20};
+    const static unsigned m_marker_period{5};
 };
-
-// Given a bitset based on LogMask, return a human-readable string of the set
-// logging levels.
-std::string LogMaskToString(int mask);
-
-// Given an xrootd configuration object that matched on httpserver.trace, parse
-// the remainder of the line and configure the logger appropriately.
-bool ConfigLog(XrdOucGatherConf &conf, XrdSysError &log);
-
-} // namespace XrdHTTPServer

@@ -22,7 +22,7 @@
 #include "logging.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
-#include <XrdOuc/XrdOucStream.hh>
+#include <XrdOuc/XrdOucGatherConf.hh>
 #include <XrdSec/XrdSecEntity.hh>
 #include <XrdVersion.hh>
 
@@ -75,33 +75,32 @@ bool HTTPFileSystem::handle_required_config(const std::string &name_from_config,
 
 bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	XrdOucEnv myEnv;
-	XrdOucStream Config(&m_log, getenv("XRDINSTANCE"), &myEnv, "=====> ");
-
-	int cfgFD = open(configfn, O_RDONLY, 0);
-	if (cfgFD < 0) {
-		m_log.Emsg("Config", errno, "open config file", configfn);
+	XrdOucGatherConf httpserver_conf("httpserver.", &m_log);
+	int result;
+	if ((result = httpserver_conf.Gather(configfn,
+										 XrdOucGatherConf::full_lines)) < 0) {
+		m_log.Emsg("Config", -result, "parsing config file", configfn);
 		return false;
 	}
 
-	char *temporary;
-	std::string value;
 	std::string attribute;
 	std::string token_file;
-	Config.Attach(cfgFD);
-	while ((temporary = Config.GetMyFirstWord())) {
-		attribute = temporary;
-		if (attribute == "httpserver.trace") {
-			if (!XrdHTTPServer::ConfigLog(Config, m_log)) {
+
+	m_log.setMsgMask(0);
+
+	while (httpserver_conf.GetLine()) {
+		auto attribute = httpserver_conf.GetToken();
+		if (!strcmp(attribute, "httpserver.trace")) {
+			if (!XrdHTTPServer::ConfigLog(httpserver_conf, m_log)) {
 				m_log.Emsg("Config", "Failed to configure the log level");
 			}
 			continue;
 		}
 
-		temporary = Config.GetWord();
-		if (!temporary) {
+		auto value = httpserver_conf.GetToken();
+		if (!value) {
 			continue;
 		}
-		value = temporary;
 
 		if (!handle_required_config(attribute, "httpserver.host_name", value,
 									http_host_name) ||
@@ -113,7 +112,6 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 									value, m_storage_prefix) ||
 			!handle_required_config(attribute, "httpserver.token_file", value,
 									token_file)) {
-			Config.Close();
 			return false;
 		}
 	}
@@ -135,14 +133,6 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 		m_token = std::move(TokenFile(token_file, &m_log));
 	}
 
-	int retc = Config.LastError();
-	if (retc) {
-		m_log.Emsg("Config", -retc, "read config file", configfn);
-		Config.Close();
-		return false;
-	}
-
-	Config.Close();
 	return true;
 }
 

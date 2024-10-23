@@ -18,7 +18,7 @@
 
 #include "logging.hh"
 
-#include <XrdOuc/XrdOucStream.hh>
+#include <XrdOuc/XrdOucGatherConf.hh>
 #include <XrdSys/XrdSysError.hh>
 
 #include <sstream>
@@ -55,7 +55,7 @@ std::string XrdHTTPServer::LogMaskToString(int mask) {
 	return ss.str();
 }
 
-bool XrdHTTPServer::ConfigLog(XrdOucStream &conf, XrdSysError &log) {
+bool XrdHTTPServer::ConfigLog(XrdOucGatherConf &conf, XrdSysError &log) {
 	std::string map_filename;
 	char *val = nullptr;
 	if (!(val = conf.GetToken())) {

@@ -25,7 +25,7 @@
 #include "stl_string_utils.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
-#include <XrdOuc/XrdOucStream.hh>
+#include <XrdOuc/XrdOucGatherConf.hh>
 #include <XrdSec/XrdSecEntity.hh>
 #include <XrdVersion.hh>
 
@@ -64,31 +64,30 @@ bool S3FileSystem::handle_required_config(const char *desired_name,
 
 bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	XrdOucEnv myEnv;
-	XrdOucStream Config(&m_log, getenv("XRDINSTANCE"), &myEnv, "=====> ");
-
-	int cfgFD = open(configfn, O_RDONLY, 0);
-	if (cfgFD < 0) {
-		m_log.Emsg("Config", errno, "open config file", configfn);
+	XrdOucGatherConf s3server_conf("s3.", &m_log);
+	int result;
+	if ((result = s3server_conf.Gather(configfn,
+									   XrdOucGatherConf::full_lines)) < 0) {
+		m_log.Emsg("Config", -result, "parsing config file", configfn);
 		return false;
 	}
 
 	char *temporary;
 	std::string value;
 	std::string attribute;
-	Config.Attach(cfgFD);
 	std::shared_ptr<S3AccessInfo> newAccessInfo(new S3AccessInfo());
 	std::string exposedPath;
 	m_log.setMsgMask(0);
-	while ((temporary = Config.GetMyFirstWord())) {
-		attribute = temporary;
+	while ((temporary = s3server_conf.GetLine())) {
+		attribute = s3server_conf.GetToken();
 		if (attribute == "s3.trace") {
-			if (!XrdHTTPServer::ConfigLog(Config, m_log)) {
+			if (!XrdHTTPServer::ConfigLog(s3server_conf, m_log)) {
 				m_log.Emsg("Config", "Failed to configure the log level");
 			}
 			continue;
 		}
 
-		temporary = Config.GetWord();
+		temporary = s3server_conf.GetToken();
 		if (attribute == "s3.end") {
 			m_s3_access_map[exposedPath] = newAccessInfo;
 			if (newAccessInfo->getS3ServiceName().empty()) {
@@ -124,35 +123,27 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 		value = temporary;
 
 		if (!handle_required_config("s3.path_name", value)) {
-			Config.Close();
 			return false;
 		}
 		if (!handle_required_config("s3.bucket_name", value)) {
-			Config.Close();
 			return false;
 		}
 		if (!handle_required_config("s3.service_name", value)) {
-			Config.Close();
 			return false;
 		}
 		if (!handle_required_config("s3.region", value)) {
-			Config.Close();
 			return false;
 		}
 		if (!handle_required_config("s3.service_url", value)) {
-			Config.Close();
 			return false;
 		}
 		if (!handle_required_config("s3.access_key_file", value)) {
-			Config.Close();
 			return false;
 		}
 		if (!handle_required_config("s3.secret_key_file", value)) {
-			Config.Close();
 			return false;
 		}
 		if (!handle_required_config("s3.url_style", value)) {
-			Config.Close();
 			return false;
 		}
 
@@ -195,14 +186,6 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 		return false;
 	}
 
-	int retc = Config.LastError();
-	if (retc) {
-		m_log.Emsg("Config", -retc, "read config file", configfn);
-		Config.Close();
-		return false;
-	}
-
-	Config.Close();
 	return true;
 }
 
@@ -287,6 +270,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	}
 
 	if (object.empty()) {
+		memset(buff, '\0', sizeof(struct stat));
 		buff->st_mode = 0700 | S_IFDIR;
 		buff->st_nlink = 0;
 		buff->st_uid = 1;
@@ -308,6 +292,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		}
 	}
 	if (foundObj) {
+		memset(buff, '\0', sizeof(struct stat));
 		buff->st_mode = 0600 | S_IFREG;
 		buff->st_nlink = 1;
 		buff->st_uid = buff->st_gid = 1;
@@ -330,6 +315,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		return -ENOENT;
 	}
 
+	memset(buff, '\0', sizeof(struct stat));
 	buff->st_mode = 0700 | S_IFDIR;
 	buff->st_nlink = 0;
 	buff->st_uid = 1;

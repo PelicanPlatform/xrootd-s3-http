@@ -309,6 +309,9 @@ TEST_F(FileSystemS3PathBucketSlash, List) {
 }
 
 int main(int argc, char **argv) {
+	auto logger = new XrdSysLogger(2, 0);
+	auto log = new XrdSysError(logger, "curl_");
+	AmazonRequest::Init(*log);
 	::testing::InitGoogleTest(&argc, argv);
 	return RUN_ALL_TESTS();
 }

@@ -410,7 +410,7 @@ bool AmazonRequest::createV4Signature(const std::string &payload,
 
 bool AmazonRequest::sendV4Request(const std::string &payload,
 								  bool sendContentSHA) {
-	if ((protocol != "http") && (protocol != "https")) {
+	if ((getProtocol() != "http") && (getProtocol() != "https")) {
 		this->errorCode = "E_INVALID_SERVICE_URL";
 		this->errorMessage = "Service URL not of a known protocol (http[s]).";
 		return false;
@@ -438,7 +438,7 @@ bool AmazonRequest::sendV4Request(const std::string &payload,
 	if (!canonicalQueryString.empty()) {
 		url += "?" + canonicalQueryString;
 	}
-	return sendPreparedRequest(protocol, url, payload);
+	return sendPreparedRequest(url, payload);
 }
 
 // It's stated in the API documentation that you can upload to any region
@@ -563,7 +563,7 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken) {
 	httpVerb = "GET";
 
 	// Operation is on the bucket itself; alter the URL to remove the object
-	hostUrl = protocol + "://" + host + bucketPath;
+	hostUrl = getProtocol() + "://" + host + bucketPath;
 
 	return SendS3Request("");
 }
@@ -571,7 +571,7 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken) {
 bool AmazonS3CreateMultipartUpload::Results(std::string &uploadId,
 											std::string &errMsg) {
 	tinyxml2::XMLDocument doc;
-	auto err = doc.Parse(resultString.c_str());
+	auto err = doc.Parse(getResultString().c_str());
 	if (err != tinyxml2::XML_SUCCESS) {
 		errMsg = doc.ErrorStr();
 		return false;
@@ -614,7 +614,7 @@ bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 						   std::vector<std::string> &commonPrefixes,
 						   std::string &ct, std::string &errMsg) {
 	tinyxml2::XMLDocument doc;
-	auto err = doc.Parse(resultString.c_str());
+	auto err = doc.Parse(m_result.c_str());
 	if (err != tinyxml2::XML_SUCCESS) {
 		errMsg = doc.ErrorStr();
 		return false;
