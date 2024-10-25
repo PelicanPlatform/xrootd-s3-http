@@ -44,15 +44,15 @@ if( CMAKE_COMPILER_IS_GNUCXX )
 endif()
 
 if(NOT APPLE)
-  SET( CMAKE_SHARED_LINKER_FLAGS "-Wl,--no-undefined")
-  SET( CMAKE_MODULE_LINKER_FLAGS "-Wl,--no-undefined")
+  SET( CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-undefined")
+  SET( CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--no-undefined")
 endif()
 
 if( NOT XROOTD_EXTERNAL_TINYXML2 )
 	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 	add_subdirectory(vendor/tinyxml2)
 else()
-	find_package(tinyxml2::tinyxml2)
+	find_package(tinyxml2)
 endif()
 
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
