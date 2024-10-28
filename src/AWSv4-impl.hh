@@ -20,6 +20,7 @@
 
 #include <map>
 #include <string>
+#include <string_view>
 
 namespace AWSv4Impl {
 
@@ -34,7 +35,7 @@ void convertMessageDigestToLowercaseHex(const unsigned char *messageDigest,
 										unsigned int mdLength,
 										std::string &hexEncoded);
 
-bool doSha256(const std::string &payload, unsigned char *messageDigest,
+bool doSha256(const std::string_view payload, unsigned char *messageDigest,
 			  unsigned int *mdLength);
 
 bool createSignature(const std::string &secretAccessKey,

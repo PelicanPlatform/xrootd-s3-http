@@ -105,14 +105,8 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 	}
 
 	headers["Content-Type"] = "binary/octet-stream";
-	std::string contentLength;
-	formatstr(contentLength, "%zu", payload.size());
-	headers["Content-Length"] = contentLength;
-	// Another undocumented CURL feature: transfer-encoding is "chunked"
-	// by default for "PUT", which we really don't want.
-	headers["Transfer-Encoding"] = "";
 
-	return sendPreparedRequest(hostUrl, payload);
+	return sendPreparedRequest(hostUrl, payload, payload.size(), true);
 }
 
 static void dump(XrdSysError *log, const char *text, unsigned char *ptr,
@@ -230,6 +224,8 @@ int debugAndDumpCallback(CURL *handle, curl_infotype ci, char *data,
 	return 0;
 }
 
+void HTTPRequest::Payload::NotifyPaused() { m_parent.Notify(); }
+
 // A callback function that gets passed to curl_easy_setopt for reading data
 // from the payload
 size_t read_callback(char *buffer, size_t size, size_t n, void *v) {
@@ -239,31 +235,54 @@ size_t read_callback(char *buffer, size_t size, size_t n, void *v) {
 	// been sent.
 	HTTPRequest::Payload *payload = (HTTPRequest::Payload *)v;
 
-	if (payload->sentSoFar == payload->data->size()) {
+	if (payload->sentSoFar == static_cast<off_t>(payload->data.size())) {
 		payload->sentSoFar = 0;
-		return 0;
+		if (payload->final) {
+			return 0;
+		} else {
+			payload->NotifyPaused();
+			return CURL_READFUNC_PAUSE;
+		}
 	}
 
 	size_t request = size * n;
-	if (request > payload->data->size()) {
-		request = payload->data->size();
+	if (request > payload->data.size()) {
+		request = payload->data.size();
 	}
 
-	if (payload->sentSoFar + request > payload->data->size()) {
-		request = payload->data->size() - payload->sentSoFar;
+	if (payload->sentSoFar + request > payload->data.size()) {
+		request = payload->data.size() - payload->sentSoFar;
 	}
 
-	memcpy(buffer, payload->data->data() + payload->sentSoFar, request);
+	memcpy(buffer, payload->data.data() + payload->sentSoFar, request);
 	payload->sentSoFar += request;
 
 	return request;
 }
 
 bool HTTPRequest::sendPreparedRequest(const std::string &uri,
-									  const std::string &payload) {
+									  const std::string_view payload,
+									  off_t payload_size, bool final) {
 	m_uri = uri;
 	m_payload = payload;
+	m_payload_size = payload_size;
+	if (!m_is_streaming && !final) {
+		m_is_streaming = true;
+	}
+	m_final = final;
+	// Detect whether we were given an undersized buffer in non-streaming mode
+	if (!m_is_streaming && payload_size &&
+		payload_size != static_cast<off_t>(payload.size())) {
+		errorCode = "E_LOGIC";
+		std::stringstream ss;
+		ss << "Logic error: given an undersized payload (have "
+		   << payload.size() << ", expected " << payload_size
+		   << ") in a non-streaming mode";
+		errorMessage = ss.str();
+		return false;
+	}
 
+	m_result_ready = false;
 	m_queue->Produce(this);
 	std::unique_lock<std::mutex> lk(m_mtx);
 	m_cv.wait(lk, [&] { return m_result_ready; });
@@ -272,6 +291,8 @@ bool HTTPRequest::sendPreparedRequest(const std::string &uri,
 }
 
 bool HTTPRequest::ReleaseHandle(CURL *curl) {
+	m_curl_handle = nullptr;
+
 	if (curl == nullptr)
 		return false;
 	// Note: Any option that's conditionally set in `HTTPRequest::SetupHandle`
@@ -296,6 +317,18 @@ bool HTTPRequest::ReleaseHandle(CURL *curl) {
 	curl_easy_setopt(curl, CURLOPT_SSLCERT, nullptr);
 	curl_easy_setopt(curl, CURLOPT_SSLKEY, nullptr);
 
+	return true;
+}
+
+bool HTTPRequest::ContinueHandle() {
+	if (!m_curl_handle) {
+		return false;
+	}
+
+	m_callback_payload->data = m_payload;
+	m_callback_payload->final = m_final;
+	m_callback_payload->sentSoFar = 0;
+	curl_easy_pause(m_curl_handle, 0);
 	return true;
 }
 
@@ -340,12 +373,18 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 			return false;
 		}
 
-		rv = curl_easy_setopt(curl, CURLOPT_POSTFIELDS, m_payload.c_str());
+		rv = curl_easy_setopt(curl, CURLOPT_POSTFIELDS, m_payload.data());
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
 			this->errorMessage =
 				"curl_easy_setopt( CURLOPT_POSTFIELDS ) failed.";
 			return false;
+		}
+
+		if (m_is_streaming) {
+			errorCode = "E_NOT_IMPL";
+			errorMessage =
+				"Streaming posts not implemented in backend; internal error.";
 		}
 	}
 
@@ -361,7 +400,7 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		// and the offset of the data Here, we tell curl_easy_setopt to use the
 		// read_callback function to read the data from the payload
 		m_callback_payload = std::unique_ptr<HTTPRequest::Payload>(
-			new HTTPRequest::Payload{&m_payload, 0});
+			new HTTPRequest::Payload{m_payload, 0, m_final, *this});
 		rv = curl_easy_setopt(curl, CURLOPT_READDATA, m_callback_payload.get());
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
@@ -375,6 +414,15 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 			this->errorMessage =
 				"curl_easy_setopt( CURLOPT_READFUNCTION ) failed.";
 			return false;
+		}
+
+		if (m_payload_size || !m_is_streaming) {
+			if (curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,
+								 m_payload_size) != CURLE_OK) {
+				errorCode = "E_CURL_LIB";
+				errorMessage =
+					"curl_easy_setopt( CURLOPT_INFILESIZE_LARGE ) failed.";
+			}
 		}
 	}
 
@@ -526,6 +574,7 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		}
 	}
 
+	m_curl_handle = curl;
 	return true;
 }
 
