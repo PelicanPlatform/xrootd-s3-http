@@ -33,6 +33,8 @@
 int parse_path(const S3FileSystem &fs, const char *path,
 			   std::string &exposedPath, std::string &object);
 
+class AmazonS3SendMultipartPart;
+
 class S3File : public XrdOssDF {
   public:
 	S3File(XrdSysError &log, S3FileSystem *oss);
@@ -95,7 +97,7 @@ class S3File : public XrdOssDF {
 	time_t getLastModified() { return last_modified; }
 
   private:
-	int SendPart();
+	ssize_t ContinueSendPart(const void *buffer, size_t size);
 	XrdSysError &m_log;
 	S3FileSystem *m_oss;
 
@@ -105,8 +107,20 @@ class S3File : public XrdOssDF {
 	size_t content_length;
 	time_t last_modified;
 
-	std::string write_buffer;
-	std::string uploadId;
+	static const size_t m_s3_part_size =
+		100'000'000; // The size of each S3 chunk.
+
+	bool m_create{false};
 	int partNumber;
+	size_t m_part_written{
+		0}; // Number of bytes written for the current upload chunk.
+	size_t m_part_size{0};	 // Size of the current upload chunk (0 if unknon);
+	off_t m_write_offset{0}; // Offset of the file pointer for writes (helps
+							 // detect out-of-order writes).
+	off_t m_object_size{
+		-1}; // Expected size of the completed object; -1 if unknown.
+	std::string uploadId; // For creates, upload ID as assigned by t
 	std::vector<std::string> eTags;
+	std::unique_ptr<AmazonS3SendMultipartPart>
+		m_write_op; // The in-progress operation for a multi-part upload.
 };

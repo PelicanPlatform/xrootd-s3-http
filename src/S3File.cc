@@ -32,6 +32,7 @@
 
 #include <curl/curl.h>
 
+#include <charconv>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -39,6 +40,7 @@
 #include <sstream>
 #include <stdlib.h>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace XrdHTTPServer;
@@ -49,14 +51,29 @@ XrdVERSIONINFO(XrdOssGetFileSystem, S3);
 
 S3File::S3File(XrdSysError &log, S3FileSystem *oss)
 	: m_log(log), m_oss(oss), content_length(0), last_modified(0),
-	  write_buffer(""), partNumber(1) {}
+	  partNumber(1) {}
 
 int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	if (Oflag & O_CREAT) {
-		m_log.Log(LogMask::Info, "File opened for creation: ", path);
+		m_log.Log(LogMask::Info, "Open", "File opened for creation:", path);
+		m_create = true;
 	}
 	if (Oflag & O_APPEND) {
-		m_log.Log(LogMask::Info, "File opened for append: ", path);
+		m_log.Log(LogMask::Info, "Open", "File opened for append:", path);
+	}
+
+	char *asize_char;
+	if ((asize_char = env.Get("oss.asize"))) {
+		off_t result{0};
+		auto [ptr, ec] = std::from_chars(
+			asize_char, asize_char + strlen(asize_char), result);
+		if (ec == std::errc()) {
+			m_object_size = result;
+		} else {
+			m_log.Log(LogMask::Warning,
+					  "Opened file has oss.asize set to an unparseable value: ",
+					  asize_char);
+		}
 	}
 
 	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
@@ -81,12 +98,13 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 
 	// This flag is not set when it's going to be a read operation
 	// so we check if the file exists in order to be able to return a 404
-	if (!Oflag) {
+	if (!Oflag || (Oflag & O_APPEND)) {
 		AmazonS3Head head(m_ai, m_object, m_log);
 
 		if (!head.SendRequest()) {
 			return -ENOENT;
 		}
+		head.getSize();
 	}
 
 	return 0;
@@ -188,66 +206,123 @@ int S3File::Fstat(struct stat *buff) {
 }
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
+	if (offset != m_write_offset) {
+		m_log.Emsg(
+			"Write",
+			"Out-of-order write detected; S3 requires writes to be in order");
+		return -EIO;
+	}
 	if (uploadId == "") {
 		AmazonS3CreateMultipartUpload startUpload(m_ai, m_object, m_log);
 		if (!startUpload.SendRequest()) {
-			m_log.Emsg("Open", "S3 multipart request failed");
+			m_log.Emsg("Write", "S3 multipart request failed");
 			return -ENOENT;
 		}
 		std::string errMsg;
 		startUpload.Results(uploadId, errMsg);
 	}
 
-	std::string payload((char *)buffer, size);
-	size_t payload_size = payload.length();
-	if (payload_size != size) {
-		return -ENOENT;
-	}
-	write_buffer += payload;
+	size_t written = 0;
+	while (written != size) {
+		if (m_write_op) {
+			auto write_size = ContinueSendPart(buffer, size);
+			if (write_size < 0) {
+				return write_size;
+			}
+			offset += write_size;
+			m_write_offset += write_size;
+			buffer = static_cast<const char *>(buffer) + write_size;
+			size -= write_size;
+			written += write_size;
+			if (!size) {
+				return written;
+			}
+		}
 
-	// XXX should this be configurable? 100mb gives us a TB of file size. It
-	// doesn't seem terribly useful to be much smaller and it's not clear the S3
-	// API will work if it's much larger.
-	if (write_buffer.length() > 100000000) {
-		if (SendPart() == -ENOENT) {
-			return -ENOENT;
+		m_write_op.reset(new AmazonS3SendMultipartPart(m_ai, m_object, m_log));
+
+		// Calculate the size of the current chunk, if it's known.
+		m_part_size = m_s3_part_size;
+		if (!m_object_size) {
+			m_part_size = 0;
+		} else if (m_write_offset + static_cast<off_t>(m_part_size) >
+				   m_object_size) {
+			m_part_size = m_object_size - m_write_offset;
 		}
 	}
-	return size;
+	return written;
 }
 
-int S3File::SendPart() {
-	int length = write_buffer.length();
-	AmazonS3SendMultipartPart upload_part_request =
-		AmazonS3SendMultipartPart(m_ai, m_object, m_log);
-	if (!upload_part_request.SendRequest(
-			write_buffer, std::to_string(partNumber), uploadId)) {
-		m_log.Emsg("SendPart", "upload.SendRequest() failed");
-		return -ENOENT;
-	} else {
-		m_log.Emsg("SendPart", "upload.SendRequest() succeeded");
-		std::string resultString = upload_part_request.getResultString();
+ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
+	m_part_written += size;
+	auto write_size = size;
+	if (m_part_written > m_s3_part_size) {
+		write_size = size - (m_part_written - m_s3_part_size);
+		m_part_written = m_s3_part_size;
+	}
+	auto is_final = (m_part_size > 0 && m_part_written == m_part_size) ||
+					m_part_written == m_s3_part_size;
+	if (m_log.getMsgMask() & LogMask::Dump) {
+		std::stringstream ss;
+		ss << "Sending request with buffer of size=" << write_size
+		   << " and is_final=" << is_final;
+		m_log.Log(LogMask::Dump, "ContinueSendPart", ss.str().c_str());
+	}
+	if (!m_write_op->SendRequest(
+			std::string_view(static_cast<const char *>(buffer), write_size),
+			std::to_string(partNumber), uploadId, m_object_size, is_final)) {
+		m_log.Emsg("Write", "Upload to S3 failed: ",
+				   m_write_op->getErrorMessage().c_str());
+		return -EIO;
+	}
+	if (is_final) {
+		m_part_written = 0;
+		m_part_size = 0;
+		auto &resultString = m_write_op->getResultString();
 		std::size_t startPos = resultString.find("ETag:");
+		if (startPos == std::string::npos) {
+			m_log.Emsg("Write", "Result from S3 does not include ETag:",
+					   resultString.c_str());
+			return -EIO;
+		}
 		std::size_t endPos = resultString.find("\"", startPos + 7);
+		if (startPos == std::string::npos) {
+			m_log.Emsg("Write",
+					   "Result from S3 does not include ETag end-character:",
+					   resultString.c_str());
+			return -EIO;
+		}
 		eTags.push_back(
 			resultString.substr(startPos + 7, endPos - startPos - 7));
-
+		m_write_op.reset();
 		partNumber++;
-		write_buffer = "";
 	}
 
-	return length;
+	return write_size;
 }
 
 int S3File::Close(long long *retsz) {
-	// this is only true if a buffer exists that needs to be drained
-	if (write_buffer.length() > 0) {
-		if (SendPart() == -ENOENT) {
+	// If we opened the object in create mode but did not actually write
+	// anything, make a quick zero-length file.
+	if (m_create && !m_write_offset) {
+		AmazonS3Upload upload(m_ai, m_object, m_log);
+		if (!upload.SendRequest("")) {
+			m_log.Emsg("Close", "Failed to create zero-length file");
 			return -ENOENT;
 		} else {
-			m_log.Emsg("Close", "Closed our S3 file");
+			m_log.Emsg("Open", "upload.SendRequest() succeeded");
+			return 0;
 		}
 	}
+	if (m_write_op) {
+		m_part_size = m_part_written;
+		auto written = ContinueSendPart(nullptr, 0);
+		if (written < 0) {
+			m_log.Emsg("Close", "Failed to complete the last S3 upload");
+			return -ENOENT;
+		}
+	}
+
 	// this is only true if some parts have been written and need to be
 	// finalized
 	if (partNumber > 1) {

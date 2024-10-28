@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <curl/curl.h>
@@ -63,10 +64,15 @@ class HTTPRequest {
 	const std::string &getErrorMessage() const { return errorMessage; }
 	const std::string &getResultString() const { return m_result; }
 
-	// Currently only used in PUTS, but potentially useful elsewhere
+	// State of the payload upload for the curl callbacks
 	struct Payload {
-		const std::string *data;
-		size_t sentSoFar;
+		std::string_view data;
+		off_t sentSoFar{0};
+		bool final{true};
+		HTTPRequest &m_parent;
+
+		void NotifyPaused(); // Notify the parent request the curl handle has
+							 // been paused
 	};
 
 	// Initialize libraries for HTTP.
@@ -76,10 +82,33 @@ class HTTPRequest {
 	static void Init(XrdSysError &);
 
   protected:
-	bool sendPreparedRequest(const std::string &uri,
-							 const std::string &payload);
+	// Send the request to the HTTP server.
+	// Blocks until the request has completed.
+	// If `final` is set to `false`, the HTTPRequest object will start streaming
+	// a request and assume that `sendPreparedRequest` will be repeated until
+	// all data is provided (the sum total of the chunks given is the
+	// payload_size). If payload_size is 0 and final is false, this indicates
+	// the complete size of the PUT is unknown and chunked encoding will be
+	// used.
+	//
+	// - url: URL, including query parameters, to use.
+	// - payload: The payload contents when uploading.
+	// - payload_size: Size of the entire payload (not just the current chunk).
+	// - final: True if this is the last or only payload for the request.  False
+	// otherwise.
+	bool sendPreparedRequest(const std::string &url,
+							 const std::string_view payload, off_t payload_size,
+							 bool final);
 
 	const std::string &getProtocol() { return m_protocol; }
+
+	// Returns true if the command is in-progress.
+	bool inProgress() const { return m_in_progress; }
+
+	// Returns true if the command is a streaming/partial request.
+	// A streaming request is one that requires multiple calls to
+	// `sendPreparedRequest` to complete.
+	bool isStreamingRequest() const { return m_is_streaming; }
 
 	typedef std::map<std::string, std::string> AttributeValueMap;
 	AttributeValueMap query_parameters;
@@ -113,6 +142,10 @@ class HTTPRequest {
 				   // processed by a worker
 	virtual bool SetupHandle(
 		CURL *curl); // Configure the curl handle to be used by a given request.
+
+	virtual bool
+	ContinueHandle(); // Continue the request processing after a pause.
+
 	CurlResult ProcessCurlResult(
 		CURL *curl,
 		CURLcode rv); // Process a curl command that ran to completion.
@@ -122,6 +155,11 @@ class HTTPRequest {
 								   // (curl request did not complete)
 	bool ReleaseHandle(
 		CURL *curl); // Cleanup any resources associated with the curl handle
+	CURL *getHandle() const { return m_curl_handle; }
+
+	// Sets whether the command is "in-progress" (has a currently-running curl
+	// handle).
+	void SetInProgress(bool in_progress) { m_in_progress = in_progress; }
 
 	const TokenFile *m_token{nullptr};
 
@@ -138,10 +176,17 @@ class HTTPRequest {
 		m_mtx; // Mutex guarding the results from the curl worker's callback
 	std::condition_variable m_cv; // Condition variable to notify the curl
 								  // worker completed the callback
-	bool m_result_ready{false};	  // Flag indicating the results data is ready.
+	bool m_final{false}; // Flag indicating this is the last sendPreparedRequest
+						 // call of the overall HTTPRequest
+	bool m_in_progress{false}; // Flag indicating this command is in progress.
+	bool m_is_streaming{
+		false}; // Flag indicating this command is a streaming request.
+	bool m_result_ready{false}; // Flag indicating the results data is ready.
+	off_t m_payload_size{0}; // Size of the entire upload payload; 0 if unknown.
 	std::string m_protocol;
 	std::string m_uri; // URL to request from libcurl
-	std::string m_payload;
+	std::string_view m_payload;
+	CURL *m_curl_handle{nullptr}; // The curl handle for the ongoing request
 	char m_errorBuffer[CURL_ERROR_SIZE]; // Static error buffer for libcurl
 	unsigned m_retry_count{0};
 };

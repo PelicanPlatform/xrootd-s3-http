@@ -211,6 +211,12 @@ void CurlWorker::Run() {
 			if (!op) {
 				break;
 			}
+			if (op->inProgress()) {
+				op->ContinueHandle();
+				continue;
+			}
+			op->SetInProgress(true);
+
 			auto curl = queue.GetHandle();
 			if (curl == nullptr) {
 				m_logger.Log(LogMask::Debug, "Run",
