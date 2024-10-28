@@ -115,61 +115,72 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 	return sendPreparedRequest(hostUrl, payload);
 }
 
-static void dump(const char *text, FILE *stream, unsigned char *ptr,
+static void dump(XrdSysError *log, const char *text, unsigned char *ptr,
 				 size_t size) {
 	size_t i;
 	size_t c;
 	unsigned int width = 0x10;
+	if (!log)
+		return;
 
-	fprintf(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
-			(long)size);
+	std::stringstream ss;
+	std::string stream;
+	formatstr(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
+			  (long)size);
+	ss << stream;
 
 	for (i = 0; i < size; i += width) {
-		fprintf(stream, "%4.4lx: ", (long)i);
+		formatstr(stream, "%4.4lx: ", (long)i);
+		ss << stream;
 
 		/* show hex to the left */
 		for (c = 0; c < width; c++) {
-			if (i + c < size)
-				fprintf(stream, "%02x ", ptr[i + c]);
-			else
-				fputs("   ", stream);
+			if (i + c < size) {
+				formatstr(stream, "%02x ", ptr[i + c]);
+				ss << stream;
+			} else {
+				ss << "   ";
+			}
 		}
 
 		/* show data on the right */
 		for (c = 0; (c < width) && (i + c < size); c++) {
 			char x =
 				(ptr[i + c] >= 0x20 && ptr[i + c] < 0x80) ? ptr[i + c] : '.';
-			fputc(x, stream);
+			ss << x;
 		}
-
-		fputc('\n', stream); /* newline */
+		ss << std::endl;
 	}
+	log->Log(LogMask::Dump, "Curl", ss.str().c_str());
 }
 
-static void dump_plain(const char *text, FILE *stream, unsigned char *ptr,
-					   size_t size) {
-	fprintf(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
-			(long)size);
-	fwrite(ptr, 1, size, stream);
-	fputs("\n", stream);
+static void dumpPlain(XrdSysError *log, const char *text, unsigned char *ptr,
+					  size_t size) {
+	if (!log)
+		return;
+	std::string info;
+	formatstr(info, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
+			  (long)size);
+	log->Log(LogMask::Dump, "Curl", info.c_str());
 }
 
 int debugCallback(CURL *handle, curl_infotype ci, char *data, size_t size,
 				  void *clientp) {
 	const char *text;
 	(void)handle; /* prevent compiler warning */
-	(void)clientp;
+	auto log = static_cast<XrdSysError *>(clientp);
+	if (!log)
+		return 0;
 
 	switch (ci) {
 	case CURLINFO_TEXT:
-		fputs("== Info: ", stderr);
-		fwrite(data, size, 1, stderr);
+		log->Log(LogMask::Dump, "CurlInfo", std::string(data, size).c_str());
 	default: /* in case a new one is introduced to shock us */
 		return 0;
 
 	case CURLINFO_HEADER_OUT:
 		text = "=> Send header";
-		dump_plain(text, stderr, (unsigned char *)data, size);
+		dumpPlain(log, text, (unsigned char *)data, size);
 		break;
 	}
 	return 0;
@@ -179,18 +190,25 @@ int debugAndDumpCallback(CURL *handle, curl_infotype ci, char *data,
 						 size_t size, void *clientp) {
 	const char *text;
 	(void)handle; /* prevent compiler warning */
-	(void)clientp;
+	auto log = reinterpret_cast<XrdSysError *>(clientp);
+	if (!log)
+		return 0;
 
+	std::stringstream ss;
 	switch (ci) {
 	case CURLINFO_TEXT:
-		fputs("== Info: ", stderr);
-		fwrite(data, size, 1, stderr);
+		if (size && data[size - 1] == '\n') {
+			ss << std::string(data, size - 1);
+		} else {
+			ss << std::string(data, size);
+		}
+		log->Log(LogMask::Dump, "CurlInfo", ss.str().c_str());
 	default: /* in case a new one is introduced to shock us */
 		return 0;
 
 	case CURLINFO_HEADER_OUT:
 		text = "=> Send header";
-		dump_plain(text, stderr, (unsigned char *)data, size);
+		dumpPlain(log, text, (unsigned char *)data, size);
 		break;
 	case CURLINFO_DATA_OUT:
 		text = "=> Send data";
@@ -208,7 +226,7 @@ int debugAndDumpCallback(CURL *handle, curl_infotype ci, char *data,
 		text = "<= Recv SSL data";
 		break;
 	}
-	dump(text, stderr, (unsigned char *)data, size);
+	dump(log, text, (unsigned char *)data, size);
 	return 0;
 }
 
@@ -467,18 +485,45 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 
 	rv = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, m_header_list.get());
 	if (rv != CURLE_OK) {
-		this->errorCode = "E_CURL_LIB";
-		this->errorMessage = "curl_easy_setopt( CURLOPT_HTTPHEADER ) failed.";
+		errorCode = "E_CURL_LIB";
+		errorMessage = "curl_easy_setopt( CURLOPT_HTTPHEADER ) failed.";
 		return false;
 	}
 	if (m_log.getMsgMask() & LogMask::Debug) {
 		rv = curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, debugCallback);
-		rv = curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+		if (rv != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to set the debug function";
+			return false;
+		}
+		rv = curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &m_log);
+		if (rv != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to set the debug function handler data";
+			return false;
+		}
 	}
 	if (m_log.getMsgMask() & LogMask::Dump) {
 		rv =
 			curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, debugAndDumpCallback);
-		rv = curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+		if (rv != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to set the debug function";
+			return false;
+		}
+		rv = curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &m_log);
+		if (rv != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to set the debug function handler data";
+			return false;
+		}
+	}
+	if (m_log.getMsgMask() & (LogMask::Dump | LogMask::Debug)) {
+		if (curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L) != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to enable verbose mode for libcurl";
+			return false;
+		}
 	}
 
 	return true;

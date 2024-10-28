@@ -37,7 +37,7 @@ std::string XrdHTTPServer::LogMaskToString(int mask) {
 		has_entry = true;
 	}
 	if (mask & LogMask::Debug) {
-		ss << "debug";
+		ss << (has_entry ? ", " : "") << "debug";
 		has_entry = true;
 	}
 	if (mask & LogMask::Info) {

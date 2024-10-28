@@ -187,7 +187,7 @@ void CurlWorker::Run() {
 	// is waiting on it is undefined behavior.
 	auto queue_ref = m_queue;
 	auto &queue = *queue_ref.get();
-	m_logger.Log(LogMask::Debug, "CurlWorker::Run", "Started a curl worker");
+	m_logger.Log(LogMask::Debug, "Run", "Started a curl worker");
 
 	CURLM *multi_handle = curl_multi_init();
 	if (multi_handle == nullptr) {
@@ -213,7 +213,7 @@ void CurlWorker::Run() {
 			}
 			auto curl = queue.GetHandle();
 			if (curl == nullptr) {
-				m_logger.Log(LogMask::Debug, "CurlWorker",
+				m_logger.Log(LogMask::Debug, "Run",
 							 "Unable to allocate a curl handle");
 				op->Fail("E_NOMEM", "Unable to get allocate a curl handle");
 				continue;
@@ -223,7 +223,7 @@ void CurlWorker::Run() {
 					op->Fail(op->getErrorCode(), op->getErrorMessage());
 				}
 			} catch (...) {
-				m_logger.Log(LogMask::Debug, "CurlWorker",
+				m_logger.Log(LogMask::Debug, "Run",
 							 "Unable to setup the curl handle");
 				op->Fail("E_NOMEM",
 						 "Failed to setup the curl handle for the operation");
@@ -236,8 +236,7 @@ void CurlWorker::Run() {
 					std::stringstream ss;
 					ss << "Unable to add operation to the curl multi-handle: "
 					   << curl_multi_strerror(mres);
-					m_logger.Log(LogMask::Debug, "CurlWorker",
-								 ss.str().c_str());
+					m_logger.Log(LogMask::Debug, "Run", ss.str().c_str());
 				}
 				op->Fail("E_CURL_LIB",
 						 "Unable to add operation to the curl multi-handle");
@@ -253,7 +252,7 @@ void CurlWorker::Run() {
 			if (m_logger.getMsgMask() & LogMask::Debug) {
 				std::stringstream ss;
 				ss << "Curl worker thread " << getpid() << " is running "
-				   << running_handles << "operations";
+				   << running_handles << " operations";
 				m_logger.Log(LogMask::Debug, "CurlWorker", ss.str().c_str());
 			}
 			last_marker = now;
@@ -298,6 +297,8 @@ void CurlWorker::Run() {
 				}
 				auto &op = iter->second;
 				auto res = msg->data.result;
+				m_logger.Log(LogMask::Dump, "Run",
+							 "Processing result from curl");
 				op->ProcessCurlResult(iter->first, res);
 				op->ReleaseHandle(iter->first);
 				running_handles -= 1;
