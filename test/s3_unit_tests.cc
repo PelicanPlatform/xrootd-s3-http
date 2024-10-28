@@ -30,6 +30,7 @@
 #include <XrdSys/XrdSysLogger.hh>
 #include <gtest/gtest.h>
 
+#include <fcntl.h>
 #include <fstream>
 #include <iostream>
 
@@ -303,7 +304,9 @@ s3.end
 		auto rv = fh->Open(name.c_str(), O_CREAT | O_WRONLY, 0755, env);
 		ASSERT_EQ(rv, 0);
 
-		size_t sizeToWrite = (chunkSize >= writeSize) ? writeSize : chunkSize;
+		size_t sizeToWrite = (static_cast<off_t>(chunkSize) >= writeSize)
+								 ? static_cast<size_t>(writeSize)
+								 : chunkSize;
 		off_t curWriteSize = writeSize;
 		char curChunkByte = chunkByte;
 		off_t offset = 0;
@@ -312,12 +315,13 @@ s3.end
 
 			std::cerr << "Writing bytes at offset: " << offset << std::endl;
 			rv = fh->Write(writeBuffer.data(), offset, sizeToWrite);
-			ASSERT_EQ(rv, sizeToWrite);
+			ASSERT_EQ(rv, static_cast<ssize_t>(sizeToWrite));
 
 			curWriteSize -= rv;
 			offset += rv;
-			sizeToWrite =
-				(chunkSize >= curWriteSize) ? curWriteSize : chunkSize;
+			sizeToWrite = (static_cast<off_t>(chunkSize) >= curWriteSize)
+							  ? static_cast<size_t>(curWriteSize)
+							  : chunkSize;
 			curChunkByte += 1;
 		}
 
@@ -337,14 +341,15 @@ s3.end
 		auto rv = fh->Open(obj.c_str(), O_RDONLY, 0, env);
 		ASSERT_EQ(rv, 0);
 
-		size_t sizeToRead =
-			(chunkSize >= expectedSize) ? expectedSize : chunkSize;
+		size_t sizeToRead = (static_cast<off_t>(chunkSize) >= expectedSize)
+								? expectedSize
+								: chunkSize;
 		char curChunkByte = chunkByte;
 		off_t offset = 0;
 		while (sizeToRead) {
 			std::string readBuffer(sizeToRead, curChunkByte - 1);
 			rv = fh->Read(readBuffer.data(), offset, sizeToRead);
-			ASSERT_EQ(rv, sizeToRead);
+			ASSERT_EQ(rv, static_cast<ssize_t>(sizeToRead));
 			readBuffer.resize(rv);
 
 			std::string correctBuffer(sizeToRead, curChunkByte);
@@ -352,7 +357,9 @@ s3.end
 
 			expectedSize -= rv;
 			offset += rv;
-			sizeToRead = (chunkSize >= expectedSize) ? expectedSize : chunkSize;
+			sizeToRead = (static_cast<off_t>(chunkSize) >= expectedSize)
+							 ? expectedSize
+							 : chunkSize;
 			curChunkByte += 1;
 		}
 
