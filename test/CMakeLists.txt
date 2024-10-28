@@ -1,29 +1,10 @@
-add_executable( s3-gtest s3_tests.cc
-  ../src/AWSv4-impl.cc
-  ../src/CurlUtil.cc
-  ../src/logging.cc
-  ../src/S3AccessInfo.cc
-  ../src/S3Directory.cc
-  ../src/S3File.cc
-  ../src/S3FileSystem.cc
-  ../src/shortfile.cc
-  ../src/stl_string_utils.cc
-  ../src/TokenFile.cc
-  ../src/HTTPCommands.cc
-  ../src/S3Commands.cc
-)
+add_executable( s3-gtest s3_tests.cc )
 
-add_executable( http-gtest http_tests.cc
-  ../src/CurlUtil.cc
-  ../src/HTTPFile.cc
-  ../src/HTTPFileSystem.cc
-  ../src/HTTPCommands.cc
-  ../src/stl_string_utils.cc
-  ../src/TokenFile.cc
-  ../src/shortfile.cc
-  ../src/logging.cc
-)
+add_executable( s3-unit-test s3_unit_tests.cc )
 
+add_executable( http-gtest http_tests.cc )
+
+include(GoogleTest)
 
 if(XROOTD_PLUGINS_EXTERNAL_GTEST)
     set(LIBGTEST "gtest")
@@ -34,9 +15,16 @@ else()
     set(LIBGTEST "${CMAKE_BINARY_DIR}/external/gtest/src/gtest-build/lib/libgtest.a")
 endif()
 
-target_link_libraries(s3-gtest XrdS3 "${LIBGTEST}" pthread)
-target_link_libraries(http-gtest XrdHTTPServer "${LIBGTEST}" pthread)
+target_link_libraries(s3-gtest XrdS3Testing "${LIBGTEST}" pthread)
+target_link_libraries(s3-unit-test XrdS3Testing "${LIBGTEST}" pthread)
+target_link_libraries(http-gtest XrdHTTPServerTesting "${LIBGTEST}" pthread)
 
+gtest_add_tests(TARGET s3-unit-test TEST_LIST s3UnitTests)
+set_tests_properties(${s3UnitTests}
+  PROPERTIES
+    FIXTURES_REQUIRED S3::s3_basic
+    ENVIRONMENT "ENV_FILE=${CMAKE_BINARY_DIR}/tests/s3_basic/setup.sh"
+)
 
 add_test(
   NAME
@@ -51,6 +39,20 @@ add_test(
   COMMAND
     ${CMAKE_CURRENT_BINARY_DIR}/http-gtest "${CMAKE_BINARY_DIR}/tests/basic/setup.sh"
 )
+
+if (VALGRIND)
+  add_test(
+    NAME
+      valgrind-s3
+    COMMAND
+      ${VALGRIND_BIN} ${CMAKE_CURRENT_BINARY_DIR}/s3-unit-test -R FileSystemS3Fixture.UploadLargePartAligned
+  )
+
+  set_tests_properties(valgrind-s3
+    PROPERTIES
+      FIXTURES_REQUIRED S3::s3_basic
+  )
+endif()
 
 set_tests_properties(http-unit
   PROPERTIES
