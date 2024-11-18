@@ -188,14 +188,18 @@ echo "Starting configuration of minio"
 "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" admin user add adminminio "$MINIO_USER" "$MINIO_PASSWORD"
 "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" alias set userminio "$MINIO_URL" "$MINIO_USER" "$MINIO_PASSWORD"
 "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" admin policy attach adminminio readwrite --user "$MINIO_USER"
-"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" mb userminio/test-bucket
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" mb userminio/test-bucket-authed
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" mb userminio/test-bucket-public
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" anonymous set public userminio/test-bucket-public
+
 if [ $? -ne 0 ]; then
   echo "Failed to create test bucket in minio server"
   exit 1
 fi
 
 echo "Hello, World" > "$RUNDIR/hello_world.txt"
-"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/hello_world.txt
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket-authed/hello_world.txt
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket-public/hello_world.txt
 
 ####
 #    Starting XRootD config with S3 backend
@@ -234,15 +238,26 @@ ofs.osslib $BINARY_DIR/libXrdS3.so
 
 s3.trace debug
 
+# Setup the auth'ed bucket
 s3.begin
-s3.path_name /test
-s3.bucket_name test-bucket
+s3.path_name /test-authed
+s3.bucket_name test-bucket-authed
 s3.service_url $MINIO_URL
 s3.service_name $(hostname)
 s3.url_style path
 s3.region us-east-1
 s3.access_key_file $XROOTD_CONFIGDIR/access_key
 s3.secret_key_file $XROOTD_CONFIGDIR/secret_key
+s3.end
+
+# And the public/anonymous bucket
+s3.begin
+s3.path_name /test-public
+s3.bucket_name test-bucket-public
+s3.service_url $MINIO_URL
+s3.service_name $(hostname)
+s3.url_style path
+s3.region us-east-1
 s3.end
 
 EOF

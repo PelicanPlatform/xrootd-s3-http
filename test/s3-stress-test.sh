@@ -28,7 +28,7 @@ IDX=1
 while [ $IDX -le 100 ]; do
   IDX=$(($IDX+1))
 
-  curl --cacert $X509_CA_FILE -v --fail "$XROOTD_URL/test/hello_world.txt" 2> "$BINARY_DIR/tests/$TEST_NAME/client-$IDX.log" > "$BINARY_DIR/tests/$TEST_NAME/client-$IDX.out" &
+  curl --cacert $X509_CA_FILE -v --fail "$XROOTD_URL/test-authed/hello_world.txt" 2> "$BINARY_DIR/tests/$TEST_NAME/client-$IDX.log" > "$BINARY_DIR/tests/$TEST_NAME/client-$IDX.out" &
   export CURL_${IDX}_PID=$!
 
 done
