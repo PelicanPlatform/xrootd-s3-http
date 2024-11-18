@@ -49,7 +49,8 @@ TEST(TestS3URLGeneration, Test1) {
 	TestAmazonRequest pathReq{serviceUrl, "akf", "skf", b, o, "path", 4};
 	std::string generatedHostUrl = pathReq.getHostUrl();
 	ASSERT_EQ(generatedHostUrl,
-			  "https://s3-service.com:443/test-bucket/test-object");
+			  "https://s3-service.com:443/test-bucket/test-object")
+		<< "generatedURL: " << generatedHostUrl;
 
 	// Test virtual-style URL generation
 	TestAmazonRequest virtReq{serviceUrl, "akf", "skf", b, o, "virtual", 4};
