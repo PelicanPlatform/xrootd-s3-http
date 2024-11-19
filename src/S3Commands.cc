@@ -553,8 +553,8 @@ bool AmazonS3Head::SendRequest() {
 // ---------------------------------------------------------------------------
 
 bool AmazonS3List::SendRequest(const std::string &continuationToken) {
-	// query_parameters["list-type"] = "2"; // Version 2 of the object-listing
-	// API query_parameters["delimiter"] = "/";
+	query_parameters["list-type"] = "2"; // Version 2 of the object-listing
+	query_parameters["delimiter"] = "/";
 	query_parameters["prefix"] = urlquote(object);
 	query_parameters["encoding-type"] = "url";
 	if (!continuationToken.empty()) {
