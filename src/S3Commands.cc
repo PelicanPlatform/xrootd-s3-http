@@ -83,7 +83,7 @@ bool AmazonRequest::parseURL(const std::string &url, std::string &bucket_path,
 				path = "/" + object;
 				bucket_path = "/" + object.substr(0, object.find('/'));
 			} else {
-				path = "/" + bucket;
+				path = "/" + bucket + "/" + object;
 				bucket_path = "/" + bucket;
 			}
 		} else {
@@ -565,6 +565,7 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken) {
 
 	// Operation is on the bucket itself; alter the URL to remove the object
 	hostUrl = getProtocol() + "://" + host + bucketPath;
+	canonicalURI = bucketPath;
 
 	return SendS3Request("");
 }
