@@ -112,6 +112,7 @@ s3.region           us-east-1
 s3.access_key_file  /xrootd-dev/access-key
 s3.secret_key_file  /xrootd-dev/secret-key
 s3.service_url      https://s3.us-east-1.amazonaws.com
+s3.url_style        path
 s3.end
 
 # To export an unauthenticated (public) bucket, remove
@@ -122,6 +123,7 @@ s3.bucket_name      hubzero-private-rich-2
 s3.service_name     s3.amazonaws.com
 s3.region           us-east-1
 s3.service_url      https://s3.us-east-1.amazonaws.com
+s3.url_style        virtual
 s3.end
 
 # Specify the path style for URL queries at the endpoint. Valid
@@ -129,6 +131,18 @@ s3.end
 # like `https://my-service-url.com/bucket/object` and virtual
 # corresponds to URLs like `https://bucket.my-service-url.com/object`
 s3.url_style        virtual
+
+# trace levels are
+# error
+# warning
+# info
+# debug
+# dump
+# debug produces a fair amount of log,
+# but dump produces the actual wire traffic to the client and
+# should only be used if you have a reason to do so
+s3.trace debug
+
 ```
 
 
