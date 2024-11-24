@@ -292,7 +292,7 @@ s3.end
 
   public:
 	void WritePattern(const std::string &name, const off_t writeSize,
-					  const char chunkByte, const size_t chunkSize) {
+					  const unsigned char chunkByte, const size_t chunkSize) {
 		XrdSysLogger log;
 		S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
 
@@ -308,12 +308,11 @@ s3.end
 								 ? static_cast<size_t>(writeSize)
 								 : chunkSize;
 		off_t curWriteSize = writeSize;
-		char curChunkByte = chunkByte;
+		auto curChunkByte = chunkByte;
 		off_t offset = 0;
 		while (sizeToWrite) {
 			std::string writeBuffer(sizeToWrite, curChunkByte);
 
-			std::cerr << "Writing bytes at offset: " << offset << std::endl;
 			rv = fh->Write(writeBuffer.data(), offset, sizeToWrite);
 			ASSERT_EQ(rv, static_cast<ssize_t>(sizeToWrite));
 
@@ -333,7 +332,8 @@ s3.end
 
   private:
 	void VerifyContents(S3FileSystem &fs, const std::string &obj,
-						off_t expectedSize, char chunkByte, size_t chunkSize) {
+						off_t expectedSize, unsigned char chunkByte,
+						size_t chunkSize) {
 		std::unique_ptr<XrdOssDF> fh(fs.newFile());
 		ASSERT_TRUE(fh);
 
@@ -344,7 +344,7 @@ s3.end
 		size_t sizeToRead = (static_cast<off_t>(chunkSize) >= expectedSize)
 								? expectedSize
 								: chunkSize;
-		char curChunkByte = chunkByte;
+		unsigned char curChunkByte = chunkByte;
 		off_t offset = 0;
 		while (sizeToRead) {
 			std::string readBuffer(sizeToRead, curChunkByte - 1);
@@ -381,6 +381,11 @@ TEST_F(FileSystemS3Fixture, UploadMultipleCalls) {
 // Upload a zero-byte object
 TEST_F(FileSystemS3Fixture, UploadZero) {
 	WritePattern("/test/write_zero.txt", 0, 'X', 32 * 1024);
+}
+
+// Upload larger - two chunks.
+TEST_F(FileSystemS3Fixture, UploadTwoChunks) {
+	WritePattern("/test/write_two_chunks.txt", 1'024 + 42, 'a', 1'024);
 }
 
 // Upload larger - a few chunks.

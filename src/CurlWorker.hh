@@ -41,6 +41,9 @@ class CurlWorker {
 
   private:
 	std::shared_ptr<HandlerQueue> m_queue;
+	std::shared_ptr<HandlerQueue>
+		m_unpause_queue; // Queue for notifications that a handle can be
+						 // unpaused.
 	std::unordered_map<CURL *, HTTPRequest *> m_op_map;
 	XrdSysError &m_logger;
 

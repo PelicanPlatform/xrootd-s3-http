@@ -187,6 +187,7 @@ void CurlWorker::Run() {
 	// is waiting on it is undefined behavior.
 	auto queue_ref = m_queue;
 	auto &queue = *queue_ref.get();
+	m_unpause_queue.reset(new HandlerQueue());
 	m_logger.Log(LogMask::Debug, "Run", "Started a curl worker");
 
 	CURLM *multi_handle = curl_multi_init();
@@ -199,23 +200,29 @@ void CurlWorker::Run() {
 	CURLMcode mres = CURLM_OK;
 
 	std::vector<struct curl_waitfd> waitfds;
-	waitfds.resize(1);
+	waitfds.resize(2);
 	waitfds[0].fd = queue.PollFD();
 	waitfds[0].events = CURL_WAIT_POLLIN;
 	waitfds[0].revents = 0;
+	waitfds[1].fd = m_unpause_queue->PollFD();
+	waitfds[1].events = CURL_WAIT_POLLIN;
+	waitfds[1].revents = 0;
 
 	while (true) {
+		while (running_handles < static_cast<int>(m_max_ops)) {
+			auto op = m_unpause_queue->TryConsume();
+			if (!op) {
+				break;
+			}
+			op->ContinueHandle();
+		}
 		while (running_handles < static_cast<int>(m_max_ops)) {
 			auto op =
 				running_handles == 0 ? queue.Consume() : queue.TryConsume();
 			if (!op) {
 				break;
 			}
-			if (op->inProgress()) {
-				op->ContinueHandle();
-				continue;
-			}
-			op->SetInProgress(true);
+			op->SetUnpauseQueue(m_unpause_queue);
 
 			auto curl = queue.GetHandle();
 			if (curl == nullptr) {
@@ -282,7 +289,8 @@ void CurlWorker::Run() {
 		} else if (mres != CURLM_OK) {
 			if (m_logger.getMsgMask() & LogMask::Warning) {
 				std::stringstream ss;
-				ss << "Failed to perform multi-handle operation: " << mres;
+				ss << "Failed to perform multi-handle operation: "
+				   << curl_multi_strerror(mres);
 				m_logger.Log(LogMask::Warning, "CurlWorker", ss.str().c_str());
 			}
 			break;
@@ -314,8 +322,8 @@ void CurlWorker::Run() {
 					queue.RecycleHandle(iter->first);
 				} else {
 					curl_easy_cleanup(iter->first);
-					m_op_map.erase(iter);
 				}
+				m_op_map.erase(iter);
 			}
 		} while (msg);
 	}
