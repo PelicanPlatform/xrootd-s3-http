@@ -100,15 +100,23 @@ class HTTPRequest {
 							 const std::string_view payload, off_t payload_size,
 							 bool final);
 
-	const std::string &getProtocol() { return m_protocol; }
 
-	// Returns true if the command is in-progress.
-	bool inProgress() const { return m_in_progress; }
+	// Called by the curl handler thread that the request has been finished.
+	virtual void Notify();
+
+	const std::string &getProtocol() { return m_protocol; }
 
 	// Returns true if the command is a streaming/partial request.
 	// A streaming request is one that requires multiple calls to
 	// `sendPreparedRequest` to complete.
 	bool isStreamingRequest() const { return m_is_streaming; }
+
+	// Record the unpause queue associated with this request.
+	//
+	// Future continuations of this request will be sent directly to this queue.
+	void SetUnpauseQueue(std::shared_ptr<HandlerQueue> queue) {
+		m_unpause_queue = queue;
+	}
 
 	typedef std::map<std::string, std::string> AttributeValueMap;
 	AttributeValueMap query_parameters;
@@ -138,8 +146,6 @@ class HTTPRequest {
   private:
 	enum class CurlResult { Ok, Fail, Retry };
 
-	void Notify(); // Notify the main request thread the request has been
-				   // processed by a worker
 	virtual bool SetupHandle(
 		CURL *curl); // Configure the curl handle to be used by a given request.
 
@@ -157,9 +163,9 @@ class HTTPRequest {
 		CURL *curl); // Cleanup any resources associated with the curl handle
 	CURL *getHandle() const { return m_curl_handle; }
 
-	// Sets whether the command is "in-progress" (has a currently-running curl
-	// handle).
-	void SetInProgress(bool in_progress) { m_in_progress = in_progress; }
+	// Callback for libcurl when the library is ready to read more data from our
+	// buffer.
+	static size_t ReadCallback(char *buffer, size_t size, size_t n, void *v);
 
 	const TokenFile *m_token{nullptr};
 
@@ -168,17 +174,20 @@ class HTTPRequest {
 		m_workers_initialized; // The global state of the worker initialization.
 	static std::shared_ptr<HandlerQueue>
 		m_queue; // Global queue for all HTTP requests to be processed.
+	std::shared_ptr<HandlerQueue> m_unpause_queue{
+		nullptr}; // Queue to notify the request can be resumed.
 	static std::vector<CurlWorker *>
 		m_workers; // Set of all the curl worker threads.
 
 	// The following variables manage the state of the request.
 	std::mutex
 		m_mtx; // Mutex guarding the results from the curl worker's callback
-	std::condition_variable m_cv; // Condition variable to notify the curl
-								  // worker completed the callback
+
+	// Condition variable to notify the curl worker completed the callback.
+	std::condition_variable m_cv;
+
 	bool m_final{false}; // Flag indicating this is the last sendPreparedRequest
 						 // call of the overall HTTPRequest
-	bool m_in_progress{false}; // Flag indicating this command is in progress.
 	bool m_is_streaming{
 		false}; // Flag indicating this command is a streaming request.
 	bool m_result_ready{false}; // Flag indicating the results data is ready.

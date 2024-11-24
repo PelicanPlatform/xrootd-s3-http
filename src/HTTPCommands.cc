@@ -228,7 +228,7 @@ void HTTPRequest::Payload::NotifyPaused() { m_parent.Notify(); }
 
 // A callback function that gets passed to curl_easy_setopt for reading data
 // from the payload
-size_t read_callback(char *buffer, size_t size, size_t n, void *v) {
+size_t HTTPRequest::ReadCallback(char *buffer, size_t size, size_t n, void *v) {
 	// The callback gets the void pointer that we set with CURLOPT_READDATA. In
 	// this case, it's a pointer to an HTTPRequest::Payload struct that contains
 	// the data to be sent, along with the offset of the data that has already
@@ -283,7 +283,11 @@ bool HTTPRequest::sendPreparedRequest(const std::string &uri,
 	}
 
 	m_result_ready = false;
-	m_queue->Produce(this);
+	if (m_unpause_queue) {
+		m_unpause_queue->Produce(this);
+	} else {
+		m_queue->Produce(this);
+	}
 	std::unique_lock<std::mutex> lk(m_mtx);
 	m_cv.wait(lk, [&] { return m_result_ready; });
 
@@ -328,7 +332,7 @@ bool HTTPRequest::ContinueHandle() {
 	m_callback_payload->data = m_payload;
 	m_callback_payload->final = m_final;
 	m_callback_payload->sentSoFar = 0;
-	curl_easy_pause(m_curl_handle, 0);
+	curl_easy_pause(m_curl_handle, CURLPAUSE_CONT);
 	return true;
 }
 
@@ -408,7 +412,8 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 			return false;
 		}
 
-		rv = curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback);
+		rv = curl_easy_setopt(curl, CURLOPT_READFUNCTION,
+							  HTTPRequest::ReadCallback);
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
 			this->errorMessage =
