@@ -202,7 +202,7 @@ int HTTPFile::Fstat(struct stat *buff) {
 	size_t next_newline = std::string::npos;
 	size_t last_character = headers.size();
 	while (current_newline != std::string::npos &&
-		   current_newline != last_character - 1) {
+		   current_newline != last_character - 1 && last_character) {
 		next_newline = headers.find("\r\n", current_newline + 2);
 		std::string line =
 			substring(headers, current_newline + 2, next_newline);
