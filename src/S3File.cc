@@ -363,7 +363,7 @@ OverlapCopy(off_t req_off, size_t req_size, char *req_buf, off_t cache_off,
 	}
 
 	if (cache_off <= req_off) {
-		auto cache_end = cache_off + cache_size;
+		auto cache_end = cache_off + static_cast<off_t>(cache_size);
 		if (cache_end > req_off) {
 			auto cache_buf_off = static_cast<size_t>(req_off - cache_off);
 			auto cache_copy_bytes =
@@ -426,7 +426,8 @@ bool S3File::S3Cache::CouldUseAligned(off_t req, off_t cache) {
 	if (req < 0 || cache < 0) {
 		return false;
 	}
-	return (req >= cache) && (req < cache + S3File::m_cache_entry_size);
+	return (req >= cache) &&
+		   (req < cache + static_cast<off_t>(S3File::m_cache_entry_size));
 }
 
 bool S3File::S3Cache::CouldUse(off_t req_off, size_t req_size,
@@ -434,11 +435,11 @@ bool S3File::S3Cache::CouldUse(off_t req_off, size_t req_size,
 	if (req_off < 0 || cache_off < 0) {
 		return false;
 	}
-	auto cache_end = cache_off + m_cache_entry_size;
+	auto cache_end = cache_off + static_cast<off_t>(m_cache_entry_size);
 	if (req_off >= cache_off) {
 		return req_off < cache_end;
 	} else {
-		return req_off + req_size > cache_off;
+		return req_off + static_cast<off_t>(req_size) > cache_off;
 	}
 }
 
@@ -465,7 +466,7 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 	if (offset >= file.content_length) {
 		return 0;
 	}
-	if (offset + size > file.content_length) {
+	if (offset + static_cast<off_t>(size) > file.content_length) {
 		size = file.content_length - offset;
 	}
 	if (file.m_log.getMsgMask() & LogMask::Debug) {
@@ -557,8 +558,8 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 		bool download_a = false, download_b = false;
 		{
 			std::unique_lock lk{m_mutex};
-			auto next_offset =
-				std::max(m_a.m_off, m_b.m_off) + m_cache_entry_size;
+			auto next_offset = std::max(m_a.m_off, m_b.m_off) +
+							   static_cast<off_t>(m_cache_entry_size);
 			if (next_offset < file.content_length) {
 				if (!m_a.m_inprogress && m_a.m_used >= m_cache_entry_size) {
 					m_a.m_inprogress = true;
@@ -777,9 +778,11 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 				}
 				if (m_a.m_off == -1 && m_b.m_off == -1) {
 					// Prefetch both caches at once
-					m_a.m_off =
-						req1_off / m_cache_entry_size * m_cache_entry_size;
-					auto prefetch_offset = m_a.m_off + m_cache_entry_size;
+					m_a.m_off = req1_off /
+								static_cast<off_t>(m_cache_entry_size) *
+								static_cast<off_t>(m_cache_entry_size);
+					auto prefetch_offset =
+						m_a.m_off + static_cast<off_t>(m_cache_entry_size);
 					;
 					download_a = true;
 					m_a.m_inprogress = true;
@@ -790,8 +793,9 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 					}
 				} else {
 					// Select one cache entry to fetch data.
-					auto needed_off =
-						req1_off / m_cache_entry_size * m_cache_entry_size;
+					auto needed_off = req1_off /
+									  static_cast<off_t>(m_cache_entry_size) *
+									  static_cast<off_t>(m_cache_entry_size);
 					if (needed_off > m_a.m_off) {
 						m_b.m_off = needed_off;
 						download_b = true;
@@ -844,7 +848,7 @@ void S3File::S3Cache::Entry::Download(S3File &file) {
 	m_request.reset(new AmazonS3NonblockingDownload<Entry>(
 		file.m_ai, file.m_object, file.m_log, m_data.data(), *this));
 	size_t request_size = m_cache_entry_size;
-	if (m_off + request_size > file.content_length) {
+	if (m_off + static_cast<off_t>(request_size) > file.content_length) {
 		request_size = file.content_length - m_off;
 	}
 	if (!m_request->SendRequest(m_off, m_cache_entry_size)) {
