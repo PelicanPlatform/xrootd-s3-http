@@ -26,6 +26,7 @@
 #include <XrdSec/XrdSecEntityAttr.hh>
 #include <XrdVersion.hh>
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -145,7 +146,7 @@ class S3File : public XrdOssDF {
 	std::string m_object;
 	S3AccessInfo m_ai;
 
-	size_t content_length;
+	off_t content_length;
 	time_t last_modified;
 
 	static const size_t m_s3_part_size =
