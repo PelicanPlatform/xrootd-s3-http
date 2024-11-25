@@ -315,6 +315,7 @@ void CurlWorker::Run() {
 							 "Processing result from curl");
 				op->ProcessCurlResult(iter->first, res);
 				op->ReleaseHandle(iter->first);
+				op->Notify();
 				running_handles -= 1;
 				curl_multi_remove_handle(multi_handle, iter->first);
 				if (res == CURLE_OK) {
