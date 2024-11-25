@@ -183,7 +183,7 @@ s3.end
 		while (std::chrono::steady_clock::now() - startTime < testLength) {
 			size_t readSize = std::rand() % maxReadSize;
 			off_t off = std::rand() % objSize;
-			size_t expectedReadSize =
+			ssize_t expectedReadSize =
 				(static_cast<off_t>(readSize) + off - objSize > 0)
 					? (objSize - off)
 					: readSize;
@@ -204,7 +204,7 @@ s3.end
 		auto curChunkByte = static_cast<unsigned char>(chunkByte + chunkNum);
 		off_t chunkBoundary = (chunkNum + 1) * chunkSize;
 		correctContents.resize(size);
-		if (chunkBoundary < off + size) {
+		if (chunkBoundary < off + static_cast<off_t>(size)) {
 			size_t firstLen = chunkBoundary - off;
 			std::string firstChunk(firstLen, curChunkByte);
 			correctContents.replace(0, firstLen, firstChunk);
@@ -212,7 +212,9 @@ s3.end
 			off_t remaining = size - firstLen;
 			while (remaining) {
 				curChunkByte++;
-				auto chunkLen = (remaining > chunkSize) ? chunkSize : remaining;
+				auto chunkLen = (remaining > static_cast<off_t>(chunkSize))
+									? chunkSize
+									: remaining;
 				std::string chunk(chunkLen, curChunkByte);
 				std::copy(chunk.begin(), chunk.end(), iter);
 				iter += chunkLen;
@@ -478,18 +480,18 @@ TEST(OverlapCopy, Simple) {
 	auto [req1_off, req1_size, req2_off, req2_size] =
 		OverlapCopy(0, 4096, repeatA.data(), 4096, 4096, repeatB.data(), used);
 	ASSERT_EQ(req1_off, 0);
-	ASSERT_EQ(req1_size, 4096);
+	ASSERT_EQ(req1_size, 4096U);
 	ASSERT_EQ(req2_off, -1);
-	ASSERT_EQ(req2_size, 0);
-	ASSERT_EQ(used, 0);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 0U);
 
 	std::tie(req1_off, req1_size, req2_off, req2_size) =
 		OverlapCopy(0, 4096, repeatA.data(), 2048, 4096, repeatB.data(), used);
 	ASSERT_EQ(req1_off, 0);
-	ASSERT_EQ(req1_size, 2048);
+	ASSERT_EQ(req1_size, 2048U);
 	ASSERT_EQ(req2_off, -1);
-	ASSERT_EQ(req2_size, 0);
-	ASSERT_EQ(used, 2048);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 2048U);
 	auto correctOverlap = std::string(2048, 'a') + std::string(2048, 'b');
 	ASSERT_EQ(correctOverlap, repeatA);
 
@@ -498,10 +500,10 @@ TEST(OverlapCopy, Simple) {
 	std::tie(req1_off, req1_size, req2_off, req2_size) =
 		OverlapCopy(0, 4096, repeatA.data(), 1024, 1024, repeatB.data(), used);
 	ASSERT_EQ(req1_off, 0);
-	ASSERT_EQ(req1_size, 1024);
+	ASSERT_EQ(req1_size, 1024U);
 	ASSERT_EQ(req2_off, 2048);
-	ASSERT_EQ(req2_size, 2048);
-	ASSERT_EQ(used, 1024);
+	ASSERT_EQ(req2_size, 2048U);
+	ASSERT_EQ(used, 1024U);
 	correctOverlap = std::string(1024, 'a') + std::string(1024, 'b') +
 					 std::string(2048, 'a');
 	ASSERT_EQ(correctOverlap, repeatA);
@@ -511,10 +513,10 @@ TEST(OverlapCopy, Simple) {
 	std::tie(req1_off, req1_size, req2_off, req2_size) =
 		OverlapCopy(1024, 4096, repeatA.data(), 0, 4096, repeatB.data(), used);
 	ASSERT_EQ(req1_off, 4096);
-	ASSERT_EQ(req1_size, 1024);
+	ASSERT_EQ(req1_size, 1024U);
 	ASSERT_EQ(req2_off, -1);
-	ASSERT_EQ(req2_size, 0);
-	ASSERT_EQ(used, 3072);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 3072U);
 	correctOverlap = std::string(3072, 'b') + std::string(1024, 'a');
 	ASSERT_EQ(correctOverlap, repeatA);
 
@@ -523,10 +525,10 @@ TEST(OverlapCopy, Simple) {
 	std::tie(req1_off, req1_size, req2_off, req2_size) =
 		OverlapCopy(4096, 4096, repeatA.data(), 0, 4096, repeatB.data(), used);
 	ASSERT_EQ(req1_off, 4096);
-	ASSERT_EQ(req1_size, 4096);
+	ASSERT_EQ(req1_size, 4096U);
 	ASSERT_EQ(req2_off, -1);
-	ASSERT_EQ(req2_size, 0);
-	ASSERT_EQ(used, 0);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 0U);
 	correctOverlap = std::string(4096, 'a');
 	ASSERT_EQ(correctOverlap, repeatA);
 
@@ -535,10 +537,10 @@ TEST(OverlapCopy, Simple) {
 	std::tie(req1_off, req1_size, req2_off, req2_size) =
 		OverlapCopy(-1, 0, repeatA.data(), 0, 4096, repeatB.data(), used);
 	ASSERT_EQ(req1_off, -1);
-	ASSERT_EQ(req1_size, 0);
+	ASSERT_EQ(req1_size, 0U);
 	ASSERT_EQ(req2_off, -1);
-	ASSERT_EQ(req2_size, 0);
-	ASSERT_EQ(used, 0);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 0U);
 	correctOverlap = std::string(4096, 'a');
 	ASSERT_EQ(correctOverlap, repeatA);
 
@@ -547,10 +549,10 @@ TEST(OverlapCopy, Simple) {
 	std::tie(req1_off, req1_size, req2_off, req2_size) =
 		OverlapCopy(0, 4096, repeatA.data(), -1, 0, repeatB.data(), used);
 	ASSERT_EQ(req1_off, 0);
-	ASSERT_EQ(req1_size, 4096);
+	ASSERT_EQ(req1_size, 4096U);
 	ASSERT_EQ(req2_off, -1);
-	ASSERT_EQ(req2_size, 0);
-	ASSERT_EQ(used, 0);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 0U);
 	correctOverlap = std::string(4096, 'a');
 	ASSERT_EQ(correctOverlap, repeatA);
 }
