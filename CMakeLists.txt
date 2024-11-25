@@ -55,6 +55,15 @@ else()
 	find_package(tinyxml2)
 endif()
 
+##
+# Flag is needed explicitly for 32-bit platforms but not currently exported by XRootD
+# as a reverse dependency.  Can be removed once this is merged and in all supported
+# releases:
+#
+# https://github.com/xrootd/xrootd/pull/2369
+#
+add_definitions( -D_FILE_OFFSET_BITS=64 )
+
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
 add_library(XrdS3 SHARED src/CurlUtil.cc src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
