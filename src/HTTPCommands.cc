@@ -43,6 +43,8 @@ std::shared_ptr<HandlerQueue> HTTPRequest::m_queue =
 	std::make_unique<HandlerQueue>();
 bool HTTPRequest::m_workers_initialized = false;
 std::vector<CurlWorker *> HTTPRequest::m_workers;
+std::chrono::steady_clock::duration HTTPRequest::m_timeout_duration =
+	std::chrono::seconds(10);
 
 namespace {
 
@@ -235,6 +237,12 @@ size_t HTTPRequest::ReadCallback(char *buffer, size_t size, size_t n, void *v) {
 	// been sent.
 	HTTPRequest::Payload *payload = (HTTPRequest::Payload *)v;
 
+	if (payload->m_parent.Timeout()) {
+		payload->m_parent.errorCode = "E_TIMEOUT";
+		payload->m_parent.errorMessage = "Upload operation timed out";
+		return CURL_READFUNC_ABORT;
+	}
+
 	if (payload->sentSoFar == static_cast<off_t>(payload->data.size())) {
 		payload->sentSoFar = 0;
 		if (payload->final) {
@@ -269,6 +277,16 @@ bool HTTPRequest::sendPreparedRequest(const std::string &uri,
 	if (!m_is_streaming && !final) {
 		m_is_streaming = true;
 	}
+	if (m_timeout) {
+		errorCode = "E_TIMEOUT";
+		errorMessage = "Transfer has timed out due to inactivity.";
+		return false;
+	}
+	if (!errorCode.empty()) {
+		return false;
+	}
+
+	m_last_request = std::chrono::steady_clock::now();
 	m_final = final;
 	// Detect whether we were given an undersized buffer in non-streaming mode
 	if (!m_is_streaming && payload_size &&
@@ -292,6 +310,27 @@ bool HTTPRequest::sendPreparedRequest(const std::string &uri,
 	m_cv.wait(lk, [&] { return m_result_ready; });
 
 	return errorCode.empty();
+}
+
+void HTTPRequest::Tick(std::chrono::steady_clock::time_point now) {
+	if (!m_is_streaming) {
+		return;
+	}
+	if (now - m_last_request <= m_timeout_duration) {
+		return;
+	}
+
+	if (m_timeout) {
+		return;
+	}
+	m_timeout = true;
+
+	if (m_unpause_queue) {
+		std::unique_lock<std::mutex> lk(m_mtx);
+		m_result_ready = false;
+		m_unpause_queue->Produce(this);
+		m_cv.wait(lk, [&] { return m_result_ready; });
+	}
 }
 
 bool HTTPRequest::ReleaseHandle(CURL *curl) {
@@ -604,11 +643,13 @@ HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 	auto unique = std::unique_ptr<void, decltype(cleaner)>((void *)1, cleaner);
 
 	if (rv != 0) {
-		errorCode = "E_CURL_IO";
-		std::ostringstream error;
-		error << "curl failed (" << rv << "): '" << curl_easy_strerror(rv)
-			  << "'.";
-		errorMessage = error.str();
+		if (errorCode.empty()) {
+			errorCode = "E_CURL_IO";
+			std::ostringstream error;
+			error << "curl failed (" << rv << "): '" << curl_easy_strerror(rv)
+				  << "'.";
+			errorMessage = error.str();
+		}
 
 		return CurlResult::Fail;
 	}

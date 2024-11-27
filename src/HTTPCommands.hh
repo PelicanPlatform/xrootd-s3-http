@@ -81,6 +81,20 @@ class HTTPRequest {
 	// context.
 	static void Init(XrdSysError &);
 
+	// Perform maintenance of the request.
+	void Tick(std::chrono::steady_clock::time_point);
+
+	// Sets the duration after which an in-progress operation may be considered
+	// stalled and hence timeout.
+	static void SetStallTimeout(std::chrono::steady_clock::duration timeout) {
+		m_timeout_duration = timeout;
+	}
+
+	// Return the stall timeout duration currently in use.
+	static std::chrono::steady_clock::duration GetStallTimeout() {
+		return m_timeout_duration;
+	}
+
   protected:
 	// Send the request to the HTTP server.
 	// Blocks until the request has completed.
@@ -100,7 +114,6 @@ class HTTPRequest {
 							 const std::string_view payload, off_t payload_size,
 							 bool final);
 
-
 	// Called by the curl handler thread that the request has been finished.
 	virtual void Notify();
 
@@ -117,6 +130,10 @@ class HTTPRequest {
 	void SetUnpauseQueue(std::shared_ptr<HandlerQueue> queue) {
 		m_unpause_queue = queue;
 	}
+
+	// Return whether or not the request has timed out since the last
+	// call to send more data.
+	bool Timeout() const { return m_timeout; }
 
 	typedef std::map<std::string, std::string> AttributeValueMap;
 	AttributeValueMap query_parameters;
@@ -190,6 +207,7 @@ class HTTPRequest {
 						 // call of the overall HTTPRequest
 	bool m_is_streaming{
 		false}; // Flag indicating this command is a streaming request.
+	bool m_timeout{false};		// Flag indicating the request has timed out.
 	bool m_result_ready{false}; // Flag indicating the results data is ready.
 	off_t m_payload_size{0}; // Size of the entire upload payload; 0 if unknown.
 	std::string m_protocol;
@@ -198,6 +216,15 @@ class HTTPRequest {
 	CURL *m_curl_handle{nullptr}; // The curl handle for the ongoing request
 	char m_errorBuffer[CURL_ERROR_SIZE]; // Static error buffer for libcurl
 	unsigned m_retry_count{0};
+
+	// Time when the last request was sent on this object; used to determine
+	// whether the operation has timed out.
+	std::chrono::steady_clock::time_point m_last_request{
+		std::chrono::steady_clock::now()};
+
+	// Duration after which a partially-completed request will timeout if
+	// no progress has been made.
+	static std::chrono::steady_clock::duration m_timeout_duration;
 };
 
 class HTTPUpload : public HTTPRequest {

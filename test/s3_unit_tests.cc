@@ -22,6 +22,7 @@
 //
 
 #include "../src/S3Commands.hh"
+#include "../src/S3File.hh"
 #include "../src/S3FileSystem.hh"
 #include "../src/shortfile.hh"
 
@@ -425,6 +426,34 @@ TEST_F(FileSystemS3Fixture, UploadMultiPartAligned) {
 // chunks
 TEST_F(FileSystemS3Fixture, UploadMultiPartUnaligned) {
 	WritePattern("/test/write_large_1.txt", 100'000'000, 'a', 32'768);
+}
+
+// Ensure that uploads timeout if no action occurs.
+TEST_F(FileSystemS3Fixture, UploadStall) {
+	HTTPRequest::SetStallTimeout(std::chrono::milliseconds(200));
+	S3File::LaunchMonitorThread();
+
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	ASSERT_TRUE(fh);
+
+	XrdOucEnv env;
+	env.Put("oss.asize", std::to_string(16'384).c_str());
+	auto rv = fh->Open("/test/write_stall.txt", O_CREAT | O_WRONLY, 0755, env);
+	ASSERT_EQ(rv, 0);
+
+	ssize_t sizeToWrite = 4'096;
+	std::string writeBuffer(sizeToWrite, 'a');
+	rv = fh->Write(writeBuffer.data(), 0, sizeToWrite);
+	ASSERT_EQ(rv, sizeToWrite);
+
+	std::this_thread::sleep_for(HTTPRequest::GetStallTimeout() * 4 / 3 +
+								std::chrono::milliseconds(10));
+	writeBuffer = std::string(sizeToWrite, 'b');
+	rv = fh->Write(writeBuffer.data(), sizeToWrite, sizeToWrite);
+	ASSERT_EQ(rv, -ETIMEDOUT);
 }
 
 int main(int argc, char **argv) {

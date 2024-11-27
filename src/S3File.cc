@@ -32,8 +32,10 @@
 
 #include <curl/curl.h>
 
+#include <algorithm>
 #include <charconv>
 #include <filesystem>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -41,6 +43,7 @@
 #include <stdlib.h>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 using namespace XrdHTTPServer;
@@ -48,6 +51,12 @@ using namespace XrdHTTPServer;
 S3FileSystem *g_s3_oss = nullptr;
 
 XrdVERSIONINFO(XrdOssGetFileSystem, S3);
+
+std::vector<std::pair<std::weak_ptr<std::mutex>,
+					  std::weak_ptr<AmazonS3SendMultipartPart>>>
+	S3File::m_pending_ops;
+std::mutex S3File::m_pending_lk;
+std::once_flag S3File::m_monitor_launch;
 
 S3File::S3File(XrdSysError &log, S3FileSystem *oss)
 	: m_log(log), m_oss(oss), content_length(0), last_modified(0),
@@ -60,6 +69,9 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	}
 	if (Oflag & O_APPEND) {
 		m_log.Log(LogMask::Info, "Open", "File opened for append:", path);
+	}
+	if (Oflag & (O_RDWR | O_WRONLY)) {
+		m_write_lk.reset(new std::mutex);
 	}
 
 	char *asize_char;
@@ -206,16 +218,29 @@ int S3File::Fstat(struct stat *buff) {
 }
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
+	auto write_mutex = m_write_lk;
+	if (!write_mutex) {
+		return -EBADF;
+	}
+	std::lock_guard lk(*write_mutex);
+
 	if (offset != m_write_offset) {
 		m_log.Emsg(
 			"Write",
 			"Out-of-order write detected; S3 requires writes to be in order");
+		m_write_offset = -1;
+		return -EIO;
+	}
+	if (m_write_offset == -1) {
+		// Previous I/O error has occurred.  File is in bad state, immediately
+		// fail.
 		return -EIO;
 	}
 	if (uploadId == "") {
 		AmazonS3CreateMultipartUpload startUpload(m_ai, m_object, m_log);
 		if (!startUpload.SendRequest()) {
 			m_log.Emsg("Write", "S3 multipart request failed");
+			m_write_offset = -1;
 			return -ENOENT;
 		}
 		std::string errMsg;
@@ -240,6 +265,10 @@ ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
 		}
 
 		m_write_op.reset(new AmazonS3SendMultipartPart(m_ai, m_object, m_log));
+		{
+			std::lock_guard lk(m_pending_lk);
+			m_pending_ops.emplace_back(m_write_lk, m_write_op);
+		}
 
 		// Calculate the size of the current chunk, if it's known.
 		m_part_size = m_s3_part_size;
@@ -271,8 +300,15 @@ ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
 	if (!m_write_op->SendRequest(
 			std::string_view(static_cast<const char *>(buffer), write_size),
 			std::to_string(partNumber), uploadId, m_object_size, is_final)) {
+		m_write_offset = -1;
+		if (m_write_op->getErrorCode() == "E_TIMEOUT") {
+			m_log.Emsg("Write", "Timeout when uploading to S3");
+			m_write_op.reset();
+			return -ETIMEDOUT;
+		}
 		m_log.Emsg("Write", "Upload to S3 failed: ",
 				   m_write_op->getErrorMessage().c_str());
+		m_write_op.reset();
 		return -EIO;
 	}
 	if (is_final) {
@@ -283,6 +319,8 @@ ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
 		if (startPos == std::string::npos) {
 			m_log.Emsg("Write", "Result from S3 does not include ETag:",
 					   resultString.c_str());
+			m_write_op.reset();
+			m_write_offset = -1;
 			return -EIO;
 		}
 		std::size_t endPos = resultString.find("\"", startPos + 7);
@@ -290,6 +328,8 @@ ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
 			m_log.Emsg("Write",
 					   "Result from S3 does not include ETag end-character:",
 					   resultString.c_str());
+			m_write_op.reset();
+			m_write_offset = -1;
 			return -EIO;
 		}
 		eTags.push_back(
@@ -299,6 +339,67 @@ ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
 	}
 
 	return write_size;
+}
+
+void S3File::LaunchMonitorThread() {
+	std::call_once(m_monitor_launch, [] {
+		std::thread t(S3File::CleanupTransfers);
+		t.detach();
+	});
+}
+
+void S3File::CleanupTransfers() {
+	while (true) {
+		std::this_thread::sleep_for(HTTPRequest::GetStallTimeout() / 3);
+		try {
+			CleanupTransfersOnce();
+		} catch (std::exception &exc) {
+			std::cerr << "Warning: caught unexpected exception when trying to "
+						 "clean transfers: "
+					  << exc.what() << std::endl;
+		}
+	}
+}
+
+void S3File::CleanupTransfersOnce() {
+	// Make a list of live transfers; erase any dead ones still on the list.
+	std::vector<std::pair<std::shared_ptr<std::mutex>,
+						  std::shared_ptr<AmazonS3SendMultipartPart>>>
+		existing_ops;
+	{
+		std::lock_guard lk(m_pending_lk);
+		existing_ops.reserve(m_pending_ops.size());
+		m_pending_ops.erase(
+			std::remove_if(m_pending_ops.begin(), m_pending_ops.end(),
+						   [&](const auto &op) -> bool {
+							   auto op_lk = op.first.lock();
+							   if (!op_lk) {
+								   // In this case, the S3File is no longer open
+								   // for write.  No need to potentially clean
+								   // up the transfer.
+								   return true;
+							   }
+							   auto op_part = op.second.lock();
+							   if (!op_part) {
+								   // In this case, the S3File object is still
+								   // open for writes but the upload has
+								   // completed. Remove from the list.
+								   return true;
+							   }
+							   // The S3File is open and upload is in-progress;
+							   // we'll tick the transfer.
+							   existing_ops.emplace_back(op_lk, op_part);
+							   return false;
+						   }),
+			m_pending_ops.end());
+	}
+	// For each live transfer, call `Tick` to advance the clock and possibly
+	// time things out.
+	auto now = std::chrono::steady_clock::now();
+	for (auto &info : existing_ops) {
+		std::lock_guard lk(*info.first);
+		info.second->Tick(now);
+	}
 }
 
 int S3File::Close(long long *retsz) {
@@ -315,6 +416,7 @@ int S3File::Close(long long *retsz) {
 		}
 	}
 	if (m_write_op) {
+		std::lock_guard lk(*m_write_lk);
 		m_part_size = m_part_written;
 		auto written = ContinueSendPart(nullptr, 0);
 		if (written < 0) {
@@ -375,6 +477,7 @@ XrdOss *XrdOssGetStorageSystem2(XrdOss *native_oss, XrdSysLogger *Logger,
 
 	envP->Export("XRDXROOTD_NOPOSC", "1");
 
+	S3File::LaunchMonitorThread();
 	try {
 		AmazonRequest::Init(*log);
 		g_s3_oss = new S3FileSystem(Logger, config_fn, envP);
