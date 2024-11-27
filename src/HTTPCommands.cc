@@ -639,9 +639,6 @@ void HTTPRequest::Notify() {
 HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 													   CURLcode rv) {
 
-	auto cleaner = [&](void *) { Notify(); };
-	auto unique = std::unique_ptr<void, decltype(cleaner)>((void *)1, cleaner);
-
 	if (rv != 0) {
 		if (errorCode.empty()) {
 			errorCode = "E_CURL_IO";
