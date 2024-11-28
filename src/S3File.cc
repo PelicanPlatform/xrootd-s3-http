@@ -247,6 +247,12 @@ ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
 		startUpload.Results(uploadId, errMsg);
 	}
 
+	// If we don't know the final object size, we must use the streaming
+	// variant.
+	if (m_object_size == -1) {
+		return WriteStreaming(buffer, offset, size);
+	}
+
 	size_t written = 0;
 	while (written != size) {
 		if (m_write_op) {
@@ -280,6 +286,41 @@ ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
 		}
 	}
 	return written;
+}
+
+ssize_t S3File::WriteStreaming(const void *buffer, off_t offset, size_t size) {
+	m_streaming_buffer.append(
+		std::string_view(static_cast<const char *>(buffer), size));
+	m_write_offset += size;
+
+	ssize_t rv = size;
+	if (m_streaming_buffer.size() > 100'000'000) {
+		rv = SendPartStreaming();
+	}
+	return rv;
+}
+
+ssize_t S3File::SendPartStreaming() {
+	int length = m_streaming_buffer.length();
+	AmazonS3SendMultipartPart upload_part_request =
+		AmazonS3SendMultipartPart(m_ai, m_object, m_log);
+	if (!upload_part_request.SendRequest(m_streaming_buffer,
+										 std::to_string(partNumber), uploadId,
+										 m_streaming_buffer.size(), true)) {
+		m_log.Log(LogMask::Debug, "SendPart", "upload.SendRequest() failed");
+		return -EIO;
+	} else {
+		m_log.Log(LogMask::Debug, "SendPart", "upload.SendRequest() succeeded");
+		std::string resultString = upload_part_request.getResultString();
+		std::size_t startPos = resultString.find("ETag:");
+		std::size_t endPos = resultString.find("\"", startPos + 7);
+		eTags.push_back(
+			resultString.substr(startPos + 7, endPos - startPos - 7));
+		partNumber++;
+		m_streaming_buffer.clear();
+	}
+
+	return length;
 }
 
 ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
@@ -408,20 +449,32 @@ int S3File::Close(long long *retsz) {
 	if (m_create && !m_write_offset) {
 		AmazonS3Upload upload(m_ai, m_object, m_log);
 		if (!upload.SendRequest("")) {
-			m_log.Emsg("Close", "Failed to create zero-length file");
+			m_log.Log(LogMask::Warning, "Close",
+					  "Failed to create zero-length object");
 			return -ENOENT;
 		} else {
-			m_log.Emsg("Open", "upload.SendRequest() succeeded");
+			m_log.Log(LogMask::Debug, "Close",
+					  "Creation of zero-length object succeeded");
 			return 0;
 		}
 	}
-	if (m_write_op) {
+	if (m_write_lk) {
 		std::lock_guard lk(*m_write_lk);
-		m_part_size = m_part_written;
-		auto written = ContinueSendPart(nullptr, 0);
-		if (written < 0) {
-			m_log.Emsg("Close", "Failed to complete the last S3 upload");
-			return -ENOENT;
+		if (m_object_size == -1 && !m_streaming_buffer.empty()) {
+			m_log.Emsg("Close", "Sending final part of length",
+					   std::to_string(m_streaming_buffer.size()).c_str());
+			auto rv = SendPartStreaming();
+			if (rv < 0) {
+				return rv;
+			}
+		} else if (m_write_op) {
+			m_part_size = m_part_written;
+			auto written = ContinueSendPart(nullptr, 0);
+			if (written < 0) {
+				m_log.Log(LogMask::Warning, "Close",
+						  "Failed to complete the last S3 upload");
+				return -EIO;
+			}
 		}
 	}
 
@@ -439,16 +492,6 @@ int S3File::Close(long long *retsz) {
 	}
 
 	return 0;
-
-	/* Original write code
-	std::string payload((char *)buffer, size);
-	if (!upload.SendRequest(payload, offset, size)) {
-		m_log.Emsg("Open", "upload.SendRequest() failed");
-		return -ENOENT;
-	} else {
-		m_log.Emsg("Open", "upload.SendRequest() succeeded");
-		return 0;
-	} */
 }
 
 extern "C" {

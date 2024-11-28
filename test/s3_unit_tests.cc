@@ -293,7 +293,8 @@ s3.end
 
   public:
 	void WritePattern(const std::string &name, const off_t writeSize,
-					  const unsigned char chunkByte, const size_t chunkSize) {
+					  const unsigned char chunkByte, const size_t chunkSize,
+					  bool known_size) {
 		XrdSysLogger log;
 		S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
 
@@ -301,7 +302,11 @@ s3.end
 		ASSERT_TRUE(fh);
 
 		XrdOucEnv env;
-		env.Put("oss.asize", std::to_string(writeSize).c_str());
+		// Only set oss.asize for test cases where we want the server to know
+		// the final size.
+		if (known_size) {
+			env.Put("oss.asize", std::to_string(writeSize).c_str());
+		}
 		auto rv = fh->Open(name.c_str(), O_CREAT | O_WRONLY, 0755, env);
 		ASSERT_EQ(rv, 0);
 
@@ -371,61 +376,76 @@ s3.end
 
 // Upload a single byte into S3
 TEST_F(FileSystemS3Fixture, UploadOneByte) {
-	WritePattern("/test/write_one.txt", 1, 'X', 32 * 1024);
+	WritePattern("/test/write_one.txt", 1, 'X', 32 * 1024, true);
+	WritePattern("/test/write_one_stream.txt", 1, 'X', 32 * 1024, false);
 }
 
 // Upload across multiple calls, single part
 TEST_F(FileSystemS3Fixture, UploadMultipleCalls) {
-	WritePattern("/test/write_alphabet.txt", 26, 'a', 1);
+	WritePattern("/test/write_alphabet.txt", 26, 'a', 1, true);
+	WritePattern("/test/write_alphabet_stream.txt", 26, 'a', 1, false);
 }
 
 // Upload a zero-byte object
 TEST_F(FileSystemS3Fixture, UploadZero) {
-	WritePattern("/test/write_zero.txt", 0, 'X', 32 * 1024);
+	WritePattern("/test/write_zero.txt", 0, 'X', 32 * 1024, true);
+	WritePattern("/test/write_zero_stream.txt", 0, 'X', 32 * 1024, false);
 }
 
 // Upload larger - two chunks.
 TEST_F(FileSystemS3Fixture, UploadTwoChunks) {
-	WritePattern("/test/write_two_chunks.txt", 1'024 + 42, 'a', 1'024);
+	WritePattern("/test/write_two_chunks.txt", 1'024 + 42, 'a', 1'024, true);
+	WritePattern("/test/write_two_chunks_stream.txt", 1'024 + 42, 'a', 1'024,
+				 false);
 }
 
 // Upload larger - a few chunks.
 TEST_F(FileSystemS3Fixture, UploadMultipleChunks) {
 	WritePattern("/test/write_multi_chunks.txt", (10'000 / 1'024) * 1'024 + 42,
-				 'a', 1'024);
+				 'a', 1'024, true);
+	WritePattern("/test/write_multi_chunks_stream.txt",
+				 (10'000 / 1'024) * 1'024 + 42, 'a', 1'024, false);
 }
 
 // Upload across multiple parts, not aligned to partition.
 TEST_F(FileSystemS3Fixture, UploadLarge) {
 	WritePattern("/test/write_large_1.txt",
-				 (100'000'000 / 1'310'720) * 1'310'720 + 42, 'a', 1'310'720);
+				 (100'000'000 / 1'310'720) * 1'310'720 + 42, 'a', 1'310'720,
+				 true);
+	WritePattern("/test/write_large_1_stream.txt",
+				 (100'000'000 / 1'310'720) * 1'310'720 + 42, 'a', 1'310'720,
+				 false);
 }
 
 // Upload a file into S3 that's the same size as the partition size
 TEST_F(FileSystemS3Fixture, UploadLargePart) {
-	WritePattern("/test/write_large_2.txt", 100'000'000, 'a', 131'072);
+	WritePattern("/test/write_large_2.txt", 100'000'000, 'a', 131'072, true);
+	WritePattern("/test/write_large_2_stream.txt", 100'000'000, 'a', 131'072,
+				 false);
 }
 
 // Upload a small file where the partition size is aligned with the chunk size
 TEST_F(FileSystemS3Fixture, UploadSmallAligned) {
-	WritePattern("/test/write_large_3.txt", 1'000, 'a', 1'000);
+	WritePattern("/test/write_large_3.txt", 1'000, 'a', 1'000, true);
 }
 
 // Upload a file into S3 that's the same size as the partition size, using
 // chunks that align with the partition size
 TEST_F(FileSystemS3Fixture, UploadLargePartAligned) {
-	WritePattern("/test/write_large_4.txt", 100'000'000, 'a', 1'000'000);
+	WritePattern("/test/write_large_4.txt", 100'000'000, 'a', 1'000'000, true);
 }
 
 // Upload a file into S3 resulting in multiple partitions
 TEST_F(FileSystemS3Fixture, UploadMultiPartAligned) {
-	WritePattern("/test/write_large_5.txt", 100'000'000, 'a', 1'000'000);
+	WritePattern("/test/write_large_5.txt", 100'000'000, 'a', 1'000'000, true);
 }
 
 // Upload a file into S3 resulting in multiple partitioned using not-aligned
 // chunks
 TEST_F(FileSystemS3Fixture, UploadMultiPartUnaligned) {
-	WritePattern("/test/write_large_1.txt", 100'000'000, 'a', 32'768);
+	WritePattern("/test/write_large_1.txt", 100'000'000, 'a', 32'768, true);
+	WritePattern("/test/write_large_1_stream.txt", 100'000'000, 'a', 32'768,
+				 false);
 }
 
 // Ensure that uploads timeout if no action occurs.

@@ -111,7 +111,17 @@ class S3File : public XrdOssDF {
 	// see if the transfer has aborted.
 	static void CleanupTransfers();
 
+	// Single cleanup run for in-progress transfers.
 	static void CleanupTransfersOnce();
+
+	// Write data while in "streaming mode" where we don't know the
+	// ultimate size of the file (and hence can't start streaming
+	// partitions immediately).
+	ssize_t WriteStreaming(const void *buffer, off_t offset, size_t size);
+
+	// Send a fully-buffered part of the file; only used while in
+	// "streaming" mode.
+	ssize_t SendPartStreaming();
 
 	ssize_t ContinueSendPart(const void *buffer, size_t size);
 	XrdSysError &m_log;
@@ -137,6 +147,9 @@ class S3File : public XrdOssDF {
 		-1}; // Expected size of the completed object; -1 if unknown.
 	std::string uploadId; // For creates, upload ID as assigned by t
 	std::vector<std::string> eTags;
+	// When using the "streaming mode", the upload part has to be completely
+	// buffered within the S3File object; this is the current buffer.
+	std::string m_streaming_buffer;
 
 	// The mutex protecting write activities.  Writes must currently be
 	// serialized as we aggregate them into large operations and upload them to
