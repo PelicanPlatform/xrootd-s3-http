@@ -476,7 +476,7 @@ bool AmazonRequest::SendS3Request(const std::string_view payload,
 
 AmazonS3Upload::~AmazonS3Upload() {}
 
-bool AmazonS3Upload::SendRequest(const std::string &payload) {
+bool AmazonS3Upload::SendRequest(const std::string_view &payload) {
 	httpVerb = "PUT";
 	return SendS3Request(payload, payload.size(), true);
 }

@@ -224,6 +224,25 @@ ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
 	}
 	std::lock_guard lk(*write_mutex);
 
+	// Small object optimization -- if this is the full object, upload
+	// it immediately.
+	if (!m_write_offset && m_object_size == static_cast<off_t>(size)) {
+		AmazonS3Upload upload(m_ai, m_object, m_log);
+		m_write_lk.reset();
+		if (!upload.SendRequest(
+				std::string_view(static_cast<const char *>(buffer), size))) {
+			m_log.Log(LogMask::Warning, "Write",
+					  "Failed to create small object");
+			return -EIO;
+		} else {
+			m_write_offset += size;
+			m_log.Log(LogMask::Debug, "Write",
+					  "Creation of small object succeeded",
+					  std::to_string(size).c_str());
+			return size;
+		}
+	}
+
 	if (offset != m_write_offset) {
 		m_log.Emsg(
 			"Write",

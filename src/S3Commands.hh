@@ -158,7 +158,7 @@ class AmazonS3Upload final : public AmazonRequest {
 
 	virtual ~AmazonS3Upload();
 
-	bool SendRequest(const std::string &payload);
+	bool SendRequest(const std::string_view &payload);
 
   protected:
 	std::string path;
