@@ -104,7 +104,7 @@ void convertMessageDigestToLowercaseHex(const unsigned char *messageDigest,
 	free(buffer);
 }
 
-bool doSha256(const std::string &payload, unsigned char *messageDigest,
+bool doSha256(const std::string_view payload, unsigned char *messageDigest,
 			  unsigned int *mdLength) {
 	EVP_MD_CTX *mdctx = EVP_MD_CTX_create();
 	if (mdctx == NULL) {
@@ -116,7 +116,7 @@ bool doSha256(const std::string &payload, unsigned char *messageDigest,
 		return false;
 	}
 
-	if (!EVP_DigestUpdate(mdctx, payload.c_str(), payload.length())) {
+	if (!EVP_DigestUpdate(mdctx, payload.data(), payload.length())) {
 		EVP_MD_CTX_destroy(mdctx);
 		return false;
 	}

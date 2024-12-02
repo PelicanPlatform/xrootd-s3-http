@@ -29,24 +29,25 @@ class HTTPRequest;
 class HandlerQueue;
 
 class CurlWorker {
-public:
-    CurlWorker(std::shared_ptr<HandlerQueue> queue, XrdSysError &logger) :
-        m_queue(queue),
-        m_logger(logger)
-    {}
+  public:
+	CurlWorker(std::shared_ptr<HandlerQueue> queue, XrdSysError &logger)
+		: m_queue(queue), m_logger(logger) {}
 
-    CurlWorker(const CurlWorker &) = delete;
+	CurlWorker(const CurlWorker &) = delete;
 
-    void Run();
-    static void RunStatic(CurlWorker *myself);
-    static unsigned GetPollThreads() {return m_workers;}
+	void Run();
+	static void RunStatic(CurlWorker *myself);
+	static unsigned GetPollThreads() { return m_workers; }
 
-private:
-    std::shared_ptr<HandlerQueue> m_queue;
-    std::unordered_map<CURL*, HTTPRequest *> m_op_map;
-    XrdSysError &m_logger;
+  private:
+	std::shared_ptr<HandlerQueue> m_queue;
+	std::shared_ptr<HandlerQueue>
+		m_unpause_queue; // Queue for notifications that a handle can be
+						 // unpaused.
+	std::unordered_map<CURL *, HTTPRequest *> m_op_map;
+	XrdSysError &m_logger;
 
-    const static unsigned m_workers{5};
-    const static unsigned m_max_ops{20};
-    const static unsigned m_marker_period{5};
+	const static unsigned m_workers{5};
+	const static unsigned m_max_ops{20};
+	const static unsigned m_marker_period{5};
 };

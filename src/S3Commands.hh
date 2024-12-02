@@ -22,8 +22,12 @@
 #include "S3AccessInfo.hh"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
+// The base class for all requests to the S3 endpoint.
+// Handles common activities like signing requests and forwarding to the
+// underlying HTTPRequest object.
 class AmazonRequest : public HTTPRequest {
   public:
 	AmazonRequest(const S3AccessInfo &ai, const std::string objectName,
@@ -81,14 +85,39 @@ class AmazonRequest : public HTTPRequest {
 				  std::string &path);
 
 	virtual bool SendRequest();
-	virtual bool SendS3Request(const std::string &payload);
+
+	// Send a request to the S3 service.
+	//
+	// - payload: contents of the request itself
+	// - payload_size: final size of the payload for uploads; 0 if unknown.
+	// - final: True if this is the last (or only) payload of the request; false
+	// otherwise
+	// - blocking: True if the method should block on a response; false
+	// otherwise
+	virtual bool SendS3Request(const std::string_view payload,
+							   off_t payload_size, bool final, bool blocking);
 
 	static void Init(XrdSysError &log) { HTTPRequest::Init(log); }
 
   protected:
-	bool sendV4Request(const std::string &payload, bool sendContentSHA = false);
+	// Send a request to the S3 service using the V4 signing method.
+	//
+	// - payload: contents of the request (for uploads or for XML-based
+	// commands)
+	// - payload_size: final size of the payload for uploads; 0 if unknown.
+	// - sendContentSHA: Whether to add the header indicating the checksum of
+	// the final payload.  Servers may verify this is what they received.
+	// - final: True if this is the last (or only) payload of the request; false
+	// otherwise.
+	// - blocking: True if this method should block until a response; false
+	// otherwise
+	bool sendV4Request(const std::string_view payload, off_t payload_size,
+					   bool sendContentSHA, bool final, bool blocking);
 
 	bool retainObject;
+	bool m_streamingRequest{
+		false}; // Is this a streaming request?  Streaming requests will not
+				// include a SHA-256 signature in the header
 
 	std::string accessKeyFile;
 	std::string secretKeyFile;
@@ -110,14 +139,14 @@ class AmazonRequest : public HTTPRequest {
 	std::string m_style;
 
   private:
-	bool createV4Signature(const std::string &payload,
+	bool createV4Signature(const std::string_view payload,
 						   std::string &authorizationHeader,
 						   bool sendContentSHA = false);
 
 	std::string canonicalizeQueryString();
 };
 
-class AmazonS3Upload : public AmazonRequest {
+class AmazonS3Upload final : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
@@ -133,14 +162,13 @@ class AmazonS3Upload : public AmazonRequest {
 
 	virtual ~AmazonS3Upload();
 
-	virtual bool SendRequest(const std::string &payload, off_t offset,
-							 size_t size);
+	bool SendRequest(const std::string &payload);
 
   protected:
 	std::string path;
 };
 
-class AmazonS3CreateMultipartUpload : public AmazonRequest {
+class AmazonS3CreateMultipartUpload final : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
@@ -189,7 +217,7 @@ class AmazonS3CompleteMultipartUpload : public AmazonRequest {
   protected:
 };
 
-class AmazonS3SendMultipartPart : public AmazonRequest {
+class AmazonS3SendMultipartPart final : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
@@ -207,9 +235,17 @@ class AmazonS3SendMultipartPart : public AmazonRequest {
 
 	virtual ~AmazonS3SendMultipartPart();
 
-	virtual bool SendRequest(const std::string &payload,
-							 const std::string &partNumber,
-							 const std::string &uploadId);
+	// Send (potentially a partial) payload up to S3.
+	// Blocks until all the data in payload has been sent to AWS.
+	//
+	// - payload: The data corresponding to this partial upload.
+	// - partNumber: The portion of the multipart upload.
+	// - uploadId: The upload ID assigned by the creation of the multipart
+	// upload
+	// - final: Set to true if this is the last of the part; false otherwise
+	bool SendRequest(const std::string_view payload,
+					 const std::string &partNumber, const std::string &uploadId,
+					 size_t payloadSize, bool final);
 
   protected:
 };
@@ -219,21 +255,50 @@ class AmazonS3Download : public AmazonRequest {
 
   public:
 	AmazonS3Download(const S3AccessInfo &ai, const std::string &objectName,
-					 XrdSysError &log)
-		: AmazonRequest(ai, objectName, log) {}
+					 XrdSysError &log, char *buffer)
+		: AmazonRequest(ai, objectName, log), m_buffer(buffer) {}
 
 	AmazonS3Download(const std::string &s, const std::string &akf,
 					 const std::string &skf, const std::string &b,
 					 const std::string &o, const std::string &style,
-					 XrdSysError &log)
-		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
+					 XrdSysError &log, char *buffer)
+		: AmazonRequest(s, akf, skf, b, o, style, 4, log), m_buffer(buffer) {}
 
 	virtual ~AmazonS3Download();
 
 	virtual bool SendRequest(off_t offset, size_t size);
+
+  protected:
+	virtual bool IsBlocking() { return true; }
+	virtual std::string_view *requestResult() override {
+		return &m_buffer_view;
+	}
+
+  private:
+	char *m_buffer{nullptr};
+	std::string_view m_buffer_view;
 };
 
-class AmazonS3Head : public AmazonRequest {
+template <typename T>
+class AmazonS3NonblockingDownload final : public AmazonS3Download {
+
+  public:
+	AmazonS3NonblockingDownload(const S3AccessInfo &ai,
+								const std::string &objectName, XrdSysError &log,
+								char *buffer, T &notifier)
+		: AmazonS3Download(ai, objectName, log, buffer), m_notifier(notifier) {}
+
+	virtual ~AmazonS3NonblockingDownload();
+
+  protected:
+	virtual bool IsBlocking() override { return false; }
+	virtual void Notify() override { m_notifier.Notify(); }
+
+  private:
+	T &m_notifier;
+};
+
+class AmazonS3Head final : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
@@ -250,6 +315,11 @@ class AmazonS3Head : public AmazonRequest {
 	virtual ~AmazonS3Head();
 
 	virtual bool SendRequest();
+
+	off_t getSize() const { return m_size; }
+
+  private:
+	off_t m_size{0};
 };
 
 struct S3ObjectInfo {
@@ -257,7 +327,7 @@ struct S3ObjectInfo {
 	std::string m_key;
 };
 
-class AmazonS3List : public AmazonRequest {
+class AmazonS3List final : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:

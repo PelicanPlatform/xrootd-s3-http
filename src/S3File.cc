@@ -32,6 +32,7 @@
 
 #include <curl/curl.h>
 
+#include <charconv>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -39,6 +40,7 @@
 #include <sstream>
 #include <stdlib.h>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace XrdHTTPServer;
@@ -49,14 +51,29 @@ XrdVERSIONINFO(XrdOssGetFileSystem, S3);
 
 S3File::S3File(XrdSysError &log, S3FileSystem *oss)
 	: m_log(log), m_oss(oss), content_length(0), last_modified(0),
-	  write_buffer(""), partNumber(1) {}
+	  partNumber(1) {}
 
 int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	if (Oflag & O_CREAT) {
-		m_log.Log(LogMask::Info, "File opened for creation: ", path);
+		m_log.Log(LogMask::Info, "Open", "File opened for creation:", path);
+		m_create = true;
 	}
 	if (Oflag & O_APPEND) {
-		m_log.Log(LogMask::Info, "File opened for append: ", path);
+		m_log.Log(LogMask::Info, "Open", "File opened for append:", path);
+	}
+
+	char *asize_char;
+	if ((asize_char = env.Get("oss.asize"))) {
+		off_t result{0};
+		auto [ptr, ec] = std::from_chars(
+			asize_char, asize_char + strlen(asize_char), result);
+		if (ec == std::errc()) {
+			m_object_size = result;
+		} else {
+			m_log.Log(LogMask::Warning,
+					  "Opened file has oss.asize set to an unparseable value: ",
+					  asize_char);
+		}
 	}
 
 	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
@@ -81,11 +98,10 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 
 	// This flag is not set when it's going to be a read operation
 	// so we check if the file exists in order to be able to return a 404
-	if (!Oflag) {
-		AmazonS3Head head(m_ai, m_object, m_log);
-
-		if (!head.SendRequest()) {
-			return -ENOENT;
+	if (!Oflag || (Oflag & O_APPEND)) {
+		auto res = Fstat(nullptr);
+		if (res < 0) {
+			return res;
 		}
 	}
 
@@ -93,19 +109,7 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 }
 
 ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
-	AmazonS3Download download(m_ai, m_object, m_log);
-
-	if (!download.SendRequest(offset, size)) {
-		std::stringstream ss;
-		ss << "Failed to send GetObject command: " << download.getResponseCode()
-		   << "'" << download.getResultString() << "'";
-		m_log.Log(LogMask::Warning, "S3File::Read", ss.str().c_str());
-		return 0;
-	}
-
-	const std::string &bytes = download.getResultString();
-	memcpy(buffer, bytes.data(), bytes.size());
-	return bytes.size();
+	return m_cache.Read(*this, static_cast<char *>(buffer), offset, size);
 }
 
 int S3File::Fstat(struct stat *buff) {
@@ -171,6 +175,9 @@ int S3File::Fstat(struct stat *buff) {
 
 		current_newline = next_newline;
 	}
+	if (!buff) {
+		return 0;
+	}
 
 	memset(buff, '\0', sizeof(struct stat));
 	buff->st_mode = 0600 | S_IFREG;
@@ -188,66 +195,123 @@ int S3File::Fstat(struct stat *buff) {
 }
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
+	if (offset != m_write_offset) {
+		m_log.Emsg(
+			"Write",
+			"Out-of-order write detected; S3 requires writes to be in order");
+		return -EIO;
+	}
 	if (uploadId == "") {
 		AmazonS3CreateMultipartUpload startUpload(m_ai, m_object, m_log);
 		if (!startUpload.SendRequest()) {
-			m_log.Emsg("Open", "S3 multipart request failed");
+			m_log.Emsg("Write", "S3 multipart request failed");
 			return -ENOENT;
 		}
 		std::string errMsg;
 		startUpload.Results(uploadId, errMsg);
 	}
 
-	std::string payload((char *)buffer, size);
-	size_t payload_size = payload.length();
-	if (payload_size != size) {
-		return -ENOENT;
-	}
-	write_buffer += payload;
+	size_t written = 0;
+	while (written != size) {
+		if (m_write_op) {
+			auto write_size = ContinueSendPart(buffer, size);
+			if (write_size < 0) {
+				return write_size;
+			}
+			offset += write_size;
+			m_write_offset += write_size;
+			buffer = static_cast<const char *>(buffer) + write_size;
+			size -= write_size;
+			written += write_size;
+			if (!size) {
+				return written;
+			}
+		}
 
-	// XXX should this be configurable? 100mb gives us a TB of file size. It
-	// doesn't seem terribly useful to be much smaller and it's not clear the S3
-	// API will work if it's much larger.
-	if (write_buffer.length() > 100000000) {
-		if (SendPart() == -ENOENT) {
-			return -ENOENT;
+		m_write_op.reset(new AmazonS3SendMultipartPart(m_ai, m_object, m_log));
+
+		// Calculate the size of the current chunk, if it's known.
+		m_part_size = m_s3_part_size;
+		if (!m_object_size) {
+			m_part_size = 0;
+		} else if (m_write_offset + static_cast<off_t>(m_part_size) >
+				   m_object_size) {
+			m_part_size = m_object_size - m_write_offset;
 		}
 	}
-	return size;
+	return written;
 }
 
-int S3File::SendPart() {
-	int length = write_buffer.length();
-	AmazonS3SendMultipartPart upload_part_request =
-		AmazonS3SendMultipartPart(m_ai, m_object, m_log);
-	if (!upload_part_request.SendRequest(
-			write_buffer, std::to_string(partNumber), uploadId)) {
-		m_log.Emsg("SendPart", "upload.SendRequest() failed");
-		return -ENOENT;
-	} else {
-		m_log.Emsg("SendPart", "upload.SendRequest() succeeded");
-		std::string resultString = upload_part_request.getResultString();
+ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
+	m_part_written += size;
+	auto write_size = size;
+	if (m_part_written > m_s3_part_size) {
+		write_size = size - (m_part_written - m_s3_part_size);
+		m_part_written = m_s3_part_size;
+	}
+	auto is_final = (m_part_size > 0 && m_part_written == m_part_size) ||
+					m_part_written == m_s3_part_size;
+	if (m_log.getMsgMask() & LogMask::Debug) {
+		std::stringstream ss;
+		ss << "Sending request with buffer of size=" << write_size
+		   << ", offset=" << m_write_offset << " and is_final=" << is_final;
+		m_log.Log(LogMask::Debug, "ContinueSendPart", ss.str().c_str());
+	}
+	if (!m_write_op->SendRequest(
+			std::string_view(static_cast<const char *>(buffer), write_size),
+			std::to_string(partNumber), uploadId, m_object_size, is_final)) {
+		m_log.Emsg("Write", "Upload to S3 failed: ",
+				   m_write_op->getErrorMessage().c_str());
+		return -EIO;
+	}
+	if (is_final) {
+		m_part_written = 0;
+		m_part_size = 0;
+		auto &resultString = m_write_op->getResultString();
 		std::size_t startPos = resultString.find("ETag:");
-		std::size_t endPos = resultString.find("\"", startPos + 7);
+		if (startPos == std::string::npos) {
+			m_log.Emsg("Write", "Result from S3 does not include ETag:",
+					   resultString.c_str());
+			return -EIO;
+		}
+		std::size_t endPos = resultString.find('"', startPos + 7);
+		if (startPos == std::string::npos) {
+			m_log.Emsg("Write",
+					   "Result from S3 does not include ETag end-character:",
+					   resultString.c_str());
+			return -EIO;
+		}
 		eTags.push_back(
 			resultString.substr(startPos + 7, endPos - startPos - 7));
-
+		m_write_op.reset();
 		partNumber++;
-		write_buffer = "";
 	}
 
-	return length;
+	return write_size;
 }
 
 int S3File::Close(long long *retsz) {
-	// this is only true if a buffer exists that needs to be drained
-	if (write_buffer.length() > 0) {
-		if (SendPart() == -ENOENT) {
+	// If we opened the object in create mode but did not actually write
+	// anything, make a quick zero-length file.
+	if (m_create && !m_write_offset) {
+		AmazonS3Upload upload(m_ai, m_object, m_log);
+		if (!upload.SendRequest("")) {
+			m_log.Emsg("Close", "Failed to create zero-length file");
 			return -ENOENT;
 		} else {
-			m_log.Emsg("Close", "Closed our S3 file");
+			m_log.Emsg("Open", "upload.SendRequest() succeeded");
+			return 0;
 		}
 	}
+	if (m_write_op) {
+		m_part_size = m_part_written;
+		auto written = ContinueSendPart(nullptr, 0);
+		if (written < 0) {
+			m_log.Emsg("Close", "Failed to complete the last S3 upload");
+			return -ENOENT;
+		}
+	}
+
 	// this is only true if some parts have been written and need to be
 	// finalized
 	if (partNumber > 1) {
@@ -272,6 +336,530 @@ int S3File::Close(long long *retsz) {
 		m_log.Emsg("Open", "upload.SendRequest() succeeded");
 		return 0;
 	} */
+}
+
+// Copy any overlapping data from the cache buffer into the request buffer,
+// returning the remaining data necessary to fill the request.
+//
+// - `req_off`: File offset of the beginning of the request buffer.
+// - `req_size`: Size of the request buffer
+// - `req_buf`: Request buffer to copy data into
+// - `cache_off`: File offset of the beginning of the cache buffer.
+// - `cache_size`: Size of the cache buffer
+// - `cache_buf`: Cache buffer to copy data from.
+// - `used` (output): Incremented by the number of bytes copied from the cache
+// buffer
+// - Returns the (offset, size) of the remaining reads needed to satisfy the
+// request. If there is only one (or no!) remaining reads, then the
+// corresponding tuple returned is (-1, 0).
+std::tuple<off_t, size_t, off_t, size_t>
+OverlapCopy(off_t req_off, size_t req_size, char *req_buf, off_t cache_off,
+			size_t cache_size, char *cache_buf, size_t &used) {
+	if (req_off < 0) {
+		return std::make_tuple(req_off, req_size, -1, 0);
+	}
+	if (cache_off < 0) {
+		return std::make_tuple(req_off, req_size, -1, 0);
+	}
+
+	if (cache_off <= req_off) {
+		auto cache_end = cache_off + static_cast<off_t>(cache_size);
+		if (cache_end > req_off) {
+			auto cache_buf_off = static_cast<size_t>(req_off - cache_off);
+			auto cache_copy_bytes =
+				std::min(static_cast<size_t>(cache_end - req_off), req_size);
+			memcpy(req_buf, cache_buf + cache_buf_off, cache_copy_bytes);
+			used += cache_copy_bytes;
+			return std::make_tuple(req_off + cache_copy_bytes,
+								   req_size - cache_copy_bytes, -1, 0);
+		}
+	}
+	if (req_off < cache_off) {
+		auto req_end = static_cast<off_t>(req_off + req_size);
+		if (req_end > cache_off) {
+			auto req_buf_off = static_cast<size_t>(cache_off - req_off);
+			auto cache_end = static_cast<off_t>(cache_off + cache_size);
+			auto trailing_bytes = static_cast<off_t>(req_end - cache_end);
+			if (trailing_bytes > 0) {
+				memcpy(req_buf + req_buf_off, cache_buf, cache_size);
+				used += cache_size;
+				return std::make_tuple(req_off, req_buf_off, cache_end,
+									   trailing_bytes);
+			}
+			memcpy(req_buf + req_buf_off, cache_buf, req_end - cache_off);
+			used += req_end - cache_off;
+			return std::make_tuple(req_off, req_buf_off, -1, 0);
+		}
+	}
+	return std::make_tuple(req_off, req_size, -1, 0);
+}
+
+std::tuple<off_t, size_t, off_t, size_t>
+S3File::S3Cache::Entry::OverlapCopy(off_t req_off, size_t req_size,
+									char *req_buf) {
+	size_t bytes_copied = 0;
+	auto results =
+		::OverlapCopy(req_off, req_size, req_buf, m_off, m_cache_entry_size,
+					  m_data.data(), bytes_copied);
+	m_parent.m_hit_bytes += bytes_copied;
+	m_used += bytes_copied;
+	return results;
+}
+
+std::tuple<off_t, size_t, bool>
+S3File::DownloadBypass(off_t offset, size_t size, char *buffer) {
+	if (size <= m_cache_entry_size) {
+		return std::make_tuple(offset, size, false);
+	}
+	AmazonS3Download download(m_ai, m_object, m_log, buffer);
+	if (!download.SendRequest(offset, size)) {
+		std::stringstream ss;
+		ss << "Failed to send GetObject command: " << download.getResponseCode()
+		   << "'" << download.getResultString() << "'";
+		m_log.Log(LogMask::Warning, "S3File::Read", ss.str().c_str());
+		return std::make_tuple(0, -1, false);
+	}
+	return std::make_tuple(-1, 0, true);
+}
+
+bool S3File::S3Cache::CouldUseAligned(off_t req, off_t cache) {
+	if (req < 0 || cache < 0) {
+		return false;
+	}
+	return (req >= cache) &&
+		   (req < cache + static_cast<off_t>(S3File::m_cache_entry_size));
+}
+
+bool S3File::S3Cache::CouldUse(off_t req_off, size_t req_size,
+							   off_t cache_off) {
+	if (req_off < 0 || cache_off < 0) {
+		return false;
+	}
+	auto cache_end = cache_off + static_cast<off_t>(m_cache_entry_size);
+	if (req_off >= cache_off) {
+		return req_off < cache_end;
+	} else {
+		return req_off + static_cast<off_t>(req_size) > cache_off;
+	}
+}
+
+void S3File::S3Cache::DownloadCaches(S3File &file, bool download_a,
+									 bool download_b, bool locked) {
+	if (!download_a && !download_b) {
+		return;
+	}
+
+	std::unique_lock lk(m_mutex, std::defer_lock);
+	if (!locked) {
+		lk.lock();
+	}
+	if (download_a) {
+		m_a.Download(file);
+	}
+	if (download_b) {
+		m_b.Download(file);
+	}
+}
+
+ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
+							  size_t size) {
+	if (offset >= file.content_length) {
+		return 0;
+	}
+	if (offset + static_cast<off_t>(size) > file.content_length) {
+		size = file.content_length - offset;
+	}
+	if (file.m_log.getMsgMask() & LogMask::Debug) {
+		std::stringstream ss;
+		ss << "Read request for offset=" << offset << ", size=" << size;
+		file.m_log.Log(LogMask::Debug, "cache", ss.str().c_str());
+	}
+
+	off_t req3_off, req4_off, req5_off, req6_off;
+	size_t req3_size, req4_size, req5_size, req6_size;
+	// Copy as much data out of the cache as possible; wait for the caches to
+	// finish their downloads if a cache fill is in progress and we could
+	// utilize the cache fill.
+	{
+		std::unique_lock lk{m_mutex};
+		if (m_a.m_inprogress) {
+			m_cv.wait(lk, [&] {
+				return !m_a.m_inprogress || !CouldUse(offset, size, m_a.m_off);
+			});
+		}
+		off_t req1_off, req2_off;
+		size_t req1_size, req2_size;
+		std::tie(req1_off, req1_size, req2_off, req2_size) =
+			m_a.OverlapCopy(offset, size, buffer);
+		if (m_b.m_inprogress) {
+			m_cv.wait(lk, [&] {
+				return !m_b.m_inprogress ||
+					   !(CouldUse(req1_off, req1_size, m_b.m_off) ||
+						 CouldUse(req2_off, req2_size, m_b.m_off));
+			});
+		}
+		std::tie(req3_off, req3_size, req4_off, req4_size) =
+			m_b.OverlapCopy(req1_off, req1_size, buffer + req1_off - offset);
+		std::tie(req5_off, req5_size, req6_off, req6_size) =
+			m_b.OverlapCopy(req2_off, req2_size, buffer + req2_off - offset);
+	}
+	// If any of the remaining missing bytes are bigger than a single chunk,
+	// download those bypassing the cache.
+	bool downloaded;
+	size_t bypass_size = req3_size;
+	std::tie(req3_off, req3_size, downloaded) =
+		file.DownloadBypass(req3_off, req3_size, buffer + req3_off - offset);
+	if (req3_size < 0) {
+		m_errors += 1;
+		return -1;
+	}
+	if (downloaded) {
+		m_bypass_bytes += bypass_size;
+		m_bypass_count += 1;
+	}
+	bypass_size = req4_size;
+	std::tie(req4_off, req4_size, downloaded) =
+		file.DownloadBypass(req4_off, req4_size, buffer + req4_off - offset);
+	if (req4_size < 0) {
+		m_errors += 1;
+		return -1;
+	}
+	if (downloaded) {
+		m_bypass_bytes += bypass_size;
+		m_bypass_count += 1;
+	}
+	bypass_size = req5_size;
+	std::tie(req5_off, req5_size, downloaded) =
+		file.DownloadBypass(req5_off, req5_size, buffer + req5_off - offset);
+	if (req5_size < 0) {
+		m_errors += 1;
+		return -1;
+	}
+	if (downloaded) {
+		m_bypass_bytes += bypass_size;
+		m_bypass_count += 1;
+	}
+	bypass_size = req6_size;
+	std::tie(req6_off, req6_size, downloaded) =
+		file.DownloadBypass(req6_off, req6_size, buffer + req6_off - offset);
+	if (req6_size < 0) {
+		m_errors += 1;
+		return -1;
+	}
+	if (downloaded) {
+		m_bypass_bytes += bypass_size;
+		m_bypass_count += 1;
+	}
+	if (req3_size == 0 && req4_size == 0 && req5_size == 0 && req6_size == 0) {
+		m_full_hit_count += 1;
+		// We've used more bytes in the cache, potentially all of the bytes.
+		// In that case, we could drop one of the cache entries and prefetch
+		// more of the object.
+		bool download_a = false, download_b = false;
+		{
+			std::unique_lock lk{m_mutex};
+			auto next_offset = std::max(m_a.m_off, m_b.m_off) +
+							   static_cast<off_t>(m_cache_entry_size);
+			if (next_offset < file.content_length) {
+				if (!m_a.m_inprogress && m_a.m_used >= m_cache_entry_size) {
+					m_a.m_inprogress = true;
+					m_a.m_off = next_offset;
+					download_a = true;
+					next_offset += m_cache_entry_size;
+				}
+				if (!m_b.m_inprogress && m_b.m_used >= m_cache_entry_size) {
+					m_b.m_inprogress = true;
+					m_b.m_off = next_offset;
+					download_b = true;
+				}
+			}
+		}
+		if (download_a) {
+			m_prefetch_count++;
+			m_prefetch_bytes += m_cache_entry_size;
+		}
+		if (download_b) {
+			m_prefetch_count++;
+			m_prefetch_bytes += m_cache_entry_size;
+		}
+		DownloadCaches(file, download_a, download_b, false);
+		return size;
+	}
+	// At this point, the only remaining data requests must be less than the
+	// size of the cache chunk, implying it's a partial request at the beginning
+	// or end of the range -- hence only two can exist.
+	off_t req1_off = -1, req2_off = -1;
+	off_t *req_off = &req1_off;
+	size_t req1_size = 0, req2_size = 0;
+	size_t *req_size = &req1_size;
+	if (req3_off != -1) {
+		*req_off = req3_off;
+		*req_size = req3_size;
+		req_off = &req2_off;
+		req_size = &req2_size;
+	}
+	if (req4_off != -1) {
+		*req_off = req4_off;
+		*req_size = req4_size;
+		req_off = &req2_off;
+		req_size = &req2_size;
+	}
+	if (req5_off != -1) {
+		*req_off = req5_off;
+		*req_size = req5_size;
+		req_off = &req2_off;
+		req_size = &req2_size;
+	}
+	if (req6_off != -1) {
+		*req_off = req6_off;
+		*req_size = req6_size;
+	}
+	if (req1_off != -1 && req2_off == -1) {
+		auto chunk_off = static_cast<off_t>(req1_off / m_cache_entry_size *
+												m_cache_entry_size +
+											m_cache_entry_size);
+		auto req_end = static_cast<off_t>(req1_off + req1_size);
+
+		if (req_end > chunk_off) {
+			req2_off = chunk_off;
+			req2_size = req_end - chunk_off;
+			req1_size = chunk_off - req1_off;
+		}
+	}
+	size_t miss_bytes = req1_size + req2_size;
+	if (miss_bytes == size) {
+		m_miss_count += 1;
+	} else {
+		m_partial_hit_count += 1;
+	}
+	m_miss_bytes += miss_bytes;
+	unsigned fetch_attempts = 0;
+	while (req1_off != -1) {
+		std::unique_lock lk(m_mutex);
+		m_cv.wait(lk, [&] {
+			bool req1waitOnA =
+				m_a.m_inprogress && CouldUseAligned(req1_off, m_a.m_off);
+			bool req2waitOnA =
+				m_a.m_inprogress && CouldUseAligned(req2_off, m_a.m_off);
+			bool req1waitOnB =
+				m_b.m_inprogress && CouldUseAligned(req1_off, m_b.m_off);
+			bool req2waitOnB =
+				m_b.m_inprogress && CouldUseAligned(req2_off, m_b.m_off);
+			// If there's an idle cache entry, use it -- unless the other cache
+			// entry is working on this request.
+			if (!m_a.m_inprogress && !req1waitOnB && !req2waitOnB) {
+				return true;
+			}
+			if (!m_b.m_inprogress && !req1waitOnA && !req2waitOnA) {
+				return true;
+			}
+			// If an idle cache entry can immediately satisfy the request, we
+			// use it.
+			if (!m_a.m_inprogress && (CouldUseAligned(req1_off, m_a.m_off) ||
+									  CouldUseAligned(req2_off, m_a.m_off))) {
+				return true;
+			}
+			if (!m_b.m_inprogress && (CouldUseAligned(req1_off, m_b.m_off) ||
+									  CouldUseAligned(req2_off, m_b.m_off))) {
+				return true;
+			}
+			// If either request is in progress, we continue to wait.
+			if (req1waitOnA || req1waitOnB || req2waitOnA || req2waitOnB) {
+				return false;
+			}
+			// If either cache is idle, we will use it.
+			return !m_a.m_inprogress || !m_b.m_inprogress;
+		});
+		// std::cout << "A entry in progress: " << m_a.m_inprogress
+		//		  << ", with offset " << m_a.m_off << "\n";
+		// std::cout << "B entry in progress: " << m_b.m_inprogress
+		//		  << ", with offset " << m_b.m_off << "\n";
+		// Test to see if any of the buffers could immediately fulfill the
+		// requests.
+		auto consumed_req = false;
+		if (!m_a.m_inprogress) {
+			if (CouldUseAligned(req2_off, m_a.m_off)) {
+				if (m_a.m_failed) {
+					m_a.m_failed = false;
+					m_a.m_off = -1;
+					m_errors += 1;
+					return -1;
+				}
+				m_a.OverlapCopy(req2_off, req2_size,
+								buffer + req2_off - offset);
+				req2_off = -1;
+				req2_size = 0;
+				consumed_req = true;
+			}
+			if (CouldUseAligned(req1_off, m_a.m_off)) {
+				if (m_a.m_failed) {
+					m_a.m_failed = false;
+					m_a.m_off = -1;
+					m_errors += 1;
+					return -1;
+				}
+				m_a.OverlapCopy(req1_off, req1_size,
+								buffer + req1_off - offset);
+				req1_off = req2_off;
+				req1_size = req2_size;
+				req2_off = -1;
+				req2_size = 0;
+				consumed_req = true;
+			}
+		}
+		if (!m_b.m_inprogress) {
+			if (CouldUseAligned(req2_off, m_b.m_off)) {
+				if (m_b.m_failed) {
+					m_b.m_failed = false;
+					m_b.m_off = -1;
+					m_errors += 1;
+					return -1;
+				}
+				m_b.OverlapCopy(req2_off, req2_size,
+								buffer + req2_off - offset);
+				req2_off = -1;
+				req2_size = 0;
+				consumed_req = true;
+			}
+			if (CouldUseAligned(req1_off, m_b.m_off)) {
+				if (m_b.m_failed) {
+					m_b.m_failed = false;
+					m_b.m_off = -1;
+					m_errors += 1;
+					return -1;
+				}
+				m_b.OverlapCopy(req1_off, req1_size,
+								buffer + req1_off - offset);
+				req1_off = req2_off;
+				req1_size = req2_size;
+				req2_off = -1;
+				req2_size = 0;
+				consumed_req = true;
+			}
+		}
+		if (consumed_req) {
+			continue;
+		}
+
+		// No caches serve our requests - we must kick off a new download
+		// std::cout << "Will download data via cache; req1 offset=" << req1_off
+		// << ", req2 offset=" << req2_off << "\n";
+		fetch_attempts++;
+		bool download_a = false, download_b = false, prefetch_b = false;
+		if (!m_a.m_inprogress && m_b.m_inprogress) {
+			m_a.m_off = req1_off / m_cache_entry_size * m_cache_entry_size;
+			m_a.m_inprogress = true;
+			download_a = true;
+		} else if (m_a.m_inprogress && !m_b.m_inprogress) {
+			m_b.m_off = req1_off / m_cache_entry_size * m_cache_entry_size;
+			m_b.m_inprogress = true;
+			download_b = true;
+		} else if (!m_a.m_inprogress && !m_b.m_inprogress) {
+			if (req2_off != -1) {
+				m_a.m_off = req1_off / m_cache_entry_size * m_cache_entry_size;
+				m_a.m_inprogress = true;
+				download_a = true;
+				m_b.m_off = req2_off / m_cache_entry_size * m_cache_entry_size;
+				m_b.m_inprogress = true;
+				download_b = true;
+			} else {
+				if (m_a.m_used >= m_cache_entry_size) {
+					// Cache A is fully read -- let's empty it
+					m_a.m_off = m_b.m_off;
+					m_b.m_off = -1;
+					m_a.m_used = m_b.m_used;
+					m_b.m_used = 0;
+					std::swap(m_a.m_data, m_b.m_data);
+				}
+				if (m_a.m_used >= m_cache_entry_size) {
+					// Both caches were fully read -- empty the second one.
+					m_a.m_off = -1;
+					m_a.m_used = 0;
+				}
+				if (m_a.m_off == -1 && m_b.m_off == -1) {
+					// Prefetch both caches at once
+					m_a.m_off = req1_off /
+								static_cast<off_t>(m_cache_entry_size) *
+								static_cast<off_t>(m_cache_entry_size);
+					auto prefetch_offset =
+						m_a.m_off + static_cast<off_t>(m_cache_entry_size);
+					;
+					download_a = true;
+					m_a.m_inprogress = true;
+					if (prefetch_offset < file.content_length) {
+						m_b.m_off = prefetch_offset;
+						prefetch_b = true;
+						m_b.m_inprogress = true;
+					}
+				} else {
+					// Select one cache entry to fetch data.
+					auto needed_off = req1_off /
+									  static_cast<off_t>(m_cache_entry_size) *
+									  static_cast<off_t>(m_cache_entry_size);
+					if (needed_off > m_a.m_off) {
+						m_b.m_off = needed_off;
+						download_b = true;
+						m_b.m_inprogress = true;
+						auto bytes_unused =
+							static_cast<ssize_t>(m_cache_entry_size) -
+							static_cast<ssize_t>(m_b.m_used);
+						m_unused_bytes += bytes_unused < 0 ? 0 : bytes_unused;
+					} else {
+						m_a.m_off = needed_off;
+						download_a = true;
+						m_a.m_inprogress = true;
+						auto bytes_unused =
+							static_cast<ssize_t>(m_cache_entry_size) -
+							static_cast<ssize_t>(m_a.m_used);
+						m_unused_bytes += bytes_unused < 0 ? 0 : bytes_unused;
+					}
+				}
+			}
+		} // else both caches are in-progress and neither satisfied our needs
+		if (download_a) {
+			m_fetch_count += 1;
+			m_fetch_bytes += m_cache_entry_size;
+		}
+		if (download_b) {
+			m_fetch_count += 1;
+			m_fetch_bytes += m_cache_entry_size;
+		}
+		if (prefetch_b) {
+			m_prefetch_count += 1;
+			m_prefetch_bytes += m_cache_entry_size;
+		}
+		DownloadCaches(file, download_a, download_b || prefetch_b, true);
+	}
+	return size;
+}
+
+void S3File::S3Cache::Entry::Notify() {
+	std::unique_lock lk(m_parent.m_mutex);
+	m_inprogress = false;
+	m_failed = !m_request->getErrorCode().empty();
+	m_request = nullptr;
+
+	m_parent.m_cv.notify_all();
+}
+
+void S3File::S3Cache::Entry::Download(S3File &file) {
+	m_used = false;
+	m_data.resize(m_cache_entry_size);
+	m_request.reset(new AmazonS3NonblockingDownload<Entry>(
+		file.m_ai, file.m_object, file.m_log, m_data.data(), *this));
+	size_t request_size = m_cache_entry_size;
+	if (m_off + static_cast<off_t>(request_size) > file.content_length) {
+		request_size = file.content_length - m_off;
+	}
+	if (!m_request->SendRequest(m_off, m_cache_entry_size)) {
+		std::stringstream ss;
+		ss << "Failed to send GetObject command: "
+		   << m_request->getResponseCode() << "'"
+		   << m_request->getResultString() << "'";
+		file.m_log.Log(LogMask::Warning, "S3File::Read", ss.str().c_str());
+		m_failed = true;
+		m_request.reset();
+	}
 }
 
 extern "C" {

@@ -150,6 +150,8 @@ export MINIO_ROOT_USER=minioadmin
 export MINIO_ROOT_PASSWORD=QXDEiQxQw8qY
 MINIO_USER=miniouser
 MINIO_PASSWORD=2Z303QCzRI7s
+printf "%s" "$MINIO_USER" > "$RUNDIR/access_key"
+printf "%s" "$MINIO_PASSWORD" > "$RUNDIR/secret_key"
 
 # Launch minio
 "$MINIO_BIN" --certs-dir "$MINIO_CERTSDIR" server --address "$(hostname):0" "$MINIO_DATADIR" 0<&- >"$BINARY_DIR/tests/$TEST_NAME/server.log" 2>&1 &
@@ -176,6 +178,8 @@ echo "Minio API server started on $MINIO_URL"
 cat > "$BINARY_DIR/tests/$TEST_NAME/setup.sh" <<EOF
 MINIO_URL=$MINIO_URL
 MINIO_PID=$MINIO_PID
+ACCESS_KEY_FILE=$RUNDIR/access_key
+SECRET_KEY_FILE=$RUNDIR/secret_key
 X509_CA_FILE=$MINIO_CERTSDIR/CAs/tlsca.pem
 EOF
 echo "Test environment written to $BINARY_DIR/tests/$TEST_NAME/setup.sh"
@@ -202,6 +206,7 @@ echo "Hello, World" > "$RUNDIR/hello_world.txt"
 ####
 
 export XROOTD_CONFIG="$XROOTD_CONFIGDIR/xrootd.cfg"
+BUCKET_NAME=test-bucket
 cat > "$XROOTD_CONFIG" <<EOF
 
 all.trace    all
@@ -236,7 +241,7 @@ s3.trace debug
 
 s3.begin
 s3.path_name /test
-s3.bucket_name test-bucket
+s3.bucket_name $BUCKET_NAME
 s3.service_url $MINIO_URL
 s3.service_name $(hostname)
 s3.url_style path
@@ -283,4 +288,5 @@ echo "xrootd started at $XROOTD_URL"
 cat >> "$BINARY_DIR/tests/$TEST_NAME/setup.sh" <<EOF
 XROOTD_PID=$XROOTD_PID
 XROOTD_URL=$XROOTD_URL
+BUCKET_NAME=$BUCKET_NAME
 EOF
