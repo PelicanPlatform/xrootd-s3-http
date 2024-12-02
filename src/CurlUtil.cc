@@ -201,6 +201,13 @@ void CurlWorker::Run() {
 
 	std::vector<struct curl_waitfd> waitfds;
 	waitfds.resize(2);
+	// The `curl_multi_wait` call in the event loop needs to be interrupted when
+	// additional work comes into one of the two queues (either the global queue
+	// or the per-worker unpause queue).  To do this, the queue objects will
+	// write to a file descriptor when a new HTTP request is ready; we add these
+	// FDs to the list of FDs for libcurl to poll in order to trigger a wakeup.
+	// The `Consume`/`TryConsume` methods will have a side-effect of reading
+	// from the pipe if a request is available.
 	waitfds[0].fd = queue.PollFD();
 	waitfds[0].events = CURL_WAIT_POLLIN;
 	waitfds[0].revents = 0;
@@ -237,9 +244,9 @@ void CurlWorker::Run() {
 				}
 			} catch (...) {
 				m_logger.Log(LogMask::Debug, "Run",
-							 "Unable to setup the curl handle");
+							 "Unable to set up the curl handle");
 				op->Fail("E_NOMEM",
-						 "Failed to setup the curl handle for the operation");
+						 "Failed to set up the curl handle for the operation");
 				continue;
 			}
 			m_op_map[curl] = op;
