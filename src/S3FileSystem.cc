@@ -29,6 +29,7 @@
 #include <XrdSec/XrdSecEntity.hh>
 #include <XrdVersion.hh>
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <sstream>
@@ -202,9 +203,14 @@ XrdOssDF *S3FileSystem::newFile(const char *user) {
 int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 					   XrdOucEnv *env) {
 	m_log.Log(XrdHTTPServer::Debug, "Stat", "Stat'ing path", path);
+	std::string localPath = path;
+
+	if (std::count(localPath.begin(), localPath.end(), '/') == 1) {
+		localPath = localPath + "/";
+	}
 
 	std::string exposedPath, object;
-	auto rv = parsePath(path, exposedPath, object);
+	auto rv = parsePath(localPath.c_str(), exposedPath, object);
 	if (rv != 0) {
 		return rv;
 	}
@@ -226,7 +232,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		if (httpCode == 0) {
 			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
 				std::stringstream ss;
-				ss << "Failed to stat path " << path
+				ss << "Failed to stat path " << localPath
 				   << "; error: " << listCommand.getErrorMessage()
 				   << " (code=" << listCommand.getErrorCode() << ")";
 				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
@@ -235,7 +241,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		} else {
 			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
 				std::stringstream ss;
-				ss << "Failed to stat path " << path << "; response code "
+				ss << "Failed to stat path " << localPath << "; response code "
 				   << httpCode;
 				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
 			}
