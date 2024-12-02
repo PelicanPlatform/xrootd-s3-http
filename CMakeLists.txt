@@ -2,7 +2,7 @@ cmake_minimum_required( VERSION 3.13 )
 
 project( xrootd-http/s3 )
 
-option( XROOTD_PLUGINS_BUILD_UNITTESTS "Build the scitokens-cpp unit tests" OFF )
+option( XROOTD_PLUGINS_BUILD_UNITTESTS "Build the XRootD plugins unit tests" OFF )
 option( XROOTD_PLUGINS_EXTERNAL_GTEST "Use an external/pre-installed copy of GTest" OFF )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
