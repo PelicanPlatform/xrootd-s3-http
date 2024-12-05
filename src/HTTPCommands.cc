@@ -43,6 +43,8 @@ std::shared_ptr<HandlerQueue> HTTPRequest::m_queue =
 	std::make_unique<HandlerQueue>();
 bool HTTPRequest::m_workers_initialized = false;
 std::vector<CurlWorker *> HTTPRequest::m_workers;
+std::chrono::steady_clock::duration HTTPRequest::m_timeout_duration =
+	std::chrono::seconds(10);
 
 namespace {
 
@@ -105,71 +107,76 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 	}
 
 	headers["Content-Type"] = "binary/octet-stream";
-	std::string contentLength;
-	formatstr(contentLength, "%zu", payload.size());
-	headers["Content-Length"] = contentLength;
-	// Another undocumented CURL feature: transfer-encoding is "chunked"
-	// by default for "PUT", which we really don't want.
-	headers["Transfer-Encoding"] = "";
 
-	return sendPreparedRequest(hostUrl, payload);
+	return sendPreparedRequest(hostUrl, payload, payload.size(), true);
 }
 
-static void dump(const char *text, FILE *stream, unsigned char *ptr,
+static void dump(XrdSysError *log, const char *text, unsigned char *ptr,
 				 size_t size) {
 	size_t i;
 	size_t c;
 	unsigned int width = 0x10;
+	if (!log)
+		return;
 
-	fprintf(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
-			(long)size);
+	std::stringstream ss;
+	std::string stream;
+	formatstr(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
+			  (long)size);
+	ss << stream;
 
 	for (i = 0; i < size; i += width) {
-		fprintf(stream, "%4.4lx: ", (long)i);
+		formatstr(stream, "%4.4lx: ", (long)i);
+		ss << stream;
 
 		/* show hex to the left */
 		for (c = 0; c < width; c++) {
-			if (i + c < size)
-				fprintf(stream, "%02x ", ptr[i + c]);
-			else
-				fputs("   ", stream);
+			if (i + c < size) {
+				formatstr(stream, "%02x ", ptr[i + c]);
+				ss << stream;
+			} else {
+				ss << "   ";
+			}
 		}
 
 		/* show data on the right */
 		for (c = 0; (c < width) && (i + c < size); c++) {
 			char x =
 				(ptr[i + c] >= 0x20 && ptr[i + c] < 0x80) ? ptr[i + c] : '.';
-			fputc(x, stream);
+			ss << x;
 		}
-
-		fputc('\n', stream); /* newline */
+		ss << std::endl;
 	}
+	log->Log(LogMask::Dump, "Curl", ss.str().c_str());
 }
 
-static void dump_plain(const char *text, FILE *stream, unsigned char *ptr,
-					   size_t size) {
-	fprintf(stream, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
-			(long)size);
-	fwrite(ptr, 1, size, stream);
-	fputs("\n", stream);
+static void dumpPlain(XrdSysError *log, const char *text, unsigned char *ptr,
+					  size_t size) {
+	if (!log)
+		return;
+	std::string info;
+	formatstr(info, "%s, %10.10ld bytes (0x%8.8lx)\n", text, (long)size,
+			  (long)size);
+	log->Log(LogMask::Dump, "Curl", info.c_str());
 }
 
 int debugCallback(CURL *handle, curl_infotype ci, char *data, size_t size,
 				  void *clientp) {
 	const char *text;
 	(void)handle; /* prevent compiler warning */
-	(void)clientp;
+	auto log = static_cast<XrdSysError *>(clientp);
+	if (!log)
+		return 0;
 
 	switch (ci) {
 	case CURLINFO_TEXT:
-		fputs("== Info: ", stderr);
-		fwrite(data, size, 1, stderr);
+		log->Log(LogMask::Dump, "CurlInfo", std::string(data, size).c_str());
 	default: /* in case a new one is introduced to shock us */
 		return 0;
 
 	case CURLINFO_HEADER_OUT:
 		text = "=> Send header";
-		dump_plain(text, stderr, (unsigned char *)data, size);
+		dumpPlain(log, text, (unsigned char *)data, size);
 		break;
 	}
 	return 0;
@@ -179,18 +186,25 @@ int debugAndDumpCallback(CURL *handle, curl_infotype ci, char *data,
 						 size_t size, void *clientp) {
 	const char *text;
 	(void)handle; /* prevent compiler warning */
-	(void)clientp;
+	auto log = reinterpret_cast<XrdSysError *>(clientp);
+	if (!log)
+		return 0;
 
+	std::stringstream ss;
 	switch (ci) {
 	case CURLINFO_TEXT:
-		fputs("== Info: ", stderr);
-		fwrite(data, size, 1, stderr);
+		if (size && data[size - 1] == '\n') {
+			ss << std::string(data, size - 1);
+		} else {
+			ss << std::string(data, size);
+		}
+		log->Log(LogMask::Dump, "CurlInfo", ss.str().c_str());
 	default: /* in case a new one is introduced to shock us */
 		return 0;
 
 	case CURLINFO_HEADER_OUT:
 		text = "=> Send header";
-		dump_plain(text, stderr, (unsigned char *)data, size);
+		dumpPlain(log, text, (unsigned char *)data, size);
 		break;
 	case CURLINFO_DATA_OUT:
 		text = "=> Send data";
@@ -208,52 +222,120 @@ int debugAndDumpCallback(CURL *handle, curl_infotype ci, char *data,
 		text = "<= Recv SSL data";
 		break;
 	}
-	dump(text, stderr, (unsigned char *)data, size);
+	dump(log, text, (unsigned char *)data, size);
 	return 0;
 }
 
+void HTTPRequest::Payload::NotifyPaused() { m_parent.Notify(); }
+
 // A callback function that gets passed to curl_easy_setopt for reading data
 // from the payload
-size_t read_callback(char *buffer, size_t size, size_t n, void *v) {
+size_t HTTPRequest::ReadCallback(char *buffer, size_t size, size_t n, void *v) {
 	// The callback gets the void pointer that we set with CURLOPT_READDATA. In
 	// this case, it's a pointer to an HTTPRequest::Payload struct that contains
 	// the data to be sent, along with the offset of the data that has already
 	// been sent.
 	HTTPRequest::Payload *payload = (HTTPRequest::Payload *)v;
 
-	if (payload->sentSoFar == payload->data->size()) {
+	if (payload->m_parent.Timeout()) {
+		payload->m_parent.errorCode = "E_TIMEOUT";
+		payload->m_parent.errorMessage = "Upload operation timed out";
+		return CURL_READFUNC_ABORT;
+	}
+
+	if (payload->sentSoFar == static_cast<off_t>(payload->data.size())) {
 		payload->sentSoFar = 0;
-		return 0;
+		if (payload->final) {
+			return 0;
+		} else {
+			payload->NotifyPaused();
+			return CURL_READFUNC_PAUSE;
+		}
 	}
 
 	size_t request = size * n;
-	if (request > payload->data->size()) {
-		request = payload->data->size();
+	if (request > payload->data.size()) {
+		request = payload->data.size();
 	}
 
-	if (payload->sentSoFar + request > payload->data->size()) {
-		request = payload->data->size() - payload->sentSoFar;
+	if (payload->sentSoFar + request > payload->data.size()) {
+		request = payload->data.size() - payload->sentSoFar;
 	}
 
-	memcpy(buffer, payload->data->data() + payload->sentSoFar, request);
+	memcpy(buffer, payload->data.data() + payload->sentSoFar, request);
 	payload->sentSoFar += request;
 
 	return request;
 }
 
 bool HTTPRequest::sendPreparedRequest(const std::string &uri,
-									  const std::string &payload) {
+									  const std::string_view payload,
+									  off_t payload_size, bool final) {
 	m_uri = uri;
 	m_payload = payload;
+	m_payload_size = payload_size;
+	if (!m_is_streaming && !final) {
+		m_is_streaming = true;
+	}
+	if (m_timeout) {
+		errorCode = "E_TIMEOUT";
+		errorMessage = "Transfer has timed out due to inactivity.";
+		return false;
+	}
+	if (!errorCode.empty()) {
+		return false;
+	}
 
-	m_queue->Produce(this);
+	m_last_request = std::chrono::steady_clock::now();
+	m_final = final;
+	// Detect whether we were given an undersized buffer in non-streaming mode
+	if (!m_is_streaming && payload_size &&
+		payload_size != static_cast<off_t>(payload.size())) {
+		errorCode = "E_LOGIC";
+		std::stringstream ss;
+		ss << "Logic error: given an undersized payload (have "
+		   << payload.size() << ", expected " << payload_size
+		   << ") in a non-streaming mode";
+		errorMessage = ss.str();
+		return false;
+	}
+
+	m_result_ready = false;
+	if (m_unpause_queue) {
+		m_unpause_queue->Produce(this);
+	} else {
+		m_queue->Produce(this);
+	}
 	std::unique_lock<std::mutex> lk(m_mtx);
 	m_cv.wait(lk, [&] { return m_result_ready; });
 
 	return errorCode.empty();
 }
 
+void HTTPRequest::Tick(std::chrono::steady_clock::time_point now) {
+	if (!m_is_streaming) {
+		return;
+	}
+	if (now - m_last_request <= m_timeout_duration) {
+		return;
+	}
+
+	if (m_timeout) {
+		return;
+	}
+	m_timeout = true;
+
+	if (m_unpause_queue) {
+		std::unique_lock<std::mutex> lk(m_mtx);
+		m_result_ready = false;
+		m_unpause_queue->Produce(this);
+		m_cv.wait(lk, [&] { return m_result_ready; });
+	}
+}
+
 bool HTTPRequest::ReleaseHandle(CURL *curl) {
+	m_curl_handle = nullptr;
+
 	if (curl == nullptr)
 		return false;
 	// Note: Any option that's conditionally set in `HTTPRequest::SetupHandle`
@@ -278,6 +360,18 @@ bool HTTPRequest::ReleaseHandle(CURL *curl) {
 	curl_easy_setopt(curl, CURLOPT_SSLCERT, nullptr);
 	curl_easy_setopt(curl, CURLOPT_SSLKEY, nullptr);
 
+	return true;
+}
+
+bool HTTPRequest::ContinueHandle() {
+	if (!m_curl_handle) {
+		return false;
+	}
+
+	m_callback_payload->data = m_payload;
+	m_callback_payload->final = m_final;
+	m_callback_payload->sentSoFar = 0;
+	curl_easy_pause(m_curl_handle, CURLPAUSE_CONT);
 	return true;
 }
 
@@ -322,12 +416,18 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 			return false;
 		}
 
-		rv = curl_easy_setopt(curl, CURLOPT_POSTFIELDS, m_payload.c_str());
+		rv = curl_easy_setopt(curl, CURLOPT_POSTFIELDS, m_payload.data());
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
 			this->errorMessage =
 				"curl_easy_setopt( CURLOPT_POSTFIELDS ) failed.";
 			return false;
+		}
+
+		if (m_is_streaming) {
+			errorCode = "E_NOT_IMPL";
+			errorMessage =
+				"Streaming posts not implemented in backend; internal error.";
 		}
 	}
 
@@ -343,7 +443,7 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		// and the offset of the data Here, we tell curl_easy_setopt to use the
 		// read_callback function to read the data from the payload
 		m_callback_payload = std::unique_ptr<HTTPRequest::Payload>(
-			new HTTPRequest::Payload{&m_payload, 0});
+			new HTTPRequest::Payload{m_payload, 0, m_final, *this});
 		rv = curl_easy_setopt(curl, CURLOPT_READDATA, m_callback_payload.get());
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
@@ -351,12 +451,22 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 			return false;
 		}
 
-		rv = curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback);
+		rv = curl_easy_setopt(curl, CURLOPT_READFUNCTION,
+							  HTTPRequest::ReadCallback);
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
 			this->errorMessage =
 				"curl_easy_setopt( CURLOPT_READFUNCTION ) failed.";
 			return false;
+		}
+
+		if (m_payload_size || !m_is_streaming) {
+			if (curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,
+								 m_payload_size) != CURLE_OK) {
+				errorCode = "E_CURL_LIB";
+				errorMessage =
+					"curl_easy_setopt( CURLOPT_INFILESIZE_LARGE ) failed.";
+			}
 		}
 	}
 
@@ -467,20 +577,48 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 
 	rv = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, m_header_list.get());
 	if (rv != CURLE_OK) {
-		this->errorCode = "E_CURL_LIB";
-		this->errorMessage = "curl_easy_setopt( CURLOPT_HTTPHEADER ) failed.";
+		errorCode = "E_CURL_LIB";
+		errorMessage = "curl_easy_setopt( CURLOPT_HTTPHEADER ) failed.";
 		return false;
 	}
 	if (m_log.getMsgMask() & LogMask::Debug) {
 		rv = curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, debugCallback);
-		rv = curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+		if (rv != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to set the debug function";
+			return false;
+		}
+		rv = curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &m_log);
+		if (rv != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to set the debug function handler data";
+			return false;
+		}
 	}
 	if (m_log.getMsgMask() & LogMask::Dump) {
 		rv =
 			curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, debugAndDumpCallback);
-		rv = curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+		if (rv != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to set the debug function";
+			return false;
+		}
+		rv = curl_easy_setopt(curl, CURLOPT_DEBUGDATA, &m_log);
+		if (rv != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to set the debug function handler data";
+			return false;
+		}
+	}
+	if (m_log.getMsgMask() & (LogMask::Dump | LogMask::Debug)) {
+		if (curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L) != CURLE_OK) {
+			errorCode = "E_CURL_LIB";
+			errorMessage = "Failed to enable verbose mode for libcurl";
+			return false;
+		}
 	}
 
+	m_curl_handle = curl;
 	return true;
 }
 
@@ -501,15 +639,14 @@ void HTTPRequest::Notify() {
 HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 													   CURLcode rv) {
 
-	auto cleaner = [&](void *) { Notify(); };
-	auto unique = std::unique_ptr<void, decltype(cleaner)>((void *)1, cleaner);
-
 	if (rv != 0) {
-		errorCode = "E_CURL_IO";
-		std::ostringstream error;
-		error << "curl failed (" << rv << "): '" << curl_easy_strerror(rv)
-			  << "'.";
-		errorMessage = error.str();
+		if (errorCode.empty()) {
+			errorCode = "E_CURL_IO";
+			std::ostringstream error;
+			error << "curl failed (" << rv << "): '" << curl_easy_strerror(rv)
+				  << "'.";
+			errorMessage = error.str();
+		}
 
 		return CurlResult::Fail;
 	}

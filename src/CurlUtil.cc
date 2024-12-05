@@ -187,7 +187,8 @@ void CurlWorker::Run() {
 	// is waiting on it is undefined behavior.
 	auto queue_ref = m_queue;
 	auto &queue = *queue_ref.get();
-	m_logger.Log(LogMask::Debug, "CurlWorker::Run", "Started a curl worker");
+	m_unpause_queue.reset(new HandlerQueue());
+	m_logger.Log(LogMask::Debug, "Run", "Started a curl worker");
 
 	CURLM *multi_handle = curl_multi_init();
 	if (multi_handle == nullptr) {
@@ -199,21 +200,40 @@ void CurlWorker::Run() {
 	CURLMcode mres = CURLM_OK;
 
 	std::vector<struct curl_waitfd> waitfds;
-	waitfds.resize(1);
+	waitfds.resize(2);
+	// The `curl_multi_wait` call in the event loop needs to be interrupted when
+	// additional work comes into one of the two queues (either the global queue
+	// or the per-worker unpause queue).  To do this, the queue objects will
+	// write to a file descriptor when a new HTTP request is ready; we add these
+	// FDs to the list of FDs for libcurl to poll in order to trigger a wakeup.
+	// The `Consume`/`TryConsume` methods will have a side-effect of reading
+	// from the pipe if a request is available.
 	waitfds[0].fd = queue.PollFD();
 	waitfds[0].events = CURL_WAIT_POLLIN;
 	waitfds[0].revents = 0;
+	waitfds[1].fd = m_unpause_queue->PollFD();
+	waitfds[1].events = CURL_WAIT_POLLIN;
+	waitfds[1].revents = 0;
 
 	while (true) {
+		while (running_handles < static_cast<int>(m_max_ops)) {
+			auto op = m_unpause_queue->TryConsume();
+			if (!op) {
+				break;
+			}
+			op->ContinueHandle();
+		}
 		while (running_handles < static_cast<int>(m_max_ops)) {
 			auto op =
 				running_handles == 0 ? queue.Consume() : queue.TryConsume();
 			if (!op) {
 				break;
 			}
+			op->SetUnpauseQueue(m_unpause_queue);
+
 			auto curl = queue.GetHandle();
 			if (curl == nullptr) {
-				m_logger.Log(LogMask::Debug, "CurlWorker",
+				m_logger.Log(LogMask::Debug, "Run",
 							 "Unable to allocate a curl handle");
 				op->Fail("E_NOMEM", "Unable to get allocate a curl handle");
 				continue;
@@ -223,10 +243,10 @@ void CurlWorker::Run() {
 					op->Fail(op->getErrorCode(), op->getErrorMessage());
 				}
 			} catch (...) {
-				m_logger.Log(LogMask::Debug, "CurlWorker",
-							 "Unable to setup the curl handle");
+				m_logger.Log(LogMask::Debug, "Run",
+							 "Unable to set up the curl handle");
 				op->Fail("E_NOMEM",
-						 "Failed to setup the curl handle for the operation");
+						 "Failed to set up the curl handle for the operation");
 				continue;
 			}
 			m_op_map[curl] = op;
@@ -236,8 +256,7 @@ void CurlWorker::Run() {
 					std::stringstream ss;
 					ss << "Unable to add operation to the curl multi-handle: "
 					   << curl_multi_strerror(mres);
-					m_logger.Log(LogMask::Debug, "CurlWorker",
-								 ss.str().c_str());
+					m_logger.Log(LogMask::Debug, "Run", ss.str().c_str());
 				}
 				op->Fail("E_CURL_LIB",
 						 "Unable to add operation to the curl multi-handle");
@@ -253,7 +272,7 @@ void CurlWorker::Run() {
 			if (m_logger.getMsgMask() & LogMask::Debug) {
 				std::stringstream ss;
 				ss << "Curl worker thread " << getpid() << " is running "
-				   << running_handles << "operations";
+				   << running_handles << " operations";
 				m_logger.Log(LogMask::Debug, "CurlWorker", ss.str().c_str());
 			}
 			last_marker = now;
@@ -277,7 +296,8 @@ void CurlWorker::Run() {
 		} else if (mres != CURLM_OK) {
 			if (m_logger.getMsgMask() & LogMask::Warning) {
 				std::stringstream ss;
-				ss << "Failed to perform multi-handle operation: " << mres;
+				ss << "Failed to perform multi-handle operation: "
+				   << curl_multi_strerror(mres);
 				m_logger.Log(LogMask::Warning, "CurlWorker", ss.str().c_str());
 			}
 			break;
@@ -298,8 +318,11 @@ void CurlWorker::Run() {
 				}
 				auto &op = iter->second;
 				auto res = msg->data.result;
+				m_logger.Log(LogMask::Dump, "Run",
+							 "Processing result from curl");
 				op->ProcessCurlResult(iter->first, res);
 				op->ReleaseHandle(iter->first);
+				op->Notify();
 				running_handles -= 1;
 				curl_multi_remove_handle(multi_handle, iter->first);
 				if (res == CURLE_OK) {
@@ -307,8 +330,8 @@ void CurlWorker::Run() {
 					queue.RecycleHandle(iter->first);
 				} else {
 					curl_easy_cleanup(iter->first);
-					m_op_map.erase(iter);
 				}
+				m_op_map.erase(iter);
 			}
 		} while (msg);
 	}

@@ -33,6 +33,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 AmazonRequest::~AmazonRequest() {}
 
@@ -40,8 +41,10 @@ bool AmazonRequest::SendRequest() {
 	query_parameters.insert(std::make_pair("Version", "2012-10-01"));
 
 	switch (signatureVersion) {
-	case 4:
-		return sendV4Request(canonicalizeQueryString());
+	case 4: {
+		auto qs = canonicalizeQueryString();
+		return sendV4Request(qs, qs.size(), true, true);
+	}
 	default:
 		this->errorCode = "E_INTERNAL";
 		this->errorMessage = "Invalid signature version.";
@@ -133,7 +136,7 @@ void convertMessageDigestToLowercaseHex(const unsigned char *messageDigest,
 												  hexEncoded);
 }
 
-bool doSha256(const std::string &payload, unsigned char *messageDigest,
+bool doSha256(const std::string_view payload, unsigned char *messageDigest,
 			  unsigned int *mdLength) {
 	return AWSv4Impl::doSha256(payload, messageDigest, mdLength);
 }
@@ -142,7 +145,7 @@ std::string pathEncode(const std::string &original) {
 	return AWSv4Impl::pathEncode(original);
 }
 
-bool AmazonRequest::createV4Signature(const std::string &payload,
+bool AmazonRequest::createV4Signature(const std::string_view payload,
 									  std::string &authorizationValue,
 									  bool sendContentSHA) {
 	// If we're using temporary credentials, we need to add the token
@@ -225,18 +228,21 @@ bool AmazonRequest::createV4Signature(const std::string &payload,
 
 	// The canonical payload hash is the lowercase hexadecimal string of the
 	// (SHA256) hash value of the payload.
-	unsigned int mdLength = 0;
-	unsigned char messageDigest[EVP_MAX_MD_SIZE];
-	if (!doSha256(payload, messageDigest, &mdLength)) {
-		this->errorCode = "E_INTERNAL";
-		this->errorMessage = "Unable to hash payload.";
-		return false;
-	}
 	std::string payloadHash;
-	convertMessageDigestToLowercaseHex(messageDigest, mdLength, payloadHash);
 	if (sendContentSHA) {
-		headers["X-Amz-Content-Sha256"] = payloadHash;
+		unsigned int mdLength = 0;
+		unsigned char messageDigest[EVP_MAX_MD_SIZE];
+		if (!doSha256(payload, messageDigest, &mdLength)) {
+			this->errorCode = "E_INTERNAL";
+			this->errorMessage = "Unable to hash payload.";
+			return false;
+		}
+		convertMessageDigestToLowercaseHex(messageDigest, mdLength,
+										   payloadHash);
+	} else {
+		payloadHash = "UNSIGNED-PAYLOAD";
 	}
+	headers["X-Amz-Content-Sha256"] = payloadHash;
 
 	// The canonical list of headers is a sorted list of lowercase header
 	// names paired via ':' with the trimmed header value, each pair
@@ -315,16 +321,18 @@ bool AmazonRequest::createV4Signature(const std::string &payload,
 	//
 
 	// Hash the canonical request the way we did the payload.
+	std::string canonicalRequestHash;
+	unsigned int mdLength = 0;
+	unsigned char messageDigest[EVP_MAX_MD_SIZE];
 	if (!doSha256(canonicalRequest, messageDigest, &mdLength)) {
-		this->errorCode = "E_INTERNAL";
-		this->errorMessage = "Unable to hash canonical request.";
+		errorCode = "E_INTERNAL";
+		errorMessage = "Unable to hash canonical request.";
 		return false;
 	}
-	std::string canonicalRequestHash;
 	convertMessageDigestToLowercaseHex(messageDigest, mdLength,
 									   canonicalRequestHash);
 
-	std::string s = this->service;
+	std::string s = service;
 	if (s.empty()) {
 		size_t i = host.find(".");
 		if (i != std::string::npos) {
@@ -408,8 +416,9 @@ bool AmazonRequest::createV4Signature(const std::string &payload,
 	return true;
 }
 
-bool AmazonRequest::sendV4Request(const std::string &payload,
-								  bool sendContentSHA) {
+bool AmazonRequest::sendV4Request(const std::string_view payload,
+								  off_t payload_size, bool sendContentSHA,
+								  bool final) {
 	if ((getProtocol() != "http") && (getProtocol() != "https")) {
 		this->errorCode = "E_INVALID_SERVICE_URL";
 		this->errorMessage = "Service URL not of a known protocol (http[s]).";
@@ -438,41 +447,38 @@ bool AmazonRequest::sendV4Request(const std::string &payload,
 	if (!canonicalQueryString.empty()) {
 		url += "?" + canonicalQueryString;
 	}
-	return sendPreparedRequest(url, payload);
+	return sendPreparedRequest(url, payload, payload_size, final);
 }
 
 // It's stated in the API documentation that you can upload to any region
 // via us-east-1, which is moderately crazy.
-bool AmazonRequest::SendS3Request(const std::string &payload) {
+bool AmazonRequest::SendS3Request(const std::string_view payload,
+								  off_t payload_size, bool final) {
+	if (!m_streamingRequest && !final) {
+		if (payload_size == 0) {
+			errorCode = "E_INTERNAL";
+			errorMessage = "S3 does not support streaming requests where the "
+						   "payload size is unknown";
+			return false;
+		}
+		m_streamingRequest = true;
+	}
 	headers["Content-Type"] = "binary/octet-stream";
-	std::string contentLength;
-	formatstr(contentLength, "%zu", payload.size());
-	headers["Content-Length"] = contentLength;
-	// Another undocumented CURL feature: transfer-encoding is "chunked"
-	// by default for "PUT", which we really don't want.
-	headers["Transfer-Encoding"] = "";
+
 	service = "s3";
 	if (region.empty()) {
 		region = "us-east-1";
 	}
-	return sendV4Request(payload, true);
+	return sendV4Request(payload, payload_size, !m_streamingRequest, final);
 }
 
 // ---------------------------------------------------------------------------
 
 AmazonS3Upload::~AmazonS3Upload() {}
 
-bool AmazonS3Upload::SendRequest(const std::string &payload, off_t offset,
-								 size_t size) {
-	if (offset != 0 || size != 0) {
-		std::string range;
-		formatstr(range, "bytes=%lld-%lld", static_cast<long long int>(offset),
-				  static_cast<long long int>(offset + size - 1));
-		headers["Range"] = range.c_str();
-	}
-
+bool AmazonS3Upload::SendRequest(const std::string_view &payload) {
 	httpVerb = "PUT";
-	return SendS3Request(payload);
+	return SendS3Request(payload, payload.size(), true);
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +502,7 @@ bool AmazonS3CompleteMultipartUpload::SendRequest(
 	}
 	payload += "</CompleteMultipartUpload>";
 
-	return SendS3Request(payload);
+	return SendS3Request(payload, payload.size(), true);
 }
 // ---------------------------------------------------------------------------
 
@@ -508,17 +514,18 @@ bool AmazonS3CreateMultipartUpload::SendRequest() {
 	query_parameters["x-id"] = "CreateMultipartUpload";
 
 	httpVerb = "POST";
-	return SendS3Request("");
+	return SendS3Request("", 0, true);
 }
 
-bool AmazonS3SendMultipartPart::SendRequest(const std::string &payload,
+bool AmazonS3SendMultipartPart::SendRequest(const std::string_view payload,
 											const std::string &partNumber,
-											const std::string &uploadId) {
+											const std::string &uploadId,
+											size_t payloadSize, bool final) {
 	query_parameters["partNumber"] = partNumber;
 	query_parameters["uploadId"] = uploadId;
 	includeResponseHeader = true;
 	httpVerb = "PUT";
-	return SendS3Request(payload);
+	return SendS3Request(payload, payloadSize, final);
 }
 
 // ---------------------------------------------------------------------------
@@ -536,7 +543,7 @@ bool AmazonS3Download::SendRequest(off_t offset, size_t size) {
 
 	httpVerb = "GET";
 	std::string noPayloadAllowed;
-	return SendS3Request(noPayloadAllowed);
+	return SendS3Request(noPayloadAllowed, 0, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +554,7 @@ bool AmazonS3Head::SendRequest() {
 	httpVerb = "HEAD";
 	includeResponseHeader = true;
 	std::string noPayloadAllowed;
-	return SendS3Request(noPayloadAllowed);
+	return SendS3Request(noPayloadAllowed, 0, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +574,7 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken) {
 	hostUrl = getProtocol() + "://" + host + bucketPath;
 	canonicalURI = bucketPath;
 
-	return SendS3Request("");
+	return SendS3Request("", 0, true);
 }
 
 bool AmazonS3CreateMultipartUpload::Results(std::string &uploadId,
