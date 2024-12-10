@@ -77,9 +77,13 @@ int S3Directory::Opendir(const char *path, XrdOucEnv &env) {
 		return -EBADF;
 	}
 	Reset();
+	std::string realPath = path;
+	if (realPath.back() != '/') {
+		realPath = realPath + "/";
+	}
 
 	std::string exposedPath, object;
-	int rv = m_fs.parsePath(path, exposedPath, object);
+	int rv = m_fs.parsePath(realPath.c_str(), exposedPath, object);
 	if (rv != 0) {
 		return rv;
 	}

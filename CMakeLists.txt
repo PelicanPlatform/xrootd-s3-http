@@ -4,6 +4,7 @@ project( xrootd-http/s3 )
 
 option( XROOTD_PLUGINS_BUILD_UNITTESTS "Build the scitokens-cpp unit tests" OFF )
 option( XROOTD_PLUGINS_EXTERNAL_GTEST "Use an external/pre-installed copy of GTest" OFF )
+option( VALGRIND "Run select unit tests under valgrind" OFF )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 set( CMAKE_BUILD_TYPE Debug )
@@ -18,6 +19,10 @@ pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
 if(NOT XROOTD_PLUGIN_VERSION)
   exec_program(${XROOTD_BIN}/xrootd-config ARGS "--plugin-version" OUTPUT_VARIABLE XROOTD_PLUGIN_VERSION RETURN_VALUE RETVAR)
   set(XROOTD_PLUGIN_VERSION ${XROOTD_PLUGIN_VERSION} CACHE INTERNAL "")
+endif()
+
+if(VALGRIND)
+  find_program(VALGRIND_BIN valgrind REQUIRED)
 endif()
 
 macro(use_cxx17)
@@ -55,19 +60,40 @@ else()
 	find_package(tinyxml2)
 endif()
 
+##
+# Flag is needed explicitly for 32-bit platforms but not currently exported by XRootD
+# as a reverse dependency.  Can be removed once this is merged and in all supported
+# releases:
+#
+# https://github.com/xrootd/xrootd/pull/2369
+#
+add_definitions( -D_FILE_OFFSET_BITS=64 )
+
 include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
 
-add_library(XrdS3 SHARED src/CurlUtil.cc src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
-add_library(XrdHTTPServer SHARED src/CurlUtil.cc src/HTTPFile.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
+# On Linux, we hide all the symbols for the final libraries, exposing only what's needed for the XRootD
+# runtime loader.  So here we create the object library and will create a separate one for testing with
+# the symbols exposed.
+add_library(XrdS3Obj OBJECT src/CurlUtil.cc src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
+target_include_directories(XrdS3Obj INTERFACE tinyxml2::tinyxml2)
+set_target_properties(XrdS3Obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(XrdS3Obj -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES} tinyxml2::tinyxml2 Threads::Threads)
 
-target_link_libraries(XrdS3 -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES} tinyxml2::tinyxml2 Threads::Threads)
-target_link_libraries(XrdHTTPServer -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES} Threads::Threads)
+add_library(XrdS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
+target_link_libraries(XrdS3 XrdS3Obj)
+
+add_library(XrdHTTPServerObj OBJECT src/CurlUtil.cc src/HTTPFile.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
+set_target_properties(XrdHTTPServerObj PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(XrdHTTPServerObj -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES} Threads::Threads)
+
+add_library(XrdHTTPServer MODULE "$<TARGET_OBJECTS:XrdHTTPServerObj>")
+target_link_libraries(XrdHTTPServer XrdHTTPServerObj)
 
 # The CMake documentation strongly advises against using these macros; instead, the pkg_check_modules
 # is supposed to fill out the full path to ${LIBCRYPTO_LIBRARIES}.  As of cmake 3.26.1, this does not
 # appear to be the case on Mac OS X.  Remove once no longer necessary!
-target_link_directories(XrdS3 PUBLIC ${LIBCRYPTO_LIBRARY_DIRS})
-target_link_directories(XrdHTTPServer PUBLIC ${LIBCRYPTO_LIBRARY_DIRS})
+target_link_directories(XrdS3Obj PUBLIC ${LIBCRYPTO_LIBRARY_DIRS})
+target_link_directories(XrdHTTPServerObj PUBLIC ${LIBCRYPTO_LIBRARY_DIRS})
 
 if(NOT APPLE)
   set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
@@ -85,6 +111,11 @@ install(
 )
 
 if( XROOTD_PLUGINS_BUILD_UNITTESTS )
+  add_library(XrdS3Testing SHARED "$<TARGET_OBJECTS:XrdS3Obj>")
+  target_link_libraries(XrdS3Testing XrdS3Obj)
+  add_library(XrdHTTPServerTesting SHARED "$<TARGET_OBJECTS:XrdHTTPServerObj>")
+  target_link_libraries(XrdHTTPServerTesting XrdHTTPServerObj)
+
   if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
     include(ExternalProject)
     ExternalProject_Add(gtest

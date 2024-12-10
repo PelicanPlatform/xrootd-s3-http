@@ -18,11 +18,10 @@
 
 #include "../src/S3Commands.hh"
 #include "../src/S3FileSystem.hh"
-#include "../src/shortfile.hh"
+#include "s3_tests_common.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
 #include <XrdSys/XrdSysError.hh>
-#include <XrdSys/XrdSysLogger.hh>
 #include <gtest/gtest.h>
 
 class TestAmazonRequest : public AmazonRequest {
@@ -49,7 +48,8 @@ TEST(TestS3URLGeneration, Test1) {
 	TestAmazonRequest pathReq{serviceUrl, "akf", "skf", b, o, "path", 4};
 	std::string generatedHostUrl = pathReq.getHostUrl();
 	ASSERT_EQ(generatedHostUrl,
-			  "https://s3-service.com:443/test-bucket/test-object");
+			  "https://s3-service.com:443/test-bucket/test-object")
+		<< "generatedURL: " << generatedHostUrl;
 
 	// Test virtual-style URL generation
 	TestAmazonRequest virtReq{serviceUrl, "akf", "skf", b, o, "virtual", 4};
@@ -64,41 +64,6 @@ TEST(TestS3URLGeneration, Test1) {
 	generatedHostUrl = pathReqNoBucket.getHostUrl();
 	ASSERT_EQ(generatedHostUrl, "https://s3-service.com:443/test-object");
 }
-
-class FileSystemFixtureBase : public testing::Test {
-  protected:
-	FileSystemFixtureBase()
-		: m_log(new XrdSysLogger(2, 0)) // Log to stderr, no log rotation
-	{}
-
-	void SetUp() override {
-		setenv("XRDINSTANCE", "xrootd", 1);
-		char tmp_configfn[] = "/tmp/xrootd-s3-gtest.cfg.XXXXXX";
-		auto result = mkstemp(tmp_configfn);
-		ASSERT_NE(result, -1) << "Failed to create temp file ("
-							  << strerror(errno) << ", errno=" << errno << ")";
-		m_configfn = std::string(tmp_configfn);
-
-		auto contents = GetConfig();
-		ASSERT_FALSE(contents.empty());
-		ASSERT_TRUE(writeShortFile(m_configfn, contents, 0))
-			<< "Failed to write to temp file (" << strerror(errno)
-			<< ", errno=" << errno << ")";
-	}
-
-	void TearDown() override {
-		if (!m_configfn.empty()) {
-			auto rv = unlink(m_configfn.c_str());
-			ASSERT_EQ(rv, 0) << "Failed to delete temp file ("
-							 << strerror(errno) << ", errno=" << errno << ")";
-		}
-	}
-
-	virtual std::string GetConfig() = 0;
-
-	std::string m_configfn;
-	std::unique_ptr<XrdSysLogger> m_log;
-};
 
 class FileSystemS3VirtualBucket : public FileSystemFixtureBase {
   protected:

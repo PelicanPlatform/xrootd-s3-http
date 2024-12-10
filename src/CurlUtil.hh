@@ -20,10 +20,10 @@
 
 #include <condition_variable>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
-#include <memory>
 
 // Forward dec'ls
 typedef void CURL;
@@ -43,25 +43,25 @@ CURL *GetHandle(bool verbose);
  * multi-curl driver thread is based on polling FD's
  */
 class HandlerQueue {
-public:
-    HandlerQueue();
+  public:
+	HandlerQueue();
 
-    void Produce(HTTPRequest *handler);
+	void Produce(HTTPRequest *handler);
 
-    HTTPRequest *Consume();
-    HTTPRequest *TryConsume();
+	HTTPRequest *Consume();
+	HTTPRequest *TryConsume();
 
-    int PollFD() const {return m_read_fd;}
+	int PollFD() const { return m_read_fd; }
 
-    CURL *GetHandle();
-    void RecycleHandle(CURL *);
+	CURL *GetHandle();
+	void RecycleHandle(CURL *);
 
-private:
-    std::deque<HTTPRequest*> m_ops;
-    thread_local static std::vector<CURL*> m_handles;
-    std::condition_variable m_cv;
-    std::mutex m_mutex;
-    const static unsigned m_max_pending_ops{20};
-    int m_read_fd{-1};
-    int m_write_fd{-1};
+  private:
+	std::deque<HTTPRequest *> m_ops;
+	thread_local static std::vector<CURL *> m_handles;
+	std::condition_variable m_cv;
+	std::mutex m_mutex;
+	const static unsigned m_max_pending_ops{20};
+	int m_read_fd{-1};
+	int m_write_fd{-1};
 };
