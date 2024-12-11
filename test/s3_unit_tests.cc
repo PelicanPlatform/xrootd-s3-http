@@ -295,6 +295,79 @@ TEST_F(FileSystemS3Fixture, UploadStall) {
 	ASSERT_EQ(rv, -ETIMEDOUT);
 }
 
+// Upload a few files into a "directory" then list the directory
+TEST_F(FileSystemS3Fixture, ListDir) {
+	WritePattern("/test/listdir/write_1.txt", 100'000, 'a', 32'768, true);
+	WritePattern("/test/listdir/write_2.txt", 50'000, 'a', 32'768, true);
+
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	std::unique_ptr<XrdOssDF> dir(fs.newDir());
+
+	XrdOucEnv env;
+	auto rv = dir->Opendir("/test/listdir", env);
+	ASSERT_EQ(rv, 0);
+
+	struct stat buf;
+	ASSERT_EQ(dir->StatRet(&buf), 0);
+
+	std::vector<char> name;
+	name.resize(255);
+
+	rv = dir->Readdir(&name[0], 255);
+	ASSERT_EQ(rv, 0);
+	ASSERT_EQ(std::string(&name[0]), "write_1.txt");
+	ASSERT_EQ(buf.st_mode & S_IFREG,
+			  static_cast<decltype(buf.st_mode)>(S_IFREG));
+	ASSERT_EQ(buf.st_size, 100'000);
+
+	rv = dir->Readdir(&name[0], 255);
+	ASSERT_EQ(rv, 0);
+	ASSERT_EQ(std::string(&name[0]), "write_2.txt");
+	ASSERT_EQ(buf.st_mode & S_IFREG,
+			  static_cast<decltype(buf.st_mode)>(S_IFREG));
+	ASSERT_EQ(buf.st_size, 50'000);
+
+	ASSERT_EQ(dir->Close(), 0);
+}
+
+// Test stat against the root of the bucket.
+TEST_F(FileSystemS3Fixture, StatRoot) {
+	WritePattern("/test/statroot.txt", 100'000, 'a', 32'768, true);
+
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	struct stat buf;
+	ASSERT_EQ(fs.Stat("/test", &buf, 0, nullptr), 0);
+
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	ASSERT_EQ(fs.Stat("/test/", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	ASSERT_EQ(fs.Stat("/test/statroot.txt", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
+}
+
+TEST_F(FileSystemS3Fixture, NestedDir) {
+	// TODO: uncommenting the line below will trigger the bug described in issue
+	// #63. Enable it once a fix for that is merged.
+	// WritePattern("/test/one.txt", 100'000, 'a', 32'768, true);
+	WritePattern("/test/one/two/statroot.txt", 100'000, 'a', 32'768, true);
+
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	struct stat buf;
+	ASSERT_EQ(fs.Stat("/test/one", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	ASSERT_EQ(fs.Stat("/test/one/two", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+}
+
 int main(int argc, char **argv) {
 	::testing::InitGoogleTest(&argc, argv);
 	return RUN_ALL_TESTS();
