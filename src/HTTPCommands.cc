@@ -46,8 +46,6 @@ std::vector<CurlWorker *> HTTPRequest::m_workers;
 std::chrono::steady_clock::duration HTTPRequest::m_timeout_duration =
 	std::chrono::seconds(10);
 
-namespace {
-
 //
 // "This function gets called by libcurl as soon as there is data received
 //  that needs to be saved. The size of the data pointed to by ptr is size
@@ -59,19 +57,55 @@ namespace {
 // We also make extensive use of this function in the XML parsing code,
 // for pretty much exactly the same reason.
 //
-size_t appendToString(const void *ptr, size_t size, size_t nmemb, void *str) {
+size_t HTTPRequest::handleResults(const void *ptr, size_t size, size_t nmemb,
+								  void *me_ptr) {
 	if (size == 0 || nmemb == 0) {
 		return 0;
 	}
 
-	std::string source((const char *)ptr, size * nmemb);
-	std::string *ssptr = (std::string *)str;
-	ssptr->append(source);
+	auto me = reinterpret_cast<HTTPRequest *>(me_ptr);
+	if (!me) {
+		return 0;
+	}
+	std::string_view source(static_cast<const char *>(ptr), size * nmemb);
 
+	// std::cout << "Handling results with size " << (size * nmemb) << " and
+	// HTTP verb " << me->httpVerb << "\n";
+	if (me->httpVerb == "GET") {
+		if (!me->responseCode) {
+			auto rv = curl_easy_getinfo(
+				me->m_curl_handle, CURLINFO_RESPONSE_CODE, &(me->responseCode));
+			if (rv != CURLE_OK) {
+				me->errorCode = "E_CURL_LIB";
+				me->errorMessage = "curl_easy_getinfo() failed.";
+				return 0;
+			}
+		}
+		if (me->getResponseCode() == me->expectedResponseCode &&
+			me->requestResult() != nullptr) {
+			if (!me->m_result_buffer_initialized) {
+				me->m_result_buffer_initialized = true;
+				me->m_result_buffer = *me->requestResult();
+				// std::cout << "Handling data for GET with response code " <<
+				// me->responseCode << "and expected response size " <<
+				// me->m_result.size() << "\n";
+			}
+			if (me->m_result_buffer.size() < source.size()) {
+				me->errorCode = "E_CURL_LIB";
+				me->errorMessage = "Curl had response with too-long result.";
+				return 0;
+			}
+			memcpy(const_cast<char *>(me->m_result_buffer.data()),
+				   source.data(), source.size());
+			me->m_result_buffer = me->m_result_buffer.substr(source.size());
+		} else {
+			me->m_result.append(source);
+		}
+	} else {
+		me->m_result.append(source);
+	}
 	return (size * nmemb);
 }
-
-} // namespace
 
 HTTPRequest::~HTTPRequest() {}
 
@@ -268,9 +302,26 @@ size_t HTTPRequest::ReadCallback(char *buffer, size_t size, size_t n, void *v) {
 	return request;
 }
 
-bool HTTPRequest::sendPreparedRequest(const std::string &uri,
-									  const std::string_view payload,
-									  off_t payload_size, bool final) {
+int HTTPRequest::XferInfoCallback(void *clientp, curl_off_t dltotal,
+								  curl_off_t /*dlnow*/, curl_off_t ultotal,
+								  curl_off_t /*ulnow*/) {
+	auto me = reinterpret_cast<HTTPRequest *>(clientp);
+	if ((me->m_bytes_recv != dltotal) || (me->m_bytes_sent != ultotal)) {
+		me->m_last_movement = std::chrono::steady_clock::now();
+	} else if (std::chrono::steady_clock::now() - me->m_last_movement >
+			   m_transfer_stall) {
+		me->errorCode = "E_TIMEOUT";
+		me->errorMessage = "I/O stall during transfer";
+		return 1;
+	}
+	me->m_bytes_recv = dltotal;
+	me->m_bytes_sent = ultotal;
+	return 0;
+}
+bool HTTPRequest::sendPreparedRequestNonblocking(const std::string &uri,
+												 const std::string_view payload,
+												 off_t payload_size,
+												 bool final) {
 	m_uri = uri;
 	m_payload = payload;
 	m_payload_size = payload_size;
@@ -305,6 +356,15 @@ bool HTTPRequest::sendPreparedRequest(const std::string &uri,
 		m_unpause_queue->Produce(this);
 	} else {
 		m_queue->Produce(this);
+	}
+	return true;
+}
+
+bool HTTPRequest::sendPreparedRequest(const std::string &uri,
+									  const std::string_view payload,
+									  off_t payload_size, bool final) {
+	if (!sendPreparedRequestNonblocking(uri, payload, payload_size, final)) {
+		return false;
 	}
 	std::unique_lock<std::mutex> lk(m_mtx);
 	m_cv.wait(lk, [&] { return m_result_ready; });
@@ -347,11 +407,11 @@ bool HTTPRequest::ReleaseHandle(CURL *curl) {
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullptr);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, nullptr);
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, nullptr);
-	curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, nullptr);
-	curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, nullptr);
+	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, nullptr);
 	curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, nullptr);
 	curl_easy_setopt(curl, CURLOPT_SOCKOPTDATA, nullptr);
 	curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, nullptr);
+	curl_easy_setopt(curl, CURLOPT_DEBUGDATA, nullptr);
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L);
 	curl_easy_setopt(curl, CURLOPT_NOBODY, 0);
 	curl_easy_setopt(curl, CURLOPT_POST, 0);
@@ -486,7 +546,7 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		}
 	}
 
-	rv = curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &appendToString);
+	rv = curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &handleResults);
 	if (rv != CURLE_OK) {
 		this->errorCode = "E_CURL_LIB";
 		this->errorMessage =
@@ -494,7 +554,7 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		return false;
 	}
 
-	rv = curl_easy_setopt(curl, CURLOPT_WRITEDATA, &m_result);
+	rv = curl_easy_setopt(curl, CURLOPT_WRITEDATA, this);
 	if (rv != CURLE_OK) {
 		this->errorCode = "E_CURL_LIB";
 		this->errorMessage = "curl_easy_setopt( CURLOPT_WRITEDATA ) failed.";
@@ -502,9 +562,21 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 	}
 
 	if (curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1) != CURLE_OK) {
-		this->errorCode = "E_CURL_LIB";
-		this->errorMessage =
-			"curl_easy_setopt( CURLOPT_FOLLOWLOCATION ) failed.";
+		errorCode = "E_CURL_LIB";
+		errorMessage = "curl_easy_setopt( CURLOPT_FOLLOWLOCATION ) failed.";
+		return false;
+	}
+
+	if (curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION,
+						 HTTPRequest::XferInfoCallback) != CURLE_OK) {
+		errorCode = "E_CURL_LIB";
+		errorMessage = "Failed to set the transfer info callback function.";
+		return false;
+	}
+
+	if (curl_easy_setopt(curl, CURLOPT_XFERINFODATA, this) != CURLE_OK) {
+		errorCode = "E_CURL_LIB";
+		errorMessage = "Failed to set the transfer info callback data.";
 		return false;
 	}
 

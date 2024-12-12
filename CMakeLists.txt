@@ -2,9 +2,10 @@ cmake_minimum_required( VERSION 3.13 )
 
 project( xrootd-http/s3 )
 
-option( XROOTD_PLUGINS_BUILD_UNITTESTS "Build the scitokens-cpp unit tests" OFF )
+option( XROOTD_PLUGINS_BUILD_UNITTESTS "Build the xrootd-s3-http unit tests" OFF )
 option( XROOTD_PLUGINS_EXTERNAL_GTEST "Use an external/pre-installed copy of GTest" OFF )
 option( VALGRIND "Run select unit tests under valgrind" OFF )
+option( ASAN "Build the plugin with the address sanitizer" OFF )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 set( CMAKE_BUILD_TYPE Debug )
@@ -23,6 +24,12 @@ endif()
 
 if(VALGRIND)
   find_program(VALGRIND_BIN valgrind REQUIRED)
+endif()
+
+if(ASAN)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+  set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
 endif()
 
 macro(use_cxx17)
