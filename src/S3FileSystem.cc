@@ -225,8 +225,18 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	}
 
 	trimslashes(object);
+	AmazonS3Head objectCommand = AmazonS3Head(*ai, object, m_log);
+	auto res = objectCommand.SendRequest();
+	auto headFailed = false;
+	if (!res) {
+		object = object + "/";
+		headFailed = true;
+	}
+	AmazonS3Head directoryCommand = AmazonS3Head(*ai, object, m_log);
+	res = directoryCommand.SendRequest();
+
 	AmazonS3List listCommand(*ai, object, 1, m_log);
-	auto res = listCommand.SendRequest("");
+	res = listCommand.SendRequest("");
 	if (!res) {
 		auto httpCode = listCommand.getResponseCode();
 		if (httpCode == 0) {
@@ -275,7 +285,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		m_log.Log(XrdHTTPServer::Debug, "Stat", ss.str().c_str());
 	}
 
-	if (object.empty()) {
+	if (object.empty() || (headFailed == true && objInfo.size() > 0)) {
 		memset(buff, '\0', sizeof(struct stat));
 		buff->st_mode = 0700 | S_IFDIR;
 		buff->st_nlink = 0;
