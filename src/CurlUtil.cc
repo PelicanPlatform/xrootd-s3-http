@@ -172,9 +172,9 @@ HTTPRequest *HandlerQueue::TryConsume() {
 void CurlWorker::RunStatic(CurlWorker *myself) {
 	try {
 		myself->Run();
-	} catch (...) {
-		myself->m_logger.Log(LogMask::Debug, "CurlWorker::RunStatic",
-							 "Curl worker got an exception");
+	} catch (std::exception &exc) {
+		myself->m_logger.Log(LogMask::Error, "CurlWorker::RunStatic",
+							 "Curl worker got an exception:", exc.what());
 	}
 }
 
