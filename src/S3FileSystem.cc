@@ -41,6 +41,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+bool S3FileSystem::m_dir_marker = true;
+std::string S3FileSystem::m_dir_marker_name = ".pelican_dir_marker";
+
 S3FileSystem::S3FileSystem(XrdSysLogger *lp, const char *configfn,
 						   XrdOucEnv *envP)
 	: m_env(envP), m_log(lp, "s3_") {
@@ -200,16 +203,37 @@ XrdOssDF *S3FileSystem::newFile(const char *user) {
 	return new S3File(m_log, this);
 }
 
+//
+// Stat a path within the S3 bucket as if it were a hierarchical
+// path.
+//
+// Note that S3 is _not_ a hierarchy and may contain objects that
+// can't be represented inside XRootD.  In that case, we just return
+// an -ENOENT.
+//
+// For example, consider a setup with two objects:
+//
+// - /foo/bar.txt
+// - /foo
+//
+// In this case, `Stat` of `/foo` will return a file so walking the
+// bucket will miss `/foo/bar.txt`
+//
+// We will also return an ENOENT for objects with a trailing `/`.  So,
+// if there's a single object in the bucket:
+//
+// - /foo/bar.txt/
+//
+// then a `Stat` of `/foo/bar.txt` and `/foo/bar.txt/` will both return
+// `-ENOENT`.
 int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 					   XrdOucEnv *env) {
 	m_log.Log(XrdHTTPServer::Debug, "Stat", "Stat'ing path", path);
-	std::string localPath = path;
 
 	std::string exposedPath, object;
-	auto rv = parsePath(localPath.c_str(), exposedPath, object);
+	auto rv = parsePath(path, exposedPath, object);
 	if (rv != 0) {
-		m_log.Log(XrdHTTPServer::Debug, "Stat",
-				  "Failed to parse path:", localPath.c_str());
+		m_log.Log(XrdHTTPServer::Debug, "Stat", "Failed to parse path:", path);
 		return rv;
 	}
 	auto ai = getS3AccessInfo(exposedPath, object);
@@ -223,16 +247,92 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	}
 
 	trimslashes(object);
-	AmazonS3Head objectCommand = AmazonS3Head(*ai, object, m_log);
-	auto res = objectCommand.SendRequest();
-	auto headFailed = false;
-	if (!res) {
-		object = object + "/";
-		headFailed = true;
+	if (object == "") {
+		if (m_dir_marker) {
+			// We even do the `Stat` for `/` despite the fact we always
+			// return the same directory object.  This way, we test for
+			// permission denied or other errors with the S3 instance.
+			object = m_dir_marker_name;
+		} else {
+			if (buff) {
+				memset(buff, '\0', sizeof(struct stat));
+				buff->st_mode = 0700 | S_IFDIR;
+				buff->st_nlink = 0;
+				buff->st_uid = 1;
+				buff->st_gid = 1;
+				buff->st_size = 4096;
+				buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+				buff->st_dev = 0;
+				buff->st_ino = 1;
+			}
+			return 0;
+		}
 	}
-	AmazonS3Head directoryCommand = AmazonS3Head(*ai, object, m_log);
-	res = directoryCommand.SendRequest();
 
+	// First, check to see if the file name is an object.  If it's
+	// a 404 response, then we will assume it may be a directory.
+	AmazonS3Head headCommand = AmazonS3Head(*ai, object, m_log);
+	auto res = headCommand.SendRequest();
+	if (res) {
+		if (buff) {
+			memset(buff, '\0', sizeof(struct stat));
+			if (object == m_dir_marker_name) {
+				buff->st_mode = 0700 | S_IFDIR;
+				buff->st_size = 4096;
+				buff->st_nlink = 0;
+			} else {
+				buff->st_mode = 0600 | S_IFREG;
+				buff->st_size = headCommand.getSize();
+				buff->st_nlink = 1;
+			}
+			buff->st_uid = buff->st_gid = 1;
+			buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+			buff->st_dev = 0;
+			buff->st_ino = 1;
+		}
+		return 0;
+	} else {
+		auto httpCode = headCommand.getResponseCode();
+		if (httpCode == 0) {
+			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
+				std::stringstream ss;
+				ss << "Failed to stat path " << path
+				   << "; error: " << headCommand.getErrorMessage()
+				   << " (code=" << headCommand.getErrorCode() << ")";
+				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
+			}
+			return -EIO;
+		}
+		if (httpCode == 404) {
+			if (object == m_dir_marker_name) {
+				if (buff) {
+					memset(buff, '\0', sizeof(struct stat));
+					buff->st_mode = 0700 | S_IFDIR;
+					buff->st_nlink = 0;
+					buff->st_uid = 1;
+					buff->st_gid = 1;
+					buff->st_size = 4096;
+					buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+					buff->st_dev = 0;
+					buff->st_ino = 1;
+				}
+				return 0;
+			}
+			object = object + "/";
+		} else {
+			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
+				std::stringstream ss;
+				ss << "Failed to stat path " << path << "; response code "
+				   << httpCode;
+				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
+			}
+			return httpCode == 403 ? -EACCES : -EIO;
+		}
+	}
+
+	// List the object name as a pseudo-directory.  Limit the results
+	// back to a single item (we're just looking to see if there's a
+	// common prefix here).
 	AmazonS3List listCommand(*ai, object, 1, m_log);
 	res = listCommand.SendRequest("");
 	if (!res) {
@@ -240,7 +340,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		if (httpCode == 0) {
 			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
 				std::stringstream ss;
-				ss << "Failed to stat path " << localPath
+				ss << "Failed to stat path " << path
 				   << "; error: " << listCommand.getErrorMessage()
 				   << " (code=" << listCommand.getErrorCode() << ")";
 				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
@@ -249,15 +349,13 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		} else {
 			if (m_log.getMsgMask() & XrdHTTPServer::Info) {
 				std::stringstream ss;
-				ss << "Failed to stat path " << localPath << "; response code "
+				ss << "Failed to stat path " << path << "; response code "
 				   << httpCode;
 				m_log.Log(XrdHTTPServer::Info, "Stat", ss.str().c_str());
 			}
 			switch (httpCode) {
 			case 404:
 				return -ENOENT;
-			case 500:
-				return -EIO;
 			case 403:
 				return -EPERM;
 			default:
@@ -283,7 +381,27 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		m_log.Log(XrdHTTPServer::Debug, "Stat", ss.str().c_str());
 	}
 
-	if (object.empty() || (headFailed == true && objInfo.size() > 0)) {
+	// Recall we queried for 'object name' + '/'; as in, 'foo/'
+	// instead of 'foo'.
+	// If there's an object name with a trailing '/', then we
+	// aren't able to open it or otherwise represent it within
+	// XRootD.  Hence, we just pretend it doesn't exist.
+	bool foundObj = false;
+	for (const auto &obj : objInfo) {
+		if (obj.m_key == object) {
+			foundObj = true;
+			break;
+		}
+	}
+	if (foundObj) {
+		return -ENOENT;
+	}
+
+	if (!objInfo.size() && !commonPrefixes.size()) {
+		return -ENOENT;
+	}
+
+	if (buff) {
 		memset(buff, '\0', sizeof(struct stat));
 		buff->st_mode = 0700 | S_IFDIR;
 		buff->st_nlink = 0;
@@ -293,51 +411,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
 		buff->st_dev = 0;
 		buff->st_ino = 1;
-		return 0;
 	}
-
-	bool foundObj = false;
-	size_t objSize = 0;
-	for (const auto &obj : objInfo) {
-		if (obj.m_key == object) {
-			foundObj = true;
-			objSize = obj.m_size;
-			break;
-		}
-	}
-	if (foundObj) {
-		memset(buff, '\0', sizeof(struct stat));
-		buff->st_mode = 0600 | S_IFREG;
-		buff->st_nlink = 1;
-		buff->st_uid = buff->st_gid = 1;
-		buff->st_size = objSize;
-		buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
-		buff->st_dev = 0;
-		buff->st_ino = 1;
-		return 0;
-	}
-
-	auto desiredPrefix = object + "/";
-	bool foundPrefix = false;
-	for (const auto &prefix : commonPrefixes) {
-		if (prefix == desiredPrefix) {
-			foundPrefix = true;
-			break;
-		}
-	}
-	if (!foundPrefix) {
-		return -ENOENT;
-	}
-
-	memset(buff, '\0', sizeof(struct stat));
-	buff->st_mode = 0700 | S_IFDIR;
-	buff->st_nlink = 0;
-	buff->st_uid = 1;
-	buff->st_gid = 1;
-	buff->st_size = 4096;
-	buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
-	buff->st_dev = 0;
-	buff->st_ino = 1;
 	return 0;
 }
 

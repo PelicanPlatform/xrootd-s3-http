@@ -141,6 +141,17 @@ class S3FileSystem : public XrdOss {
 	XrdOucEnv *m_env;
 	XrdSysError m_log;
 
+	// The filesystem logic can test for an empty object to see if there's
+	// authorized access to the bucket.  This relies on said object not
+	// existing -- a reasonable assumption but not foolproof.  Hence, we have
+	// a boolean (currently not configurable) to disable the behavior.
+	// Note: in the future, if we want to create an "empty" directory, we could
+	// just create an empty object.
+	static bool m_dir_marker;
+
+	// The name of the empty object for directory existence.
+	static std::string m_dir_marker_name;
+
 	bool handle_required_config(const char *desired_name,
 								const std::string &source);
 	std::map<std::string, std::shared_ptr<S3AccessInfo>> m_s3_access_map;
