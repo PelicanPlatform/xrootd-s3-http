@@ -33,6 +33,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
+#include <thread>
 
 std::once_flag g_init_once;
 std::string g_ca_file;
@@ -155,7 +156,75 @@ s3.end
 		VerifyContents(fs, name, writeSize, chunkByte, chunkSize);
 	}
 
+	void RandomRead(const std::string &name, unsigned char chunkByte,
+					size_t chunkSize,
+					std::chrono::steady_clock::duration testLength) {
+		XrdSysLogger log;
+		S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+		std::unique_ptr<XrdOssDF> fh(fs.newFile());
+		ASSERT_TRUE(fh);
+
+		XrdOucEnv env;
+		auto rv = fh->Open(name.c_str(), O_CREAT | O_WRONLY, 0755, env);
+		ASSERT_EQ(rv, 0);
+
+		struct stat buf;
+		rv = fh->Fstat(&buf);
+		ASSERT_EQ(rv, 0);
+		auto objSize = buf.st_size;
+
+		auto startTime = std::chrono::steady_clock::now();
+		size_t maxReadSize = 5'000'000;
+		std::string readBuf;
+		readBuf.resize(maxReadSize);
+		std::string correctContents;
+		correctContents.resize(maxReadSize);
+		while (std::chrono::steady_clock::now() - startTime < testLength) {
+			size_t readSize = std::rand() % maxReadSize;
+			off_t off = std::rand() % objSize;
+			ssize_t expectedReadSize =
+				(static_cast<off_t>(readSize) + off - objSize > 0)
+					? (objSize - off)
+					: readSize;
+			readBuf.resize(expectedReadSize);
+			rv = fh->Read(readBuf.data(), off, readSize);
+			ASSERT_EQ(rv, expectedReadSize);
+			GenCorrectContents(correctContents, off, expectedReadSize,
+							   chunkByte, chunkSize, objSize);
+			ASSERT_EQ(readBuf, correctContents);
+		}
+	}
+
   private:
+	void GenCorrectContents(std::string &correctContents, off_t off,
+							size_t size, unsigned char chunkByte,
+							size_t chunkSize, size_t objSize) {
+		auto chunkNum = static_cast<off_t>(off / chunkSize);
+		auto curChunkByte = static_cast<unsigned char>(chunkByte + chunkNum);
+		off_t chunkBoundary = (chunkNum + 1) * chunkSize;
+		correctContents.resize(size);
+		if (chunkBoundary < off + static_cast<off_t>(size)) {
+			size_t firstLen = chunkBoundary - off;
+			std::string firstChunk(firstLen, curChunkByte);
+			correctContents.replace(0, firstLen, firstChunk);
+			auto iter = correctContents.begin() + firstLen;
+			off_t remaining = size - firstLen;
+			while (remaining) {
+				curChunkByte++;
+				auto chunkLen = (remaining > static_cast<off_t>(chunkSize))
+									? chunkSize
+									: remaining;
+				std::string chunk(chunkLen, curChunkByte);
+				std::copy(chunk.begin(), chunk.end(), iter);
+				iter += chunkLen;
+				remaining -= chunkLen;
+			}
+		} else {
+			correctContents = std::string(size, curChunkByte);
+		}
+	}
+
 	void VerifyContents(S3FileSystem &fs, const std::string &obj,
 						off_t expectedSize, unsigned char chunkByte,
 						size_t chunkSize) {
@@ -398,6 +467,113 @@ TEST_F(FileSystemS3Fixture, InvalidObject) {
 	// Object with a trailing slash in name
 	WritePattern("/test/trailing/", 1'024, 'a', 1'024, true);
 	ASSERT_EQ(fs.Stat("/test/trailing/", &buf, 0, nullptr), -ENOENT);
+}
+
+// Check out the logic of the overlap copy routine.
+std::tuple<off_t, size_t, off_t, size_t>
+OverlapCopy(off_t req_off, size_t req_size, char *req_buf, off_t cache_off,
+			size_t cache_size, char *cache_buf, size_t &used);
+TEST(OverlapCopy, Simple) {
+	std::string repeatA(4096, 'a');
+	std::string repeatB(4096, 'b');
+	size_t used{0};
+	auto [req1_off, req1_size, req2_off, req2_size] =
+		OverlapCopy(0, 4096, repeatA.data(), 4096, 4096, repeatB.data(), used);
+	ASSERT_EQ(req1_off, 0);
+	ASSERT_EQ(req1_size, 4096U);
+	ASSERT_EQ(req2_off, -1);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 0U);
+
+	std::tie(req1_off, req1_size, req2_off, req2_size) =
+		OverlapCopy(0, 4096, repeatA.data(), 2048, 4096, repeatB.data(), used);
+	ASSERT_EQ(req1_off, 0);
+	ASSERT_EQ(req1_size, 2048U);
+	ASSERT_EQ(req2_off, -1);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 2048U);
+	auto correctOverlap = std::string(2048, 'a') + std::string(2048, 'b');
+	ASSERT_EQ(correctOverlap, repeatA);
+
+	used = 0;
+	repeatA = std::string(4096, 'a');
+	std::tie(req1_off, req1_size, req2_off, req2_size) =
+		OverlapCopy(0, 4096, repeatA.data(), 1024, 1024, repeatB.data(), used);
+	ASSERT_EQ(req1_off, 0);
+	ASSERT_EQ(req1_size, 1024U);
+	ASSERT_EQ(req2_off, 2048);
+	ASSERT_EQ(req2_size, 2048U);
+	ASSERT_EQ(used, 1024U);
+	correctOverlap = std::string(1024, 'a') + std::string(1024, 'b') +
+					 std::string(2048, 'a');
+	ASSERT_EQ(correctOverlap, repeatA);
+
+	used = 0;
+	repeatA = std::string(4096, 'a');
+	std::tie(req1_off, req1_size, req2_off, req2_size) =
+		OverlapCopy(1024, 4096, repeatA.data(), 0, 4096, repeatB.data(), used);
+	ASSERT_EQ(req1_off, 4096);
+	ASSERT_EQ(req1_size, 1024U);
+	ASSERT_EQ(req2_off, -1);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 3072U);
+	correctOverlap = std::string(3072, 'b') + std::string(1024, 'a');
+	ASSERT_EQ(correctOverlap, repeatA);
+
+	used = 0;
+	repeatA = std::string(4096, 'a');
+	std::tie(req1_off, req1_size, req2_off, req2_size) =
+		OverlapCopy(4096, 4096, repeatA.data(), 0, 4096, repeatB.data(), used);
+	ASSERT_EQ(req1_off, 4096);
+	ASSERT_EQ(req1_size, 4096U);
+	ASSERT_EQ(req2_off, -1);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 0U);
+	correctOverlap = std::string(4096, 'a');
+	ASSERT_EQ(correctOverlap, repeatA);
+
+	used = 0;
+	repeatA = std::string(4096, 'a');
+	std::tie(req1_off, req1_size, req2_off, req2_size) =
+		OverlapCopy(-1, 0, repeatA.data(), 0, 4096, repeatB.data(), used);
+	ASSERT_EQ(req1_off, -1);
+	ASSERT_EQ(req1_size, 0U);
+	ASSERT_EQ(req2_off, -1);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 0U);
+	correctOverlap = std::string(4096, 'a');
+	ASSERT_EQ(correctOverlap, repeatA);
+
+	used = 0;
+	repeatA = std::string(4096, 'a');
+	std::tie(req1_off, req1_size, req2_off, req2_size) =
+		OverlapCopy(0, 4096, repeatA.data(), -1, 0, repeatB.data(), used);
+	ASSERT_EQ(req1_off, 0);
+	ASSERT_EQ(req1_size, 4096U);
+	ASSERT_EQ(req2_off, -1);
+	ASSERT_EQ(req2_size, 0U);
+	ASSERT_EQ(used, 0U);
+	correctOverlap = std::string(4096, 'a');
+	ASSERT_EQ(correctOverlap, repeatA);
+}
+
+TEST_F(FileSystemS3Fixture, StressGet) {
+	// Upload a file
+	auto name = "/test/write_stress.txt";
+	WritePattern(name, 100'000'000, 'a', 1'000'000, true);
+
+	static const int workerThreads = 10;
+	std::vector<std::unique_ptr<std::thread>> threads;
+	threads.resize(workerThreads);
+	for (auto &tptr : threads) {
+		tptr.reset(new std::thread([&] {
+			RandomRead(name, 'a', 1'000'000, std::chrono::seconds(5));
+		}));
+	}
+	std::cout << "Launched all " << workerThreads << " threads" << std::endl;
+	for (const auto &tptr : threads) {
+		tptr->join();
+	}
 }
 
 int main(int argc, char **argv) {

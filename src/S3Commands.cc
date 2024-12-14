@@ -18,6 +18,7 @@
 
 #include "S3Commands.hh"
 #include "AWSv4-impl.hh"
+#include "S3File.hh"
 #include "shortfile.hh"
 #include "stl_string_utils.hh"
 
@@ -43,7 +44,7 @@ bool AmazonRequest::SendRequest() {
 	switch (signatureVersion) {
 	case 4: {
 		auto qs = canonicalizeQueryString();
-		return sendV4Request(qs, qs.size(), true, true);
+		return sendV4Request(qs, qs.size(), true, true, true);
 	}
 	default:
 		this->errorCode = "E_INTERNAL";
@@ -418,7 +419,7 @@ bool AmazonRequest::createV4Signature(const std::string_view payload,
 
 bool AmazonRequest::sendV4Request(const std::string_view payload,
 								  off_t payload_size, bool sendContentSHA,
-								  bool final) {
+								  bool final, bool blocking) {
 	if ((getProtocol() != "http") && (getProtocol() != "https")) {
 		this->errorCode = "E_INVALID_SERVICE_URL";
 		this->errorMessage = "Service URL not of a known protocol (http[s]).";
@@ -447,13 +448,18 @@ bool AmazonRequest::sendV4Request(const std::string_view payload,
 	if (!canonicalQueryString.empty()) {
 		url += "?" + canonicalQueryString;
 	}
-	return sendPreparedRequest(url, payload, payload_size, final);
+	if (blocking) {
+		return sendPreparedRequest(url, payload, payload_size, final);
+	} else {
+		return sendPreparedRequestNonblocking(url, payload, payload_size,
+											  final);
+	}
 }
 
-// It's stated in the API documentation that you can upload to any region
-// via us-east-1, which is moderately crazy.
+// Send a request to a S3 backend
 bool AmazonRequest::SendS3Request(const std::string_view payload,
-								  off_t payload_size, bool final) {
+								  off_t payload_size, bool final,
+								  bool blocking) {
 	if (!m_streamingRequest && !final) {
 		if (payload_size == 0) {
 			errorCode = "E_INTERNAL";
@@ -469,7 +475,8 @@ bool AmazonRequest::SendS3Request(const std::string_view payload,
 	if (region.empty()) {
 		region = "us-east-1";
 	}
-	return sendV4Request(payload, payload_size, !m_streamingRequest, final);
+	return sendV4Request(payload, payload_size, !m_streamingRequest, final,
+						 blocking);
 }
 
 // ---------------------------------------------------------------------------
@@ -478,7 +485,7 @@ AmazonS3Upload::~AmazonS3Upload() {}
 
 bool AmazonS3Upload::SendRequest(const std::string_view &payload) {
 	httpVerb = "PUT";
-	return SendS3Request(payload, payload.size(), true);
+	return SendS3Request(payload, payload.size(), true, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -502,7 +509,7 @@ bool AmazonS3CompleteMultipartUpload::SendRequest(
 	}
 	payload += "</CompleteMultipartUpload>";
 
-	return SendS3Request(payload, payload.size(), true);
+	return SendS3Request(payload, payload.size(), true, true);
 }
 // ---------------------------------------------------------------------------
 
@@ -514,7 +521,7 @@ bool AmazonS3CreateMultipartUpload::SendRequest() {
 	query_parameters["x-id"] = "CreateMultipartUpload";
 
 	httpVerb = "POST";
-	return SendS3Request("", 0, true);
+	return SendS3Request("", 0, true, true);
 }
 
 bool AmazonS3SendMultipartPart::SendRequest(const std::string_view payload,
@@ -525,7 +532,7 @@ bool AmazonS3SendMultipartPart::SendRequest(const std::string_view payload,
 	query_parameters["uploadId"] = uploadId;
 	includeResponseHeader = true;
 	httpVerb = "PUT";
-	return SendS3Request(payload, payloadSize, final);
+	return SendS3Request(payload, payloadSize, final, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -540,11 +547,19 @@ bool AmazonS3Download::SendRequest(off_t offset, size_t size) {
 		headers["Range"] = range.c_str();
 		this->expectedResponseCode = 206;
 	}
+	if (size && m_buffer) {
+		m_buffer_view = std::string_view(m_buffer, size);
+	}
 
 	httpVerb = "GET";
-	std::string noPayloadAllowed;
-	return SendS3Request(noPayloadAllowed, 0, true);
+	return SendS3Request("", 0, true, IsBlocking());
 }
+
+// ---------------------------------------------------------------------------
+
+template <typename T>
+AmazonS3NonblockingDownload<T>::~AmazonS3NonblockingDownload() {}
+template class AmazonS3NonblockingDownload<S3File::S3Cache::Entry>;
 
 // ---------------------------------------------------------------------------
 
@@ -554,7 +569,7 @@ bool AmazonS3Head::SendRequest() {
 	httpVerb = "HEAD";
 	includeResponseHeader = true;
 	std::string noPayloadAllowed;
-	return SendS3Request(noPayloadAllowed, 0, true);
+	return SendS3Request(noPayloadAllowed, 0, true, true);
 }
 
 void AmazonS3Head::parseResponse() {
@@ -615,7 +630,7 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken) {
 	hostUrl = getProtocol() + "://" + host + bucketPath;
 	canonicalURI = bucketPath;
 
-	return SendS3Request("", 0, true);
+	return SendS3Request("", 0, true, true);
 }
 
 bool AmazonS3CreateMultipartUpload::Results(std::string &uploadId,
