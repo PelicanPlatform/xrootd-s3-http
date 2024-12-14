@@ -205,13 +205,11 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	m_log.Log(XrdHTTPServer::Debug, "Stat", "Stat'ing path", path);
 	std::string localPath = path;
 
-	if (std::count(localPath.begin(), localPath.end(), '/') == 1) {
-		localPath = localPath + "/";
-	}
-
 	std::string exposedPath, object;
 	auto rv = parsePath(localPath.c_str(), exposedPath, object);
 	if (rv != 0) {
+		m_log.Log(XrdHTTPServer::Debug, "Stat",
+				  "Failed to parse path:", localPath.c_str());
 		return rv;
 	}
 	auto ai = getS3AccessInfo(exposedPath, object);
@@ -389,7 +387,8 @@ int S3FileSystem::parsePath(const char *fullPath, std::string &exposedPath,
 	// Objects names may contain path separators.
 	++pathComponents;
 	if (pathComponents == p.end()) {
-		return -ENOENT;
+		object = "";
+		return 0;
 	}
 
 	std::filesystem::path objectPath = *pathComponents++;

@@ -104,6 +104,9 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	if (ai->getS3BucketName().empty()) {
 		return -EINVAL;
 	}
+	if (object == "") {
+		return -ENOENT;
+	}
 
 	m_ai = *ai;
 	m_object = object;

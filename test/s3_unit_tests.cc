@@ -347,6 +347,15 @@ TEST_F(FileSystemS3Fixture, StatRoot) {
 	ASSERT_EQ(fs.Stat("/test/", &buf, 0, nullptr), 0);
 	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
 
+	ASSERT_EQ(fs.Stat("//test/", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	ASSERT_EQ(fs.Stat("//test", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	ASSERT_EQ(fs.Stat("/test//", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
 	ASSERT_EQ(fs.Stat("/test/statroot.txt", &buf, 0, nullptr), 0);
 	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
 }
