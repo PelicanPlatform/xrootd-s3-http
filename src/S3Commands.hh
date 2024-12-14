@@ -247,7 +247,11 @@ class AmazonS3SendMultipartPart final : public AmazonRequest {
 					 const std::string &partNumber, const std::string &uploadId,
 					 size_t payloadSize, bool final);
 
-  protected:
+	// Retrieve the ETag header from the returned headers;
+	bool GetEtag(std::string &result);
+
+  private:
+	std::string m_etag;
 };
 
 class AmazonS3Download : public AmazonRequest {

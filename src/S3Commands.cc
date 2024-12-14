@@ -535,6 +535,28 @@ bool AmazonS3SendMultipartPart::SendRequest(const std::string_view payload,
 	return SendS3Request(payload, payloadSize, final, true);
 }
 
+bool AmazonS3SendMultipartPart::GetEtag(std::string &result) {
+	if (!m_etag.empty()) {
+		result = m_etag;
+		return true;
+	}
+	auto resultString = getResultString();
+	static const std::string etag = "etag: \"";
+	auto iter = std::search(
+		resultString.begin(), resultString.end(), etag.begin(), etag.end(),
+		[](char a, char b) { return std::tolower(a) == std::tolower(b); });
+	if (iter == resultString.end()) {
+		return false;
+	}
+	std::size_t startPos = std::distance(resultString.begin(), iter);
+	std::size_t endPos = resultString.find("\"", startPos + 7);
+	if (endPos == std::string::npos) {
+		return false;
+	}
+	m_etag = result = resultString.substr(startPos + 7, endPos - startPos - 7);
+	return true;
+}
+
 // ---------------------------------------------------------------------------
 
 AmazonS3Download::~AmazonS3Download() {}

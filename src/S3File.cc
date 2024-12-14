@@ -289,11 +289,14 @@ ssize_t S3File::SendPartStreaming() {
 		return -EIO;
 	} else {
 		m_log.Log(LogMask::Debug, "SendPart", "upload.SendRequest() succeeded");
-		std::string resultString = upload_part_request.getResultString();
-		std::size_t startPos = resultString.find("ETag:");
-		std::size_t endPos = resultString.find("\"", startPos + 7);
-		eTags.push_back(
-			resultString.substr(startPos + 7, endPos - startPos - 7));
+		std::string etag;
+		if (!upload_part_request.GetEtag(etag)) {
+			m_log.Log(
+				LogMask::Debug, "SendPart",
+				"upload.SendRequest() response missing an eTag in response");
+			return -EIO;
+		}
+		eTags.push_back(etag);
 		partNumber++;
 		m_streaming_buffer.clear();
 	}
@@ -333,26 +336,14 @@ ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
 	if (is_final) {
 		m_part_written = 0;
 		m_part_size = 0;
-		auto &resultString = m_write_op->getResultString();
-		std::size_t startPos = resultString.find("ETag:");
-		if (startPos == std::string::npos) {
-			m_log.Emsg("Write", "Result from S3 does not include ETag:",
-					   resultString.c_str());
+		std::string etag;
+		if (!m_write_op->GetEtag(etag)) {
+			m_log.Emsg("Write", "Result from S3 does not include ETag");
 			m_write_op.reset();
 			m_write_offset = -1;
 			return -EIO;
 		}
-		std::size_t endPos = resultString.find('"', startPos + 7);
-		if (startPos == std::string::npos) {
-			m_log.Emsg("Write",
-					   "Result from S3 does not include ETag end-character:",
-					   resultString.c_str());
-			m_write_op.reset();
-			m_write_offset = -1;
-			return -EIO;
-		}
-		eTags.push_back(
-			resultString.substr(startPos + 7, endPos - startPos - 7));
+		eTags.push_back(etag);
 		m_write_op.reset();
 		partNumber++;
 	}
