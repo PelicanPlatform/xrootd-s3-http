@@ -172,9 +172,6 @@ int S3File::Fstat(struct stat *buff) {
 		buff->st_dev = 0;
 		buff->st_ino = 0;
 	}
-	if (!buff) {
-		return 0;
-	}
 
 	return 0;
 }
