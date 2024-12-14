@@ -283,10 +283,21 @@ class AmazonS3Head final : public AmazonRequest {
 
 	virtual bool SendRequest();
 
-	off_t getSize() const { return m_size; }
+	off_t getSize() {
+		parseResponse();
+		return m_size;
+	}
+	time_t getLastModified() {
+		parseResponse();
+		return m_last_modified;
+	}
 
   private:
+	void parseResponse();
+
+	bool m_parsedResponse{false};
 	off_t m_size{0};
+	time_t m_last_modified{0};
 };
 
 struct S3ObjectInfo {

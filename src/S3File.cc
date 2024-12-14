@@ -167,52 +167,22 @@ int S3File::Fstat(struct stat *buff) {
 		}
 	}
 
-	std::string headers = head.getResultString();
+	content_length = head.getSize();
+	last_modified = head.getLastModified();
 
-	std::string line;
-	size_t current_newline = 0;
-	size_t next_newline = std::string::npos;
-	size_t last_character = headers.size();
-	while (current_newline != std::string::npos &&
-		   current_newline != last_character - 1) {
-		next_newline = headers.find("\r\n", current_newline + 2);
-		line = substring(headers, current_newline + 2, next_newline);
-
-		size_t colon = line.find(":");
-		if (colon != std::string::npos && colon != line.size()) {
-			std::string attr = substring(line, 0, colon);
-			std::string value = substring(line, colon + 1);
-			trim(value);
-			toLower(attr);
-
-			if (attr == "content-length") {
-				this->content_length = std::stol(value);
-			} else if (attr == "last-modified") {
-				struct tm t;
-				char *eos = strptime(value.c_str(), "%a, %d %b %Y %T %Z", &t);
-				if (eos == &value.c_str()[value.size()]) {
-					time_t epoch = timegm(&t);
-					if (epoch != -1) {
-						this->last_modified = epoch;
-					}
-				}
-			}
-		}
-
-		current_newline = next_newline;
+	if (buff) {
+		memset(buff, '\0', sizeof(struct stat));
+		buff->st_mode = 0600 | S_IFREG;
+		buff->st_nlink = 1;
+		buff->st_uid = 1;
+		buff->st_gid = 1;
+		buff->st_size = content_length;
+		buff->st_mtime = last_modified;
+		buff->st_atime = 0;
+		buff->st_ctime = 0;
+		buff->st_dev = 0;
+		buff->st_ino = 0;
 	}
-
-	memset(buff, '\0', sizeof(struct stat));
-	buff->st_mode = 0600 | S_IFREG;
-	buff->st_nlink = 1;
-	buff->st_uid = 1;
-	buff->st_gid = 1;
-	buff->st_size = this->content_length;
-	buff->st_mtime = this->last_modified;
-	buff->st_atime = 0;
-	buff->st_ctime = 0;
-	buff->st_dev = 0;
-	buff->st_ino = 0;
 
 	return 0;
 }
