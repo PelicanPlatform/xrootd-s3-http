@@ -347,14 +347,21 @@ TEST_F(FileSystemS3Fixture, StatRoot) {
 	ASSERT_EQ(fs.Stat("/test/", &buf, 0, nullptr), 0);
 	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
 
+	ASSERT_EQ(fs.Stat("//test/", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	ASSERT_EQ(fs.Stat("//test", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	ASSERT_EQ(fs.Stat("/test//", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
 	ASSERT_EQ(fs.Stat("/test/statroot.txt", &buf, 0, nullptr), 0);
 	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
 }
 
 TEST_F(FileSystemS3Fixture, NestedDir) {
-	// TODO: uncommenting the line below will trigger the bug described in issue
-	// #63. Enable it once a fix for that is merged.
-	// WritePattern("/test/one.txt", 100'000, 'a', 32'768, true);
+	WritePattern("/test/one.txt", 100'000, 'a', 32'768, true);
 	WritePattern("/test/one/two/statroot.txt", 100'000, 'a', 32'768, true);
 
 	XrdSysLogger log;
@@ -366,6 +373,31 @@ TEST_F(FileSystemS3Fixture, NestedDir) {
 
 	ASSERT_EQ(fs.Stat("/test/one/two", &buf, 0, nullptr), 0);
 	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+}
+
+TEST_F(FileSystemS3Fixture, InvalidObject) {
+	// Test various configurations of S3 buckets that lead
+	// to undefined situations in our filesystem-like translation,
+	// just to ensure we have our specified behavior.
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	// Object nested "inside" a directory.
+	WritePattern("/test/nested/foo", 1'024, 'a', 1'024, true);
+	WritePattern("/test/nested/foo/foo.txt", 1'024, 'a', 1'024, true);
+
+	struct stat buf;
+	ASSERT_EQ(fs.Stat("/test/nested/foo", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
+	ASSERT_EQ(buf.st_size, 1'024);
+
+	ASSERT_EQ(fs.Stat("/test/nested/foo/foo.txt", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
+	ASSERT_EQ(buf.st_size, 1'024);
+
+	// Object with a trailing slash in name
+	WritePattern("/test/trailing/", 1'024, 'a', 1'024, true);
+	ASSERT_EQ(fs.Stat("/test/trailing/", &buf, 0, nullptr), -ENOENT);
 }
 
 int main(int argc, char **argv) {
