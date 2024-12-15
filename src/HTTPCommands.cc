@@ -705,6 +705,7 @@ bool HTTPRequest::Fail(const std::string &ecode, const std::string &emsg) {
 void HTTPRequest::Notify() {
 	std::lock_guard<std::mutex> lk(m_mtx);
 	m_result_ready = true;
+	modifyResponse(m_result);
 	m_cv.notify_one();
 }
 

@@ -217,7 +217,7 @@ class AmazonS3CompleteMultipartUpload : public AmazonRequest {
   protected:
 };
 
-class AmazonS3SendMultipartPart final : public AmazonRequest {
+class AmazonS3SendMultipartPart : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:

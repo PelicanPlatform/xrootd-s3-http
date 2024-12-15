@@ -112,6 +112,11 @@ s3.end
 	}
 
   public:
+	std::unique_ptr<S3FileSystem> GetFS() {
+		return std::unique_ptr<S3FileSystem>(
+			new S3FileSystem(&m_log, m_configfn.c_str(), nullptr));
+	}
+
 	void WritePattern(const std::string &name, const off_t writeSize,
 					  const unsigned char chunkByte, const size_t chunkSize,
 					  bool known_size) {
@@ -260,6 +265,8 @@ s3.end
 		rv = fh->Close();
 		ASSERT_EQ(rv, 0);
 	}
+
+	XrdSysLogger m_log;
 };
 
 // Upload a single byte into S3
@@ -574,6 +581,50 @@ TEST_F(FileSystemS3Fixture, StressGet) {
 	for (const auto &tptr : threads) {
 		tptr->join();
 	}
+}
+
+class AmazonS3SendMultipartPartLowercase : public AmazonS3SendMultipartPart {
+  protected:
+	virtual void modifyResponse(std::string &resp) override {
+		std::transform(resp.begin(), resp.end(), resp.begin(),
+					   [](unsigned char c) { return std::tolower(c); });
+	}
+};
+
+TEST_F(FileSystemS3Fixture, Etag) {
+	// Determine the S3 info.
+	auto oss = GetFS();
+	std::string exposedPath, object;
+	std::string path = "/test/etag_casesensitive_test";
+	ASSERT_EQ(oss->parsePath(path.c_str(), exposedPath, object), 0);
+
+	auto ai = oss->getS3AccessInfo(exposedPath, object);
+	ASSERT_NE(ai.get(), nullptr);
+	ASSERT_NE(ai->getS3BucketName(), "");
+	ASSERT_NE(object, "");
+
+	// Start an upload.
+	XrdSysLogger log;
+	XrdSysError err(&log, "test");
+	AmazonS3CreateMultipartUpload startUpload(*ai, object, err);
+	ASSERT_TRUE(startUpload.SendRequest());
+	std::string uploadId, errMsg;
+	startUpload.Results(uploadId, errMsg);
+
+	// Upload an etag.
+	AmazonS3SendMultipartPart upload_part_request(*ai, object, err);
+	std::string streaming_buffer = "aaaa";
+	ASSERT_TRUE(upload_part_request.SendRequest(streaming_buffer,
+												std::to_string(1), uploadId,
+												streaming_buffer.size(), true));
+	std::string etag;
+	ASSERT_TRUE(upload_part_request.GetEtag(etag));
+	std::vector<std::string> eTags;
+	eTags.push_back(etag);
+
+	// Finalize the object
+	AmazonS3CompleteMultipartUpload complete_upload_request(*ai, object, err);
+	ASSERT_TRUE(complete_upload_request.SendRequest(eTags, 2, uploadId));
 }
 
 int main(int argc, char **argv) {
