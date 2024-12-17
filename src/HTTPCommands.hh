@@ -162,6 +162,10 @@ class HTTPRequest {
 	// call to send more data.
 	bool Timeout() const { return m_timeout; }
 
+	// Function that can be overridden by test cases, allowing modification
+	// of the server response
+	virtual void modifyResponse(std::string &) {}
+
 	typedef std::map<std::string, std::string> AttributeValueMap;
 	AttributeValueMap query_parameters;
 	AttributeValueMap headers;
