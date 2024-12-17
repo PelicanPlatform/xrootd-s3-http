@@ -92,8 +92,10 @@ class AmazonRequest : public HTTPRequest {
 	// - payload_size: final size of the payload for uploads; 0 if unknown.
 	// - final: True if this is the last (or only) payload of the request; false
 	// otherwise
+	// - blocking: True if the method should block on a response; false
+	// otherwise
 	virtual bool SendS3Request(const std::string_view payload,
-							   off_t payload_size, bool final);
+							   off_t payload_size, bool final, bool blocking);
 
 	static void Init(XrdSysError &log) { HTTPRequest::Init(log); }
 
@@ -107,8 +109,10 @@ class AmazonRequest : public HTTPRequest {
 	// the final payload.  Servers may verify this is what they received.
 	// - final: True if this is the last (or only) payload of the request; false
 	// otherwise.
+	// - blocking: True if this method should block until a response; false
+	// otherwise
 	bool sendV4Request(const std::string_view payload, off_t payload_size,
-					   bool sendContentSHA, bool final);
+					   bool sendContentSHA, bool final, bool blocking);
 
 	bool retainObject;
 	bool m_streamingRequest{
@@ -213,7 +217,7 @@ class AmazonS3CompleteMultipartUpload : public AmazonRequest {
   protected:
 };
 
-class AmazonS3SendMultipartPart final : public AmazonRequest {
+class AmazonS3SendMultipartPart : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
@@ -243,26 +247,59 @@ class AmazonS3SendMultipartPart final : public AmazonRequest {
 					 const std::string &partNumber, const std::string &uploadId,
 					 size_t payloadSize, bool final);
 
-  protected:
+	// Retrieve the ETag header from the returned headers;
+	bool GetEtag(std::string &result);
+
+  private:
+	std::string m_etag;
 };
 
-class AmazonS3Download final : public AmazonRequest {
+class AmazonS3Download : public AmazonRequest {
 	using AmazonRequest::SendRequest;
 
   public:
 	AmazonS3Download(const S3AccessInfo &ai, const std::string &objectName,
-					 XrdSysError &log)
-		: AmazonRequest(ai, objectName, log) {}
+					 XrdSysError &log, char *buffer)
+		: AmazonRequest(ai, objectName, log), m_buffer(buffer) {}
 
 	AmazonS3Download(const std::string &s, const std::string &akf,
 					 const std::string &skf, const std::string &b,
 					 const std::string &o, const std::string &style,
-					 XrdSysError &log)
-		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
+					 XrdSysError &log, char *buffer)
+		: AmazonRequest(s, akf, skf, b, o, style, 4, log), m_buffer(buffer) {}
 
 	virtual ~AmazonS3Download();
 
 	virtual bool SendRequest(off_t offset, size_t size);
+
+  protected:
+	virtual bool IsBlocking() { return true; }
+	virtual std::string_view *requestResult() override {
+		return &m_buffer_view;
+	}
+
+  private:
+	char *m_buffer{nullptr};
+	std::string_view m_buffer_view;
+};
+
+template <typename T>
+class AmazonS3NonblockingDownload final : public AmazonS3Download {
+
+  public:
+	AmazonS3NonblockingDownload(const S3AccessInfo &ai,
+								const std::string &objectName, XrdSysError &log,
+								char *buffer, T &notifier)
+		: AmazonS3Download(ai, objectName, log, buffer), m_notifier(notifier) {}
+
+	virtual ~AmazonS3NonblockingDownload();
+
+  protected:
+	virtual bool IsBlocking() override { return false; }
+	virtual void Notify() override { m_notifier.Notify(); }
+
+  private:
+	T &m_notifier;
 };
 
 class AmazonS3Head final : public AmazonRequest {
@@ -283,10 +320,21 @@ class AmazonS3Head final : public AmazonRequest {
 
 	virtual bool SendRequest();
 
-	off_t getSize() const { return m_size; }
+	off_t getSize() {
+		parseResponse();
+		return m_size;
+	}
+	time_t getLastModified() {
+		parseResponse();
+		return m_last_modified;
+	}
 
   private:
+	void parseResponse();
+
+	bool m_parsedResponse{false};
 	off_t m_size{0};
+	time_t m_last_modified{0};
 };
 
 struct S3ObjectInfo {

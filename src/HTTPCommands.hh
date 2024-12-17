@@ -114,8 +114,35 @@ class HTTPRequest {
 							 const std::string_view payload, off_t payload_size,
 							 bool final);
 
+	// Send the request to the HTTP server.
+	// Returns immediately, not waiting for the result.
+	//
+	// If `final` is set to `false`, the HTTPRequest object will start streaming
+	// a request and assume that `sendPreparedRequest` will be repeated until
+	// all data is provided (the sum total of the chunks given is the
+	// payload_size). If payload_size is 0 and final is false, this indicates
+	// the complete size of the PUT is unknown and chunked encoding will be
+	// used.
+	//
+	// - url: URL, including query parameters, to use.
+	// - payload: The payload contents when uploading.
+	// - payload_size: Size of the entire payload (not just the current chunk).
+	// - final: True if this is the last or only payload for the request.  False
+	// otherwise.
+	bool sendPreparedRequestNonblocking(const std::string &uri,
+										const std::string_view payload,
+										off_t payload_size, bool final);
+
 	// Called by the curl handler thread that the request has been finished.
 	virtual void Notify();
+
+	// Returns the standalone buffer if a sub-classe's externally-managed one
+	// is supposed to be used.
+	//
+	// If the std::string_view is empty, then it's assumed the HTTPRequest
+	// itself owns the result buffer and should create one.  Note that,
+	// on errors, the HTTPRequest result buffer is still used.
+	virtual std::string_view *requestResult() { return nullptr; }
 
 	const std::string &getProtocol() { return m_protocol; }
 
@@ -135,6 +162,10 @@ class HTTPRequest {
 	// call to send more data.
 	bool Timeout() const { return m_timeout; }
 
+	// Function that can be overridden by test cases, allowing modification
+	// of the server response
+	virtual void modifyResponse(std::string &) {}
+
 	typedef std::map<std::string, std::string> AttributeValueMap;
 	AttributeValueMap query_parameters;
 	AttributeValueMap headers;
@@ -147,6 +178,9 @@ class HTTPRequest {
 	std::string errorMessage;
 	std::string errorCode;
 
+	// The contents of the result from the HTTP server.
+	// If this is a GET and we got the expectedResponseCode, then
+	// the results are populated in the m_result_buffer instead.
 	std::string m_result;
 	unsigned long responseCode{0};
 	unsigned long expectedResponseCode = 200;
@@ -184,6 +218,15 @@ class HTTPRequest {
 	// buffer.
 	static size_t ReadCallback(char *buffer, size_t size, size_t n, void *v);
 
+	// Handle the callback from libcurl
+	static size_t handleResults(const void *ptr, size_t size, size_t nmemb,
+								void *me_ptr);
+
+	// Transfer information callback from libcurl
+	static int XferInfoCallback(void *clientp, curl_off_t dltotal,
+								curl_off_t dlnow, curl_off_t ultotal,
+								curl_off_t ulnow);
+
 	const TokenFile *m_token{nullptr};
 
 	// The following members manage the work queue and workers.
@@ -209,10 +252,27 @@ class HTTPRequest {
 		false}; // Flag indicating this command is a streaming request.
 	bool m_timeout{false};		// Flag indicating the request has timed out.
 	bool m_result_ready{false}; // Flag indicating the results data is ready.
+	bool m_result_buffer_initialized{
+		false}; // Flag indicating whether the result buffer view has been
+				// initialized.
 	off_t m_payload_size{0}; // Size of the entire upload payload; 0 if unknown.
 	std::string m_protocol;
 	std::string m_uri; // URL to request from libcurl
 	std::string_view m_payload;
+
+	// Total number of bytes received from the server
+	off_t m_bytes_recv{0};
+	// Total number of bytes sent to server
+	off_t m_bytes_sent{0};
+	// Time of last data movement (upload or download).  Used to detect transfer
+	// stalls
+	std::chrono::steady_clock::time_point m_last_movement;
+	// Transfer stall timeout
+	static constexpr std::chrono::steady_clock::duration m_transfer_stall{
+		std::chrono::seconds(10)};
+
+	// The contents of a successful GET request.
+	std::string_view m_result_buffer;
 	CURL *m_curl_handle{nullptr}; // The curl handle for the ongoing request
 	char m_errorBuffer[CURL_ERROR_SIZE]; // Static error buffer for libcurl
 	unsigned m_retry_count{0};
