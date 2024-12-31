@@ -30,6 +30,7 @@
 #include <XrdSys/XrdSysError.hh>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
