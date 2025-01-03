@@ -20,23 +20,26 @@ to point it at the installed directory.
 
 ### Building with Tests
 
-Unit tests for this repository require `gtest`, which for RHEL-based linux distributions can be installed with:
-```bash
-dnf install gtest
-```
-
-Once `gtest` is installed, the unit tests can be compiled with a slight modification to your build command:
+Unit tests for this repository require `gtest`, which is included as a submodule of this repo. The tests can be compiled with a slight modification to your build command:
 
 ```
 mkdir build
 cd build
-cmake -DXROOTD_PLUGINS_BUILD_UNITTESTS=ON -DXROOTD_PLUGINS_EXTERNAL_GTEST=ON ..
+cmake -DXROOTD_PLUGINS_BUILD_UNITTESTS=ON ..
 make
 ```
 
 This creates the directory `build/test` with two unit test executables that can be run:
 - `build/test/s3-gtest`
 - `build/test/http-gtest`
+
+Alternatively, `gtest` can be installed externally. For example, on RHEL-based linux distributions:
+
+```bash
+dnf install gtest
+```
+
+Add `-DXROOTD_PLUGINS_EXTERNAL_GTEST=ON` to your `cmake` command if you're using an external installation.
 
 ## Configuration
 
