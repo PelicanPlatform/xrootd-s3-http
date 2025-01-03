@@ -32,17 +32,19 @@ class AmazonRequest : public HTTPRequest {
   public:
 	AmazonRequest(const S3AccessInfo &ai, const std::string objectName,
 				  XrdSysError &log, bool ro = true)
-		: AmazonRequest(ai.getS3ServiceUrl(), ai.getS3AccessKeyFile(),
-						ai.getS3SecretKeyFile(), ai.getS3BucketName(),
-						objectName, ai.getS3UrlStyle(),
+		: AmazonRequest(ai.getS3ServiceUrl(), ai.getS3Region(),
+						ai.getS3AccessKeyFile(), ai.getS3SecretKeyFile(),
+						ai.getS3BucketName(), objectName, ai.getS3UrlStyle(),
 						ai.getS3SignatureVersion(), log, ro) {}
 
-	AmazonRequest(const std::string &s, const std::string &akf,
-				  const std::string &skf, const std::string &b,
-				  const std::string &o, const std::string &style, int sv,
-				  XrdSysError &log, bool ro = true)
+	AmazonRequest(const std::string &s, const std::string &r,
+				  const std::string &akf, const std::string &skf,
+				  const std::string &b, const std::string &o,
+				  const std::string &style, int sv, XrdSysError &log,
+				  bool ro = true)
 		: HTTPRequest(s, log, nullptr), accessKeyFile(akf), secretKeyFile(skf),
-		  signatureVersion(sv), bucket(b), object(o), m_style(style) {
+		  signatureVersion(sv), bucket(b), object(o), region(r),
+		  m_style(style) {
 		requiresSignature = true;
 		retainObject = ro;
 		// Start off by parsing the hostUrl, which we use in conjunction with
@@ -70,11 +72,7 @@ class AmazonRequest : public HTTPRequest {
 		// requests.
 		hostUrl = getProtocol() + "://" + host + canonicalURI;
 
-		// If we can, set the region based on the host.
-		size_t secondDot = host.find(".", 2 + 1);
-		if (host.find("s3.") == 0) {
-			region = host.substr(3, secondDot - 2 - 1);
-		}
+		region = r;
 	}
 	virtual ~AmazonRequest();
 
@@ -154,12 +152,6 @@ class AmazonS3Upload final : public AmazonRequest {
 				   XrdSysError &log)
 		: AmazonRequest(ai, objectName, log) {}
 
-	AmazonS3Upload(const std::string &s, const std::string &akf,
-				   const std::string &skf, const std::string &b,
-				   const std::string &o, const std::string &style,
-				   XrdSysError &log)
-		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
-
 	virtual ~AmazonS3Upload();
 
 	bool SendRequest(const std::string_view &payload);
@@ -176,12 +168,6 @@ class AmazonS3CreateMultipartUpload final : public AmazonRequest {
 								  const std::string &objectName,
 								  XrdSysError &log)
 		: AmazonRequest(ai, objectName, log) {}
-
-	AmazonS3CreateMultipartUpload(const std::string &s, const std::string &akf,
-								  const std::string &skf, const std::string &b,
-								  const std::string &o,
-								  const std::string &style, XrdSysError &log)
-		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
 
 	bool Results(std::string &uploadId, std::string &errMsg);
 
@@ -202,13 +188,6 @@ class AmazonS3CompleteMultipartUpload : public AmazonRequest {
 									XrdSysError &log)
 		: AmazonRequest(ai, objectName, log) {}
 
-	AmazonS3CompleteMultipartUpload(const std::string &s,
-									const std::string &akf,
-									const std::string &skf,
-									const std::string &b, const std::string &o,
-									const std::string &style, XrdSysError &log)
-		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
-
 	virtual ~AmazonS3CompleteMultipartUpload();
 
 	virtual bool SendRequest(const std::vector<std::string> &eTags,
@@ -224,12 +203,6 @@ class AmazonS3SendMultipartPart : public AmazonRequest {
 	AmazonS3SendMultipartPart(const S3AccessInfo &ai,
 							  const std::string &objectName, XrdSysError &log)
 		: AmazonRequest(ai, objectName, log) {}
-
-	AmazonS3SendMultipartPart(const std::string &s, const std::string &akf,
-							  const std::string &skf, const std::string &b,
-							  const std::string &o, const std::string &style,
-							  XrdSysError &log)
-		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
 
 	bool Results(std::string &uploadId, std::string &errMsg);
 
@@ -261,12 +234,6 @@ class AmazonS3Download : public AmazonRequest {
 	AmazonS3Download(const S3AccessInfo &ai, const std::string &objectName,
 					 XrdSysError &log, char *buffer)
 		: AmazonRequest(ai, objectName, log), m_buffer(buffer) {}
-
-	AmazonS3Download(const std::string &s, const std::string &akf,
-					 const std::string &skf, const std::string &b,
-					 const std::string &o, const std::string &style,
-					 XrdSysError &log, char *buffer)
-		: AmazonRequest(s, akf, skf, b, o, style, 4, log), m_buffer(buffer) {}
 
 	virtual ~AmazonS3Download();
 
@@ -309,12 +276,6 @@ class AmazonS3Head final : public AmazonRequest {
 	AmazonS3Head(const S3AccessInfo &ai, const std::string &objectName,
 				 XrdSysError &log)
 		: AmazonRequest(ai, objectName, log) {}
-
-	AmazonS3Head(const std::string &s, const std::string &akf,
-				 const std::string &skf, const std::string &b,
-				 const std::string &o, const std::string &style,
-				 XrdSysError &log)
-		: AmazonRequest(s, akf, skf, b, o, style, 4, log) {}
 
 	virtual ~AmazonS3Head();
 
