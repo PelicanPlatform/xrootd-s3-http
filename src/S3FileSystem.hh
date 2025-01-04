@@ -138,7 +138,6 @@ class S3FileSystem : public XrdOss {
 	getS3AccessInfo(const std::string &exposedPath, std::string &object) const;
 
   private:
-	XrdOucEnv *m_env;
 	XrdSysError m_log;
 
 	// The filesystem logic can test for an empty object to see if there's
