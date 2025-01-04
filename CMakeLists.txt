@@ -1,8 +1,7 @@
-cmake_minimum_required( VERSION 3.13 )
+cmake_minimum_required( VERSION 3.14 )
 
 project( xrootd-http/s3 )
 
-option( XROOTD_PLUGINS_BUILD_UNITTESTS "Build the xrootd-s3-http unit tests" OFF )
 option( XROOTD_PLUGINS_EXTERNAL_GTEST "Use an external/pre-installed copy of GTest" OFF )
 option( VALGRIND "Run select unit tests under valgrind" OFF )
 option( ASAN "Build the plugin with the address sanitizer" OFF )
@@ -10,17 +9,10 @@ option( ASAN "Build the plugin with the address sanitizer" OFF )
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 set( CMAKE_BUILD_TYPE Debug )
 
-find_package( Xrootd REQUIRED )
+find_package( XRootD REQUIRED COMPONENTS UTILS SERVER )
 find_package( CURL REQUIRED )
 find_package( Threads REQUIRED )
-
-include (FindPkgConfig)
-pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
-
-if(NOT XROOTD_PLUGIN_VERSION)
-  exec_program(${XROOTD_BIN}/xrootd-config ARGS "--plugin-version" OUTPUT_VARIABLE XROOTD_PLUGIN_VERSION RETURN_VALUE RETVAR)
-  set(XROOTD_PLUGIN_VERSION ${XROOTD_PLUGIN_VERSION} CACHE INTERNAL "")
-endif()
+find_package( OpenSSL REQUIRED )
 
 if(VALGRIND)
   find_program(VALGRIND_BIN valgrind REQUIRED)
@@ -32,26 +24,10 @@ if(ASAN)
   set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
 endif()
 
-macro(use_cxx17)
-  if (CMAKE_VERSION VERSION_LESS "3.1")
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      set (CMAKE_CXX_FLAGS "-std=c++17 ${CMAKE_CXX_FLAGS}")
-    endif ()
-  else ()
-    set (CMAKE_CXX_STANDARD 17)
-  endif ()
+set( CMAKE_CXX_STANDARD 17 )
+set( CMAKE_CXX_STANDARD_REQUIRED ON )
 
-  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 8.0)
-      if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
-        link_libraries(stdc++fs)
-      endif()
-    endif()
-  endif()
-endmacro(use_cxx17)
-use_cxx17()
-
-if( CMAKE_COMPILER_IS_GNUCXX )
+if( CMAKE_BUILD_TYPE STREQUAL Debug )
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror" )
 endif()
 
@@ -60,11 +36,28 @@ if(NOT APPLE)
   SET( CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--no-undefined")
 endif()
 
+# Our custom Filesystem module creates the std::filesystem library target for
+# any special dependencies needed for using std::filesystem.
+find_package( Filesystem REQUIRED )
+
 if( NOT XROOTD_EXTERNAL_TINYXML2 )
-	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-	add_subdirectory(vendor/tinyxml2)
+  include(FetchContent)
+  # Allow a locally-found tinyxml2 tarball to be used; provides the ability for packagers
+  # to build this without any external network connectivity (as in the case of Koji).
+  set( TINYXML2_URL "${CMAKE_CURRENT_SOURCE_DIR}/tinyxml2-10.0.0.tar.gz" )
+  if( NOT EXISTS "${TINYXML2_URL}" )
+    set( TINYXML2_URL "https://github.com/leethomason/tinyxml2/archive/refs/tags/10.0.0.tar.gz" )
+  endif()
+  cmake_policy( SET CMP0135 NEW )
+  FetchContent_Declare(
+    tinyxml2
+    URL "${TINYXML2_URL}"
+    URL_HASH SHA256=3bdf15128ba16686e69bce256cc468e76c7b94ff2c7f391cc5ec09e40bff3839
+    )
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE INTERNAL "Force tinyxml2 to use PIC")
+  FetchContent_MakeAvailable( tinyxml2 )
 else()
-	find_package(tinyxml2)
+  find_package( tinyxml2 REQUIRED )
 endif()
 
 ##
@@ -76,38 +69,31 @@ endif()
 #
 add_definitions( -D_FILE_OFFSET_BITS=64 )
 
-include_directories(${XROOTD_INCLUDES} ${CURL_INCLUDE_DIRS} ${LIBCRYPTO_INCLUDE_DIRS})
-
 # On Linux, we hide all the symbols for the final libraries, exposing only what's needed for the XRootD
 # runtime loader.  So here we create the object library and will create a separate one for testing with
 # the symbols exposed.
 add_library(XrdS3Obj OBJECT src/CurlUtil.cc src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
-target_include_directories(XrdS3Obj INTERFACE tinyxml2::tinyxml2)
 set_target_properties(XrdS3Obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(XrdS3Obj -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES} tinyxml2::tinyxml2 Threads::Threads)
+target_include_directories(XrdS3Obj PRIVATE ${XRootD_INCLUDE_DIRS})
+target_link_libraries(XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem)
 
 add_library(XrdS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
 target_link_libraries(XrdS3 XrdS3Obj)
 
 add_library(XrdHTTPServerObj OBJECT src/CurlUtil.cc src/HTTPFile.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
 set_target_properties(XrdHTTPServerObj PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(XrdHTTPServerObj -ldl ${XROOTD_UTILS_LIB} ${XROOTD_SERVER_LIB} ${CURL_LIBRARIES} ${LIBCRYPTO_LIBRARIES} Threads::Threads)
+target_include_directories(XrdHTTPServerObj PRIVATE ${XRootD_INCLUDE_DIRS})
+target_link_libraries(XrdHTTPServerObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto Threads::Threads std::filesystem)
 
 add_library(XrdHTTPServer MODULE "$<TARGET_OBJECTS:XrdHTTPServerObj>")
 target_link_libraries(XrdHTTPServer XrdHTTPServerObj)
 
-# The CMake documentation strongly advises against using these macros; instead, the pkg_check_modules
-# is supposed to fill out the full path to ${LIBCRYPTO_LIBRARIES}.  As of cmake 3.26.1, this does not
-# appear to be the case on Mac OS X.  Remove once no longer necessary!
-target_link_directories(XrdS3Obj PUBLIC ${LIBCRYPTO_LIBRARY_DIRS})
-target_link_directories(XrdHTTPServerObj PUBLIC ${LIBCRYPTO_LIBRARY_DIRS})
-
 if(NOT APPLE)
-  set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
-  set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
+  set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
+  set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
 else()
-  set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so")
-  set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XROOTD_PLUGIN_VERSION}" SUFFIX ".so")
+  set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so")
+  set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so")
 endif()
 
 SET(LIB_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Install path for libraries")
@@ -117,26 +103,30 @@ install(
   LIBRARY DESTINATION ${LIB_INSTALL_DIR}
 )
 
-if( XROOTD_PLUGINS_BUILD_UNITTESTS )
+if( BUILD_TESTING )
   add_library(XrdS3Testing SHARED "$<TARGET_OBJECTS:XrdS3Obj>")
   target_link_libraries(XrdS3Testing XrdS3Obj)
+  target_include_directories(XrdS3Testing INTERFACE ${XRootD_INCLUDE_DIRS})
   add_library(XrdHTTPServerTesting SHARED "$<TARGET_OBJECTS:XrdHTTPServerObj>")
   target_link_libraries(XrdHTTPServerTesting XrdHTTPServerObj)
+  target_include_directories(XrdHTTPServerTesting INTERFACE ${XRootD_INCLUDE_DIRS})
 
   if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
-    include(ExternalProject)
-    ExternalProject_Add(gtest
-      PREFIX external/gtest
-      URL ${CMAKE_CURRENT_SOURCE_DIR}/vendor/gtest
-      BUILD_BYPRODUCTS external/gtest/src/gtest-build/lib/libgtest.a
-      INSTALL_COMMAND :
+    include( FetchContent )
+    set( GTEST_URL "${CMAKE_CURRENT_SOURCE_DIR}/googletest-1.15.2.tar.gz" )
+    if( NOT EXISTS "${GTEST_URL}" )
+        set( GTEST_URL "https://github.com/google/googletest/releases/download/v1.15.2/googletest-1.15.2.tar.gz" )
+    endif()
+    cmake_policy(SET CMP0135 NEW)
+    FetchContent_Declare(GTest
+      URL "${GTEST_URL}"
+      URL_HASH SHA256=7b42b4d6ed48810c5362c265a17faebe90dc2373c885e5216439d37927f02926
+      TEST_COMMAND ""
     )
+    FetchContent_MakeAvailable( GTest )
+  else()
+    find_package(GTest REQUIRED)
   endif()
   enable_testing()
   add_subdirectory(test)
 endif()
-
-#install(
-#  FILES ${CMAKE_SOURCE_DIR}/configs/60-s3.cfg
-#  DESTINATION ${CMAKE_INSTALL_PREFIX}/etc/xrootd/config.d/
-#)

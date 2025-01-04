@@ -1,23 +1,13 @@
-add_executable( s3-gtest s3_tests.cc )
-
-add_executable( s3-unit-test s3_unit_tests.cc )
-
-add_executable( http-gtest http_tests.cc )
 
 include(GoogleTest)
 
-if(XROOTD_PLUGINS_EXTERNAL_GTEST)
-    set(LIBGTEST "gtest")
-else()
-    add_dependencies(s3-gtest gtest)
-    add_dependencies(http-gtest gtest)
-    include_directories("${PROJECT_SOURCE_DIR}/vendor/gtest/googletest/include")
-    set(LIBGTEST "${CMAKE_BINARY_DIR}/external/gtest/src/gtest-build/lib/libgtest.a")
-endif()
+add_executable( s3-gtest s3_tests.cc )
+add_executable( s3-unit-test s3_unit_tests.cc )
+add_executable( http-gtest http_tests.cc )
 
-target_link_libraries(s3-gtest XrdS3Testing "${LIBGTEST}" pthread)
-target_link_libraries(s3-unit-test XrdS3Testing "${LIBGTEST}" pthread)
-target_link_libraries(http-gtest XrdHTTPServerTesting "${LIBGTEST}" pthread)
+target_link_libraries(s3-gtest XrdS3Testing GTest::gtest_main Threads::Threads)
+target_link_libraries(s3-unit-test XrdS3Testing GTest::gtest_main Threads::Threads)
+target_link_libraries(http-gtest XrdHTTPServerTesting GTest::gtest_main Threads::Threads)
 
 gtest_add_tests(TARGET s3-unit-test TEST_LIST s3UnitTests)
 set_tests_properties(${s3UnitTests}
