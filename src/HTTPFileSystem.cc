@@ -41,8 +41,8 @@
 using namespace XrdHTTPServer;
 
 HTTPFileSystem::HTTPFileSystem(XrdSysLogger *lp, const char *configfn,
-							   XrdOucEnv *envP)
-	: m_env(envP), m_log(lp, "httpserver_"), m_token("", &m_log) {
+							   XrdOucEnv * /*envP*/)
+	: m_log(lp, "httpserver_"), m_token("", &m_log) {
 	m_log.Say("------ Initializing the HTTP filesystem plugin.");
 	if (!Config(lp, configfn)) {
 		throw std::runtime_error("Failed to configure HTTP filesystem plugin.");
@@ -130,7 +130,7 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	}
 
 	if (!token_file.empty()) {
-		m_token = std::move(TokenFile(token_file, &m_log));
+		m_token = TokenFile(token_file, &m_log);
 	}
 
 	return true;

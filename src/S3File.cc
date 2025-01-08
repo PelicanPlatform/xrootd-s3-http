@@ -758,7 +758,6 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 		m_partial_hit_count += 1;
 	}
 	m_miss_bytes += miss_bytes;
-	unsigned fetch_attempts = 0;
 	while (req1_off != -1) {
 		std::unique_lock lk(m_mutex);
 		m_cv.wait(lk, [&] {
@@ -869,7 +868,6 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 		// No caches serve our requests - we must kick off a new download
 		// std::cout << "Will download data via cache; req1 offset=" << req1_off
 		// << ", req2 offset=" << req2_off << "\n";
-		fetch_attempts++;
 		bool download_a = false, download_b = false, prefetch_b = false;
 		if (!m_a.m_inprogress && m_b.m_inprogress) {
 			m_a.m_off = req1_off / m_cache_entry_size * m_cache_entry_size;
