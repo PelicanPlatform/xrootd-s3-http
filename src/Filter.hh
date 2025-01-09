@@ -93,6 +93,8 @@ class FilterFileSystem final : public XrdOssWrapper {
 	bool GlobOne(const std::filesystem::path &path, const glob &glob,
 				 bool &partial);
 
+	std::pair<bool, std::string> SanitizePrefix(const std::filesystem::path &);
+
   private:
 	template <class Fn, class... Args>
 	int VerifyPath(std::string_view path, bool partial_ok, Fn &&fn,

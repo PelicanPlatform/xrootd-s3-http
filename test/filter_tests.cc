@@ -457,3 +457,35 @@ TEST_F(FileSystemGlob, Globstar) {
 	ASSERT_FALSE(fs.GlobOne("/foo/.1/.bar/idx.txt",
 							{false, "/foo/**/.bar/idx.txt"}, partial));
 }
+
+TEST_F(FileSystemGlob, SanitizePrefix) {
+	XrdSysLogger log;
+	FilterFileSystem fs(new SimpleFilesystem, &log, m_configfn.c_str(),
+						nullptr);
+
+	auto [success, path] = fs.SanitizePrefix("/path/prefix");
+	ASSERT_TRUE(success);
+	ASSERT_EQ(path, "/path/prefix");
+
+	std::tie(success, path) = fs.SanitizePrefix("/path//prefix");
+	ASSERT_TRUE(success);
+	ASSERT_EQ(path, "/path/prefix");
+
+	std::tie(success, path) = fs.SanitizePrefix("foo");
+	ASSERT_FALSE(success);
+
+	std::tie(success, path) = fs.SanitizePrefix("/path/./prefix");
+	ASSERT_FALSE(success);
+
+	std::tie(success, path) = fs.SanitizePrefix("/../foo");
+	ASSERT_FALSE(success);
+
+	std::tie(success, path) = fs.SanitizePrefix("/f*");
+	ASSERT_FALSE(success);
+
+	std::tie(success, path) = fs.SanitizePrefix("/f/?(foo|bar)");
+	ASSERT_FALSE(success);
+
+	std::tie(success, path) = fs.SanitizePrefix("/[:alpha:]");
+	ASSERT_FALSE(success);
+}

@@ -146,7 +146,16 @@ bool FilterFileSystem::Config(const char *configfn) {
 						"filter.prefix [prefix1] [prefix2] ...");
 					return false;
 				}
-				m_globs.push_back({true, path / "**"});
+				bool success;
+				std::tie(success, path) = SanitizePrefix(path);
+				if (!success) {
+					m_log.Emsg("Config",
+							   "filter.prefix requires an absolute prefix "
+							   "without globs.  Usage: "
+							   "filter.prefix [prefix1] [prefix2] ...");
+					return false;
+				}
+				m_globs.push_back({true, (path / "**").lexically_normal()});
 			} while ((val = filterConf.GetToken()));
 		} else {
 			m_log.Emsg("Config", "Unknown configuration directive", val);
@@ -163,6 +172,41 @@ bool FilterFileSystem::Config(const char *configfn) {
 				  glob.m_match_dotfile ? "all" : "");
 	}
 	return true;
+}
+
+// Given an administrator-provided prefix, sanitize it according to our rules.
+//
+// The function will *fail* if one of the following is true:
+// - Any path components are equal to '.' or '..'
+// - Any path components contain glob special characters of '[', '*', or '?'.
+//
+// If the prefix is acceptable, a returned prefix will be given that is
+// normalized according to std::filesystem::path's rules.
+//
+// Return is a boolean indicating success and the resulting prefix string.
+std::pair<bool, std::string>
+FilterFileSystem::SanitizePrefix(const std::filesystem::path &prefix) {
+	if (!prefix.is_absolute()) {
+		m_log.Emsg("SanitizePrefix", "Provided prefix must be absolute");
+		return {false, ""};
+	}
+	for (const auto &component : prefix) {
+		if (component == "." || component == "..") {
+			m_log.Emsg(
+				"SanitizePrefix",
+				"Prefix may not contain a path component of '.' or '..':",
+				prefix.c_str());
+			return {false, ""};
+		}
+		if (component.string().find_first_of("[*?") != std::string::npos) {
+			m_log.Emsg("SanitizePrefix",
+					   "Prefix may not contain a path component with any of "
+					   "the following characters: '*', '?', or '[':",
+					   prefix.c_str());
+			return {false, ""};
+		}
+	}
+	return {true, prefix.lexically_normal()};
 }
 
 int FilterFileSystem::Chmod(const char *path, mode_t mode, XrdOucEnv *env) {
