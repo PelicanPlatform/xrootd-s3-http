@@ -353,6 +353,18 @@ int FilterFileSystem::VerifyPath(std::string_view path, bool partial_ok,
 				  path.data());
 		return -EISDIR;
 	}
+
+	// Invoke the provided method `fn` on the underlying XrdOss object we are
+	// wrapping (`wrapPI`). This template is agnostic to the actual arguments to
+	// the method; they are just forwarded straight through.
+	//
+	// For example, if this object is wrapping an `S3FileSystem` object, then
+	//    ```
+	//    std::invoke(&XrdOss::Open, wrapPI, std::forward<Args>("/foo",
+	//    O_RDONLY, 0, nullptr));
+	//    ```
+	// is just a funky way of saying `wrapPI->Open("/foo", O_RDONLY, 0,
+	// nullptr);`
 	return std::invoke(fn, wrapPI, std::forward<Args>(args)...);
 }
 
@@ -567,7 +579,12 @@ int FilterDir::Readdir(char *buff, int blen) {
 		if (*buff == '\0') {
 			return 0;
 		} else if (!strcmp(buff, ".") || !strcmp(buff, "..")) {
-			// Always permit special current and parent directory links.
+			// Always permit special current and parent directory links for
+			// `Readdir`.  They allow the users of the XrdHttp web interface
+			// to navigate the directory hierarchy through the rendered HTML.
+			// If they're actually used to construct a path, they will get
+			// normalized out by the XrdOfs layer before being passed back to
+			// the XrdOss layer (this class).
 			return 0;
 		}
 		auto path = m_prefix / std::string_view(buff, strnlen(buff, blen));
