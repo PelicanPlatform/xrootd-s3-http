@@ -60,6 +60,42 @@ else()
   find_package( tinyxml2 REQUIRED )
 endif()
 
+# Check if we need libatomic to use atomic operations in the C++ code.
+# (This is required for using 64 bit atomics on some 32 bit architectures.)
+include( CheckCXXSourceCompiles )
+function(check_working_cxx_atomics varname)
+  check_cxx_source_compiles("
+#include <atomic>
+#include <cstdint>
+int main() {
+   std::atomic<uint8_t> a1;
+   std::atomic<uint16_t> a2;
+   std::atomic<uint32_t> a3;
+   std::atomic<uint64_t> a4;
+   return a1++ + a2++ + a3++ + a4++;
+}
+" ${varname})
+endfunction(check_working_cxx_atomics varname)
+
+check_working_cxx_atomics(HAVE_CXX_ATOMICS_WITHOUT_LIB)
+set(ATOMIC_LIBRARY "")
+if(NOT HAVE_CXX_ATOMICS_WITHOUT_LIB)
+  check_library_exists(atomic __atomic_fetch_add_4 "" HAVE_LIBATOMIC)
+  if(HAVE_LIBATOMIC)
+    set(OLD_CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
+    list(APPEND CMAKE_REQUIRED_LIBRARIES "atomic")
+    check_working_cxx_atomics(HAVE_CXX_ATOMICS_WITH_LIB)
+    set(CMAKE_REQUIRED_LIBRARIES ${OLD_CMAKE_REQUIRED_LIBRARIES})
+    if(HAVE_CXX_ATOMICS_WITH_LIB)
+      set(ATOMIC_LIBRARY "atomic")
+    endif()
+  endif()
+endif()
+
+if (NOT HAVE_CXX_ATOMICS_WITHOUT_LIB AND NOT HAVE_CXX_ATOMICS_WITH_LIB)
+  message(FATAL_ERROR "Compiler must support std::atomic!")
+endif()
+
 ##
 # Flag is needed explicitly for 32-bit platforms but not currently exported by XRootD
 # as a reverse dependency.  Can be removed once this is merged and in all supported
@@ -75,7 +111,7 @@ add_definitions( -D_FILE_OFFSET_BITS=64 )
 add_library(XrdS3Obj OBJECT src/CurlUtil.cc src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
 set_target_properties(XrdS3Obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdS3Obj PRIVATE ${XRootD_INCLUDE_DIRS})
-target_link_libraries(XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem)
+target_link_libraries(XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem ${ATOMIC_LIBRARY})
 
 add_library(XrdS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
 target_link_libraries(XrdS3 XrdS3Obj)
