@@ -69,6 +69,9 @@ endif()
 #
 add_definitions( -D_FILE_OFFSET_BITS=64 )
 
+######################
+##  libXrdOssS3     ##
+######################
 # On Linux, we hide all the symbols for the final libraries, exposing only what's needed for the XRootD
 # runtime loader.  So here we create the object library and will create a separate one for testing with
 # the symbols exposed.
@@ -80,6 +83,9 @@ target_link_libraries(XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARI
 add_library(XrdS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
 target_link_libraries(XrdS3 XrdS3Obj)
 
+######################
+##  libXrdOssHTTP   ##
+######################
 add_library(XrdHTTPServerObj OBJECT src/CurlUtil.cc src/HTTPFile.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
 set_target_properties(XrdHTTPServerObj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdHTTPServerObj PRIVATE ${XRootD_INCLUDE_DIRS})
@@ -88,12 +94,26 @@ target_link_libraries(XrdHTTPServerObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER
 add_library(XrdHTTPServer MODULE "$<TARGET_OBJECTS:XrdHTTPServerObj>")
 target_link_libraries(XrdHTTPServer XrdHTTPServerObj)
 
-if(NOT APPLE)
-  set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
-  set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols")
+######################
+## libXrdOssFilter  ##
+######################
+add_library( XrdOssFilterObj OBJECT src/Filter.cc src/logging.cc )
+set_target_properties( XrdOssFilterObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
+target_include_directories( XrdOssFilterObj PRIVATE ${XRootD_INCLUDE_DIRS} )
+target_link_libraries( XrdOssFilterObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} )
+
+add_library( XrdOssFilter MODULE "$<TARGET_OBJECTS:XrdOssFilterObj>" )
+target_link_libraries( XrdOssFilter XrdOssFilterObj )
+
+# Customize module's suffix and, on Linux, hide unnecessary symbols
+if( APPLE )
+  set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
 else()
-  set_target_properties(XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so")
-  set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so")
+  set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
 endif()
 
 SET(LIB_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Install path for libraries")
@@ -104,13 +124,20 @@ install(
 )
 
 if( BUILD_TESTING )
+  # Create shared libraries for testing from the existing objects
   add_library(XrdS3Testing SHARED "$<TARGET_OBJECTS:XrdS3Obj>")
   target_link_libraries(XrdS3Testing XrdS3Obj)
   target_include_directories(XrdS3Testing INTERFACE ${XRootD_INCLUDE_DIRS})
+
   add_library(XrdHTTPServerTesting SHARED "$<TARGET_OBJECTS:XrdHTTPServerObj>")
   target_link_libraries(XrdHTTPServerTesting XrdHTTPServerObj)
   target_include_directories(XrdHTTPServerTesting INTERFACE ${XRootD_INCLUDE_DIRS})
 
+  add_library( XrdOssFilterTesting SHARED "$<TARGET_OBJECTS:XrdOssFilterObj>" )
+  target_link_libraries( XrdOssFilterTesting XrdOssFilterObj )
+  target_include_directories( XrdOssFilterTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
+
+  # Ensure that GTest is available
   if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
     include( FetchContent )
     set( GTEST_URL "${CMAKE_CURRENT_SOURCE_DIR}/googletest-1.15.2.tar.gz" )
@@ -127,6 +154,7 @@ if( BUILD_TESTING )
   else()
     find_package(GTest REQUIRED)
   endif()
+
   enable_testing()
   add_subdirectory(test)
 endif()
