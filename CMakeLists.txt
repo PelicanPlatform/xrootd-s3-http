@@ -7,7 +7,9 @@ option( VALGRIND "Run select unit tests under valgrind" OFF )
 option( ASAN "Build the plugin with the address sanitizer" OFF )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
-set( CMAKE_BUILD_TYPE Debug )
+if( "${CMAKE_BUILD_TYPE}" STREQUAL "" )
+  set( CMAKE_BUILD_TYPE Debug )
+endif()
 
 find_package( XRootD REQUIRED COMPONENTS UTILS SERVER )
 find_package( CURL REQUIRED )
