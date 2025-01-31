@@ -41,6 +41,8 @@ endif()
 # Our custom Filesystem module creates the std::filesystem library target for
 # any special dependencies needed for using std::filesystem.
 find_package( Filesystem REQUIRED )
+# Similar setup for libatomic; required only on 32-bit systems
+find_package( Atomic REQUIRED )
 
 if( NOT XROOTD_EXTERNAL_TINYXML2 )
   include(FetchContent)
@@ -77,7 +79,7 @@ add_definitions( -D_FILE_OFFSET_BITS=64 )
 add_library(XrdS3Obj OBJECT src/CurlUtil.cc src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
 set_target_properties(XrdS3Obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdS3Obj PRIVATE ${XRootD_INCLUDE_DIRS})
-target_link_libraries(XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem)
+target_link_libraries( XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem std::atomic )
 
 add_library(XrdS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
 target_link_libraries(XrdS3 XrdS3Obj)
