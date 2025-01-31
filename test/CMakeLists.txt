@@ -4,10 +4,14 @@ include(GoogleTest)
 add_executable( s3-gtest s3_tests.cc )
 add_executable( s3-unit-test s3_unit_tests.cc )
 add_executable( http-gtest http_tests.cc )
+add_executable( filter-gtest filter_tests.cc ../src/shortfile.cc )
 
 target_link_libraries(s3-gtest XrdS3Testing GTest::gtest_main Threads::Threads)
 target_link_libraries(s3-unit-test XrdS3Testing GTest::gtest_main Threads::Threads)
 target_link_libraries(http-gtest XrdHTTPServerTesting GTest::gtest_main Threads::Threads)
+target_link_libraries(filter-gtest XrdOssFilterTesting GTest::gtest_main Threads::Threads)
+
+gtest_add_tests(TARGET filter-gtest)
 
 gtest_add_tests(TARGET s3-unit-test TEST_LIST s3UnitTests)
 set_tests_properties(${s3UnitTests}
