@@ -979,7 +979,14 @@ void S3File::S3Cache::Entry::Download(S3File &file) {
 	if (m_off + static_cast<off_t>(request_size) > file.content_length) {
 		request_size = file.content_length - m_off;
 	}
+	// This function is always called with m_mutex held; however,
+	// SendRequest can block if the threads are all busy; the threads
+	// will need to grab the lock to notify of completion.  So, we
+	// must release the lock here before calling a blocking function --
+	// otherwise deadlock may occur.
+	m_parent.m_mutex.unlock();
 	if (!m_request->SendRequest(m_off, m_cache_entry_size)) {
+		m_parent.m_mutex.lock();
 		std::stringstream ss;
 		ss << "Failed to send GetObject command: "
 		   << m_request->getResponseCode() << "'"
@@ -987,6 +994,8 @@ void S3File::S3Cache::Entry::Download(S3File &file) {
 		file.m_log.Log(LogMask::Warning, "S3File::Read", ss.str().c_str());
 		m_failed = true;
 		m_request.reset();
+	} else {
+		m_parent.m_mutex.lock();
 	}
 }
 
