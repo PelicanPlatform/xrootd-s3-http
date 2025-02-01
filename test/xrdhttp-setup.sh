@@ -21,8 +21,7 @@ fi
 
 echo "Setting up HTTP server for $TEST_NAME test"
 
-XROOTD_BIN="$(command -v xrootd)"
-
+XROOTD_BIN="$XROOTD_BINDIR/xrootd"
 if [ -z "XROOTD_BIN" ]; then
   echo "xrootd binary not found; cannot run unit test"
   exit 1
@@ -183,6 +182,10 @@ while [ -z "$XROOTD_URL" ]; do
   sleep 1
   XROOTD_URL=$(grep "Xrd_ProtLoad: enabling port" "$BINARY_DIR/tests/$TEST_NAME/server.log" | grep 'for protocol XrdHttp' | awk '{print $7}')
   IDX=$(($IDX+1))
+  if ! kill -0 "$XROOTD_PID" 2>/dev/null; then
+    echo "xrootd process (PID $XROOTD_PID) failed to start" >&2
+    exit 1
+  fi
   if [ $IDX -gt 1 ]; then
     echo "Waiting for xrootd to start ($IDX seconds so far) ..."
   fi
