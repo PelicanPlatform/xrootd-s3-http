@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.2.1
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        S3/HTTP filesystem plugins for xrootd
 
@@ -44,7 +44,7 @@ Requires: xrootd-server <  1:%{xrootd_next_major}.0.0-1
 %license LICENSE
 
 %changelog
-* Sat Feb 1 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.2.1-1
+* Sat Feb 1 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.2.0-1
 - Bump to upstream version 0.2.1.
 
 * Tue Nov 28 2023 Justin Hiemstra <jhiemstra@wisc.edu> - 0.0.2-1
