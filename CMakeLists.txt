@@ -115,6 +115,18 @@ if( BUILD_TESTING )
   target_link_libraries(XrdHTTPServerTesting XrdHTTPServerObj)
   target_include_directories(XrdHTTPServerTesting INTERFACE ${XRootD_INCLUDE_DIRS})
 
+  find_program(GoWrk go-wrk HINTS "$ENV{HOME}/go/bin")
+  if( NOT GoWrk )
+    # Try installing the go-wrk variable to generate a reasonable stress test
+    execute_process( COMMAND go install github.com/bbockelm/go-wrk@92dbe19
+      RESULT_VARIABLE go_install_result )
+    if( go_install_result EQUAL 0 )
+      find_program(GoWrk go-wrk HINTS "$ENV{HOME}/go/bin")
+    else()
+      message(ERROR "Failed to install the go-wrk binary" )
+    endif()
+  endif()
+
   if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
     include( FetchContent )
     set( GTEST_URL "${CMAKE_CURRENT_SOURCE_DIR}/googletest-1.15.2.tar.gz" )

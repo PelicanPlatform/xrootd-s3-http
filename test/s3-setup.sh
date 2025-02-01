@@ -38,7 +38,7 @@ if [ -z "$MC_BIN" ]; then
   exit 1
 fi
 
-XROOTD_BIN="$(command -v xrootd)"
+XROOTD_BIN="$XROOTD_BINDIR/xrootd"
 if [ -z "XROOTD_BIN" ]; then
   echo "xrootd binary not found; cannot run unit test"
   exit 1
@@ -201,6 +201,20 @@ fi
 echo "Hello, World" > "$RUNDIR/hello_world.txt"
 "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/hello_world.txt
 
+IDX=0
+COUNT=25
+while [ $IDX -ne $COUNT ]; do
+  if ! dd if=/dev/urandom "of=$RUNDIR/test_file" bs=1024 count=1024 2> /dev/null; then
+    echo "Failed to create random file to upload"
+    exit 1
+  fi
+  if ! "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/test_file" "userminio/test-bucket/test_file_$IDX.random" > /dev/null; then
+    echo "Failed to upload random file to S3 instance"
+    exit 1
+  fi
+  IDX=$((IDX+1))
+done
+
 ####
 #    Starting XRootD config with S3 backend
 ####
@@ -274,6 +288,10 @@ while [ -z "$XROOTD_URL" ]; do
   sleep 1
   XROOTD_URL=$(grep "Xrd_ProtLoad: enabling port" "$BINARY_DIR/tests/$TEST_NAME/server.log" | grep 'for protocol XrdHttp' | awk '{print $7}')
   IDX=$(($IDX+1))
+  if ! kill -0 "$XROOTD_PID" 2>/dev/null; then
+    echo "xrootd process (PID $XROOTD_PID) failed to start" >&2
+    exit 1
+  fi
   if [ $IDX -gt 1 ]; then
     echo "Waiting for xrootd to start ($IDX seconds so far) ..."
   fi
@@ -285,8 +303,16 @@ done
 XROOTD_URL="https://$(hostname):$XROOTD_URL/"
 echo "xrootd started at $XROOTD_URL"
 
+IDX=0
+touch "$RUNDIR/playback.txt"
+while [ $IDX -ne $COUNT ]; do
+  echo "$XROOTD_URL/test/test_file_$IDX.random" >> "$RUNDIR/playback.txt"
+  IDX=$((IDX+1))
+done
+
 cat >> "$BINARY_DIR/tests/$TEST_NAME/setup.sh" <<EOF
 XROOTD_PID=$XROOTD_PID
 XROOTD_URL=$XROOTD_URL
 BUCKET_NAME=$BUCKET_NAME
+PLAYBACK_FILE=$RUNDIR/playback.txt
 EOF
