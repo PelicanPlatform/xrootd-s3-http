@@ -32,7 +32,7 @@ Requires: xrootd-server <  1:%{xrootd_next_major}.0.0-1
 %setup -q
 
 %build
-%cmake .
+%cmake . -DCMAKE_BUILD_TYPE=RelWithDebInfo
 %cmake_build
 
 %install
