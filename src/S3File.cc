@@ -547,6 +547,11 @@ S3File::DownloadBypass(off_t offset, size_t size, char *buffer) {
 	return std::make_tuple(-1, 0, true);
 }
 
+S3File::S3Cache::~S3Cache() {
+	std::unique_lock lk(m_mutex);
+	m_cv.wait(lk, [&] { return !m_a.m_inprogress && !m_b.m_inprogress; });
+}
+
 bool S3File::S3Cache::CouldUseAligned(off_t req, off_t cache) {
 	if (req < 0 || cache < 0) {
 		return false;
@@ -974,7 +979,15 @@ void S3File::S3Cache::Entry::Download(S3File &file) {
 	if (m_off + static_cast<off_t>(request_size) > file.content_length) {
 		request_size = file.content_length - m_off;
 	}
-	if (!m_request->SendRequest(m_off, m_cache_entry_size)) {
+	// This function is always called with m_mutex held; however,
+	// SendRequest can block if the threads are all busy; the threads
+	// will need to grab the lock to notify of completion.  So, we
+	// must release the lock here before calling a blocking function --
+	// otherwise deadlock may occur.
+	auto off = m_off;
+	m_parent.m_mutex.unlock();
+	if (!m_request->SendRequest(off, m_cache_entry_size)) {
+		m_parent.m_mutex.lock();
 		std::stringstream ss;
 		ss << "Failed to send GetObject command: "
 		   << m_request->getResponseCode() << "'"
@@ -982,6 +995,8 @@ void S3File::S3Cache::Entry::Download(S3File &file) {
 		file.m_log.Log(LogMask::Warning, "S3File::Read", ss.str().c_str());
 		m_failed = true;
 		m_request.reset();
+	} else {
+		m_parent.m_mutex.lock();
 	}
 }
 
