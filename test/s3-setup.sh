@@ -204,7 +204,7 @@ echo "Hello, World" > "$RUNDIR/hello_world.txt"
 IDX=0
 COUNT=25
 while [ $IDX -ne $COUNT ]; do
-  if ! dd if=/dev/urandom "of=$RUNDIR/test_file" bs=1024 count=1024 2> /dev/null; then
+  if ! dd if=/dev/urandom "of=$RUNDIR/test_file" bs=1024 count=3096 2> /dev/null; then
     echo "Failed to create random file to upload"
     exit 1
   fi

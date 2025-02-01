@@ -291,6 +291,10 @@ class S3File : public XrdOssDF {
 
 		// Trigger a blocking read from a given file
 		ssize_t Read(S3File &file, char *buffer, off_t offset, size_t size);
+
+		// Shutdown the cache; ensure all reads are completed before
+		// deleting the objects.
+		~S3Cache();
 	};
 	S3Cache m_cache;
 };
