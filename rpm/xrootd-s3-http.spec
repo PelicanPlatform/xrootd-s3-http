@@ -20,6 +20,7 @@ BuildRequires: xrootd-server-devel >= 1:%{xrootd_current_major}
 BuildRequires: xrootd-server-devel <  1:%{xrootd_next_major}
 BuildRequires: libcurl-devel
 BuildRequires: openssl-devel
+BuildRequires: tinyxml2-devel
 
 Requires: xrootd-server >= 1:%{xrootd_current_major}.%{xrootd_current_minor}
 Requires: xrootd-server <  1:%{xrootd_next_major}.0.0-1
