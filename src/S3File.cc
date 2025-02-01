@@ -984,8 +984,9 @@ void S3File::S3Cache::Entry::Download(S3File &file) {
 	// will need to grab the lock to notify of completion.  So, we
 	// must release the lock here before calling a blocking function --
 	// otherwise deadlock may occur.
+	auto off = m_off;
 	m_parent.m_mutex.unlock();
-	if (!m_request->SendRequest(m_off, m_cache_entry_size)) {
+	if (!m_request->SendRequest(off, m_cache_entry_size)) {
 		m_parent.m_mutex.lock();
 		std::stringstream ss;
 		ss << "Failed to send GetObject command: "
