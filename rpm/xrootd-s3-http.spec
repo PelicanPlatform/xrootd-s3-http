@@ -33,7 +33,7 @@ Requires: xrootd-server <  1:%{xrootd_next_major}.0.0-1
 
 %build
 %cmake . -DCMAKE_BUILD_TYPE=RelWithDebInfo -DXROOTD_EXTERNAL_TINYXML2=ON
-%cmake_build
+cmake --build redhat-linux-build --verbose
 
 %install
 %cmake_install
