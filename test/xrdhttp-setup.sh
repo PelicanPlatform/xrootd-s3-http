@@ -189,7 +189,7 @@ while [ -z "$XROOTD_URL" ]; do
   if [ $IDX -gt 1 ]; then
     echo "Waiting for xrootd to start ($IDX seconds so far) ..."
   fi
-  if [ $IDX -eq 10 ]; then
+  if [ $IDX -eq 60 ]; then
     echo "xrootd failed to start - failing"
     exit 1
   fi
