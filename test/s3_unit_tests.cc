@@ -419,22 +419,22 @@ TEST_F(FileSystemS3Fixture, StatRoot) {
 	struct stat buf;
 	ASSERT_EQ(fs.Stat("/test", &buf, 0, nullptr), 0);
 
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
+	ASSERT_EQ(static_cast<int>(buf.st_mode & S_IFDIR), S_IFDIR);
 
 	ASSERT_EQ(fs.Stat("/test/", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
+	ASSERT_EQ(static_cast<int>(buf.st_mode & S_IFDIR), S_IFDIR);
 
 	ASSERT_EQ(fs.Stat("//test/", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
+	ASSERT_EQ(static_cast<int>(buf.st_mode & S_IFDIR), S_IFDIR);
 
 	ASSERT_EQ(fs.Stat("//test", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
+	ASSERT_EQ(static_cast<int>(buf.st_mode & S_IFDIR), S_IFDIR);
 
 	ASSERT_EQ(fs.Stat("/test//", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
+	ASSERT_EQ(static_cast<int>(buf.st_mode & S_IFDIR), S_IFDIR);
 
 	ASSERT_EQ(fs.Stat("/test/statroot.txt", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
+	ASSERT_EQ(static_cast<int>(buf.st_mode & S_IFREG), S_IFREG);
 }
 
 TEST_F(FileSystemS3Fixture, NestedDir) {
