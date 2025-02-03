@@ -106,7 +106,7 @@ fi
 
 # Create the host certificate request
 openssl genrsa -out "$XROOTD_CONFIGDIR/tls.key" 4096 >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
-openssl req -new -key "$XROOTD_CONFIGDIR/tls.key" -config "$XROOTD_CONFIGDIR/tlsca.ini" -out "$XROOTD_CONFIGDIR/tls.csr" -outform PEM -subj "/CN=$(hostname)" 0<&- >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
+openssl req -new -key "$XROOTD_CONFIGDIR/tls.key" -config "$XROOTD_CONFIGDIR/tlsca.ini" -out "$XROOTD_CONFIGDIR/tls.csr" -outform PEM -subj "/CN=localhost" 0<&- >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
 if [ "$?" -ne 0 ]; then
   echo "Failed to generate host certificate request"
   exit 1
@@ -194,7 +194,7 @@ while [ -z "$XROOTD_URL" ]; do
     exit 1
   fi
 done
-XROOTD_URL="https://$(hostname):$XROOTD_URL/"
+XROOTD_URL="https://localhost:$XROOTD_URL/"
 echo "xrootd started at $XROOTD_URL"
 
 XROOTD_HTTPSERVER_CONFIG="$XROOTD_CONFIGDIR/xrootd-httpserver.cfg"
