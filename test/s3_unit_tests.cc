@@ -419,22 +419,22 @@ TEST_F(FileSystemS3Fixture, StatRoot) {
 	struct stat buf;
 	ASSERT_EQ(fs.Stat("/test", &buf, 0, nullptr), 0);
 
-	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
 
 	ASSERT_EQ(fs.Stat("/test/", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
 
 	ASSERT_EQ(fs.Stat("//test/", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
 
 	ASSERT_EQ(fs.Stat("//test", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
 
 	ASSERT_EQ(fs.Stat("/test//", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
 
 	ASSERT_EQ(fs.Stat("/test/statroot.txt", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
 }
 
 TEST_F(FileSystemS3Fixture, NestedDir) {
@@ -446,10 +446,10 @@ TEST_F(FileSystemS3Fixture, NestedDir) {
 
 	struct stat buf;
 	ASSERT_EQ(fs.Stat("/test/one", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
 
 	ASSERT_EQ(fs.Stat("/test/one/two", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, static_cast<unsigned int>(S_IFDIR));
 }
 
 TEST_F(FileSystemS3Fixture, InvalidObject) {
@@ -465,11 +465,11 @@ TEST_F(FileSystemS3Fixture, InvalidObject) {
 
 	struct stat buf;
 	ASSERT_EQ(fs.Stat("/test/nested/foo", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
+	ASSERT_EQ(buf.st_mode & S_IFREG, static_cast<unsigned int>(S_IFREG));
 	ASSERT_EQ(buf.st_size, 1'024);
 
 	ASSERT_EQ(fs.Stat("/test/nested/foo/foo.txt", &buf, 0, nullptr), 0);
-	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
+	ASSERT_EQ(buf.st_mode & S_IFREG, static_cast<unsigned int>(S_IFREG));
 	ASSERT_EQ(buf.st_size, 1'024);
 
 	// Object with a trailing slash in name
