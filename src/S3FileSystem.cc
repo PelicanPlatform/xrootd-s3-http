@@ -45,8 +45,8 @@ bool S3FileSystem::m_dir_marker = true;
 std::string S3FileSystem::m_dir_marker_name = ".pelican_dir_marker";
 
 S3FileSystem::S3FileSystem(XrdSysLogger *lp, const char *configfn,
-						   XrdOucEnv *envP)
-	: m_env(envP), m_log(lp, "s3_") {
+						   XrdOucEnv * /*envP*/)
+	: m_log(lp, "s3_") {
 	m_log.Say("------ Initializing the S3 filesystem plugin.");
 	if (!Config(lp, configfn)) {
 		throw std::runtime_error("Failed to configure S3 filesystem plugin.");

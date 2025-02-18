@@ -109,7 +109,6 @@ class HTTPFileSystem : public XrdOss {
 	const TokenFile *getToken() const { return &m_token; }
 
   protected:
-	XrdOucEnv *m_env;
 	XrdSysError m_log;
 
 	bool handle_required_config(const std::string &name_from_config,
