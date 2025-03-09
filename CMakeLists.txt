@@ -100,11 +100,11 @@ else()
   set_target_properties(XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so")
 endif()
 
-SET(LIB_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Install path for libraries")
+include(GNUInstallDirs)
 
 install(
   TARGETS XrdS3 XrdHTTPServer
-  LIBRARY DESTINATION ${LIB_INSTALL_DIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
 if( BUILD_TESTING )
