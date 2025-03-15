@@ -26,13 +26,11 @@ fi
 
 echo "Setting up S3 server for $TEST_NAME test"
 
-MINIO_BIN="$(command -v minio)"
 if [ -z "$MINIO_BIN" ]; then
   echo "minio binary not found; cannot run unit test"
   exit 1
 fi
 
-MC_BIN="$(command -v mc)"
 if [ -z "$MC_BIN" ]; then
   echo "mc binary not found; cannot run unit test"
   exit 1
