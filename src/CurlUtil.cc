@@ -34,7 +34,7 @@
 
 using namespace XrdHTTPServer;
 
-thread_local std::vector<CURL *> HandlerQueue::m_handles;
+thread_local std::stack<CURL *> HandlerQueue::m_handles;
 
 HandlerQueue::HandlerQueue() {
 	int filedes[2];
@@ -85,16 +85,16 @@ CURL *GetHandle(bool verbose) {
 }
 
 CURL *HandlerQueue::GetHandle() {
-	if (m_handles.size()) {
-		auto result = m_handles.back();
-		m_handles.pop_back();
+	if (!m_handles.empty()) {
+		CURL *result = m_handles.top();
+		m_handles.pop();
 		return result;
 	}
 
 	return ::GetHandle(false);
 }
 
-void HandlerQueue::RecycleHandle(CURL *curl) { m_handles.push_back(curl); }
+void HandlerQueue::RecycleHandle(CURL *curl) { m_handles.push(curl); }
 
 void HandlerQueue::Produce(HTTPRequest *handler) {
 	std::unique_lock<std::mutex> lk{m_mutex};
@@ -258,6 +258,7 @@ void CurlWorker::Run() {
 					   << curl_multi_strerror(mres);
 					m_logger.Log(LogMask::Debug, "Run", ss.str().c_str());
 				}
+				m_op_map.erase(curl);
 				op->Fail("E_CURL_LIB",
 						 "Unable to add operation to the curl multi-handle");
 				continue;

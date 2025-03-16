@@ -605,7 +605,7 @@ void AmazonS3Head::parseResponse() {
 	size_t current_newline = 0;
 	size_t next_newline = std::string::npos;
 	size_t last_character = headers.size();
-	while (current_newline != std::string::npos &&
+	while (headers.size() && current_newline != std::string::npos &&
 		   current_newline != last_character - 1) {
 		next_newline = headers.find("\r\n", current_newline + 2);
 		line = substring(headers, current_newline + 2, next_newline);

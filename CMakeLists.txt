@@ -7,7 +7,9 @@ option( VALGRIND "Run select unit tests under valgrind" OFF )
 option( ASAN "Build the plugin with the address sanitizer" OFF )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
-set( CMAKE_BUILD_TYPE Debug )
+if( "${CMAKE_BUILD_TYPE}" STREQUAL "" )
+  set( CMAKE_BUILD_TYPE Debug )
+endif()
 
 find_package( XRootD REQUIRED COMPONENTS UTILS SERVER )
 find_package( CURL REQUIRED )
@@ -39,6 +41,8 @@ endif()
 # Our custom Filesystem module creates the std::filesystem library target for
 # any special dependencies needed for using std::filesystem.
 find_package( Filesystem REQUIRED )
+# Similar setup for libatomic; required only on 32-bit systems
+find_package( Atomic REQUIRED )
 
 if( NOT XROOTD_EXTERNAL_TINYXML2 )
   include(FetchContent)
@@ -78,7 +82,7 @@ add_definitions( -D_FILE_OFFSET_BITS=64 )
 add_library(XrdS3Obj OBJECT src/CurlUtil.cc src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
 set_target_properties(XrdS3Obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdS3Obj PRIVATE ${XRootD_INCLUDE_DIRS})
-target_link_libraries(XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem)
+target_link_libraries( XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem std::atomic )
 
 add_library(XrdS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
 target_link_libraries(XrdS3 XrdS3Obj)
@@ -116,11 +120,11 @@ else()
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
 endif()
 
-SET(LIB_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Install path for libraries")
+include(GNUInstallDirs)
 
 install(
   TARGETS XrdS3 XrdHTTPServer
-  LIBRARY DESTINATION ${LIB_INSTALL_DIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
 if( BUILD_TESTING )
@@ -137,7 +141,18 @@ if( BUILD_TESTING )
   target_link_libraries( XrdOssFilterTesting XrdOssFilterObj )
   target_include_directories( XrdOssFilterTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
 
-  # Ensure that GTest is available
+  find_program(GoWrk go-wrk HINTS "$ENV{HOME}/go/bin")
+  if( NOT GoWrk )
+    # Try installing the go-wrk variable to generate a reasonable stress test
+    execute_process( COMMAND go install github.com/bbockelm/go-wrk@92dbe19
+      RESULT_VARIABLE go_install_result )
+    if( go_install_result EQUAL 0 )
+      find_program(GoWrk go-wrk HINTS "$ENV{HOME}/go/bin")
+    else()
+      message(ERROR "Failed to install the go-wrk binary" )
+    endif()
+  endif()
+
   if( NOT XROOTD_PLUGINS_EXTERNAL_GTEST )
     include( FetchContent )
     set( GTEST_URL "${CMAKE_CURRENT_SOURCE_DIR}/googletest-1.15.2.tar.gz" )

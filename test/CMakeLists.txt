@@ -62,7 +62,7 @@ add_test(NAME HTTP::basic::setup
 set_tests_properties(HTTP::basic::setup
   PROPERTIES
     FIXTURES_SETUP HTTP::basic
-    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin"
 )
 
 add_test(NAME HTTP::basic::teardown
@@ -96,7 +96,7 @@ add_test(NAME S3::s3_basic::setup
 set_tests_properties(S3::s3_basic::setup
   PROPERTIES
     FIXTURES_SETUP S3::s3_basic
-    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin"
 )
 
 add_test(NAME S3::s3_basic::teardown
@@ -128,5 +128,19 @@ set_tests_properties(S3::s3_basic::stress_test
   PROPERTIES
     FIXTURES_REQUIRED S3::s3_basic
     ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+    ATTACHED_FILES_ON_FAIL "${S3_BASIC_TEST_LOGS}"
+)
+
+#######################################
+# Stress-test using the go-wrk binary #
+#######################################
+
+add_test( NAME S3::s3_basic::gowrk_test
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/s3-gowrk-test.sh" s3_basic )
+
+set_tests_properties( S3::s3_basic::gowrk_test
+  PROPERTIES
+    FIXTURES_REQUIRED S3::s3_basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};WRK_BIN=${GoWrk}"
     ATTACHED_FILES_ON_FAIL "${S3_BASIC_TEST_LOGS}"
 )
