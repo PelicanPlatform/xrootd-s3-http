@@ -44,3 +44,19 @@ if [ "$HTTP_CODE" -ne 404 ]; then
   echo "Expected HTTP code is 404; actual was $HTTP_CODE"
   exit 1
 fi
+
+echo "Running $TEST_NAME - filtered prefix"
+
+HTTP_CODE=$(curl --cacert $X509_CA_FILE --output /dev/null -v --write-out '%{http_code}' "$XROOTD_URL/test2/hello_world.txt" 2>> "$BINARY_DIR/tests/$TEST_NAME/filter.log")
+
+if [ "$HTTP_CODE" -ne 200 ]; then
+  echo "Expected HTTP code is 200; actual was $HTTP_CODE"
+  exit 1
+fi
+
+HTTP_CODE=$(curl --cacert $X509_CA_FILE --output /dev/null -v --write-out '%{http_code}' "$XROOTD_URL/test2/hello_world2.txt" 2>> "$BINARY_DIR/tests/$TEST_NAME/filter.log")
+
+if [ "$HTTP_CODE" -ne 404 ]; then
+  echo "Expected HTTP code is 404; actual was $HTTP_CODE"
+  exit 1
+fi

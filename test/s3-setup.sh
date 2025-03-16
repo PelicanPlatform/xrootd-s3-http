@@ -200,6 +200,7 @@ fi
 
 echo "Hello, World" > "$RUNDIR/hello_world.txt"
 "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/hello_world.txt
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/hello_world2.txt
 
 IDX=0
 COUNT=25
@@ -250,11 +251,29 @@ xrd.tls $MINIO_CERTSDIR/public.crt $MINIO_CERTSDIR/private.key
 
 oss.local_root /
 ofs.osslib $BINARY_DIR/libXrdS3.so
+ofs.osslib ++ $BINARY_DIR/libXrdOssFilter.so
 
 s3.trace debug
 
 s3.begin
 s3.path_name /test
+s3.bucket_name $BUCKET_NAME
+s3.service_url $MINIO_URL
+s3.service_name $(hostname)
+s3.url_style path
+s3.region us-east-1
+s3.access_key_file $XROOTD_CONFIGDIR/access_key
+s3.secret_key_file $XROOTD_CONFIGDIR/secret_key
+s3.end
+
+#
+# Integration test for the filter module.  Export the
+# same bucket again as /test2 but filter out some contents
+#
+filter.prefix /test
+filter.glob /test2/hello_world.*
+s3.begin
+s3.path_name /test2
 s3.bucket_name $BUCKET_NAME
 s3.service_url $MINIO_URL
 s3.service_name $(hostname)
