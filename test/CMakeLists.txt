@@ -44,8 +44,8 @@ foreach(EXE IN LISTS EXECUTABLES)
 
 endforeach()
 
-find_program(MINIO_BIN minio HINTS "${CMAKE_CURRENT_BINARY_DIR}" REQUIRED)
-find_program(MC_BIN mc       HINTS "${CMAKE_CURRENT_BINARY_DIR}" REQUIRED)
+find_program(MINIO_BIN minio HINTS "${CMAKE_CURRENT_BINARY_DIR}")
+find_program(MC_BIN mc       HINTS "${CMAKE_CURRENT_BINARY_DIR}")
 
 include(GoogleTest)
 
