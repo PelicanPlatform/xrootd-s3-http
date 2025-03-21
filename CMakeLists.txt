@@ -84,8 +84,12 @@ set_target_properties(XrdS3Obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdS3Obj PRIVATE ${XRootD_INCLUDE_DIRS})
 target_link_libraries( XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem std::atomic )
 
+# Compatability library, doesn't match upstream's naming convention
 add_library(XrdS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
 target_link_libraries(XrdS3 XrdS3Obj)
+# New library name, matches upstream's naming convention
+add_library(XrdOssS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
+target_link_libraries(XrdOssS3 XrdS3Obj)
 
 ######################
 ##  libXrdOssHTTP   ##
@@ -97,6 +101,9 @@ target_link_libraries(XrdHTTPServerObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER
 
 add_library(XrdHTTPServer MODULE "$<TARGET_OBJECTS:XrdHTTPServerObj>")
 target_link_libraries(XrdHTTPServer XrdHTTPServerObj)
+# New library name, matches upstream's naming convention
+add_library(XrdOssHttp MODULE "$<TARGET_OBJECTS:XrdHTTPServerObj>")
+target_link_libraries(XrdOssHttp XrdHTTPServerObj)
 
 ######################
 ## libXrdOssFilter  ##
@@ -113,17 +120,21 @@ target_link_libraries( XrdOssFilter XrdOssFilterObj )
 if( APPLE )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  set_target_properties( XrdOssS3 PROPERTIES OUTPUT_NAME "XrdOssS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  set_target_properties( XrdOssHttp PROPERTIES OUTPUT_NAME "XrdOssHttp-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
 else()
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  set_target_properties( XrdOssS3 PROPERTIES OUTPUT_NAME "XrdOssS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  set_target_properties( XrdOssHttp PROPERTIES OUTPUT_NAME "XrdOssHttp-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
 endif()
 
 include(GNUInstallDirs)
 
 install(
-  TARGETS XrdS3 XrdHTTPServer
+  TARGETS XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 

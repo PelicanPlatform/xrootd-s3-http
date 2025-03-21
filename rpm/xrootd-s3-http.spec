@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.2.1
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        S3/HTTP filesystem plugins for xrootd
 
@@ -41,10 +41,17 @@ cmake --build redhat-linux-build --verbose
 %files
 %{_libdir}/libXrdHTTPServer-5.so
 %{_libdir}/libXrdS3-5.so
+%{_libdir}/libXrdOssHttp-5.so
+%{_libdir}/libXrdOssS3-5.so
+%{_libdir}/libXrdOssFilter-5.so
 %doc README.md
 %license LICENSE
 
 %changelog
+* Sat Mar 15 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.3.0-1
+- Add new filter plugin to the package
+- Add renamed plugins to the package
+
 * Sat Feb 1 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.2.1-1
 - Bump to upstream version 0.2.1.
 
