@@ -58,6 +58,30 @@ void parseEnvFile(const std::string &fname) {
 	}
 }
 
+TEST(TestHTTPFile, TestList) {
+	XrdSysLogger log;
+
+	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
+
+	struct stat si;
+	auto rc = fs.Stat("/hello_world.txt", &si);
+	ASSERT_EQ(rc, 0);
+	ASSERT_EQ(si.st_size, 13);
+
+	auto fh = fs.newFile();
+	XrdOucEnv env;
+	rc = fh->Open("/hello_world.txt", O_RDONLY, 0700, env);
+	ASSERT_EQ(rc, 0);
+
+	char buf[12];
+	auto res = fh->Read(buf, 0, 12);
+	ASSERT_EQ(res, 12);
+
+	ASSERT_EQ(memcmp(buf, "Hello, World", 12), 0);
+
+	ASSERT_EQ(fh->Close(), 0);
+}
+
 TEST(TestHTTPFile, TestXfer) {
 	XrdSysLogger log;
 

@@ -139,7 +139,7 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 // Object Allocation Functions
 //
 XrdOssDF *HTTPFileSystem::newDir(const char *user) {
-	return new HTTPDirectory(m_log);
+	return new HTTPDirectory(m_log, this);
 }
 
 XrdOssDF *HTTPFileSystem::newFile(const char *user) {
@@ -152,9 +152,11 @@ int HTTPFileSystem::Stat(const char *path, struct stat *buff, int opts,
 
 	m_log.Emsg("Stat", "Stat'ing path", path);
 
+	// need to forward a HEAD request to the remote server
+
 	HTTPFile httpFile(m_log, this);
 	int rv = httpFile.Open(path, 0, (mode_t)0, *env);
-	if (rv) {
+	if (rv && rv != EISDIR) {
 		m_log.Emsg("Stat", "Failed to open path:", path);
 	}
 	// Assume that HTTPFile::FStat() doesn't write to buff unless it succeeds.
