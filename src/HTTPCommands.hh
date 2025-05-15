@@ -351,6 +351,22 @@ class HTTPDownload final : public HTTPRequest {
 	std::string object;
 };
 
+class HTTPList final : public HTTPRequest {
+  public:
+	HTTPList(const std::string &h, const std::string &o, XrdSysError &log,
+			 const TokenFile *token)
+		: HTTPRequest(h, log, token), object(o) {
+		hostUrl = hostUrl + "/" + object;
+	}
+
+	virtual ~HTTPList();
+
+	virtual bool SendRequest();
+
+  protected:
+	std::string object;
+};
+
 class HTTPHead final : public HTTPRequest {
   public:
 	HTTPHead(const std::string &h, const std::string &o, XrdSysError &log,

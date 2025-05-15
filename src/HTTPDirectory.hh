@@ -18,22 +18,22 @@
 
 #pragma once
 
+#include "HTTPFileSystem.hh"
 #include "XrdOss/XrdOss.hh"
 #include "XrdOuc/XrdOucEnv.hh"
+#include "logging.hh"
 
-class XrdSysError;
+using namespace XrdHTTPServer;
 
 class HTTPDirectory : public XrdOssDF {
   public:
-	HTTPDirectory(XrdSysError &log) : m_log(log) {}
+	HTTPDirectory(XrdSysError &log, HTTPFileSystem *oss);
 
 	virtual ~HTTPDirectory() {}
 
-	virtual int Opendir(const char *path, XrdOucEnv &env) override {
-		return -ENOSYS;
-	}
+	virtual int Opendir(const char *path, XrdOucEnv &env) override;
 
-	virtual int Readdir(char *buff, int blen) override { return -ENOSYS; }
+	virtual int Readdir(char *buff, int blen) override;
 
 	virtual int StatRet(struct stat *statStruct) override { return -ENOSYS; }
 
@@ -41,4 +41,8 @@ class HTTPDirectory : public XrdOssDF {
 
   protected:
 	XrdSysError &m_log;
+	std::string m_object;
+	HTTPFileSystem *m_oss;
+	std::string m_hostname;
+	std::string m_hostUrl;
 };

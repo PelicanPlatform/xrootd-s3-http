@@ -163,6 +163,15 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		if (rv < 0) {
 			return rv;
 		}
+		if (S_ISDIR(buf.st_mode)) {
+			return EISDIR;
+		} else {
+			return 0;
+		}
+		// XXX May need to return an error here to show that the request is
+		// against a directory instead of file could be:
+		// https://man7.org/linux/man-pages/man2/open.2.html return may be
+		// -EISDIR
 	}
 
 	m_is_open = true;
@@ -193,7 +202,11 @@ ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
 int HTTPFile::Fstat(struct stat *buff) {
 	if (m_stat) {
 		memset(buff, '\0', sizeof(struct stat));
-		buff->st_mode = 0600 | S_IFREG;
+		if (m_object == "")
+			buff->st_mode = 0600 | S_IFDIR;
+		else
+			buff->st_mode = 0600 | S_IFREG;
+
 		buff->st_nlink = 1;
 		buff->st_uid = 1;
 		buff->st_gid = 1;
@@ -258,9 +271,18 @@ int HTTPFile::Fstat(struct stat *buff) {
 		current_newline = next_newline;
 	}
 
+	// headers are totally different for a file versus an html stream
+	// describing a directory. note that here and fill out the buffer
+	// accordingly
+
+	buff->st_mode = 0600 | S_IFDIR;
 	if (buff) {
 		memset(buff, '\0', sizeof(struct stat));
-		buff->st_mode = 0600 | S_IFREG;
+		if (m_object == "")
+			buff->st_mode = 0600 | S_IFDIR;
+		else
+			buff->st_mode = 0600 | S_IFREG;
+
 		buff->st_nlink = 1;
 		buff->st_uid = 1;
 		buff->st_gid = 1;
