@@ -115,7 +115,7 @@ target_link_libraries(XrdOssS3 XrdS3Obj)
 add_library(XrdHTTPServerObj OBJECT src/CurlUtil.cc src/HTTPFile.cc src/HTTPDirectory.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
 set_target_properties(XrdHTTPServerObj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdHTTPServerObj PRIVATE ${XRootD_INCLUDE_DIRS})
-target_link_libraries(XrdHTTPServerObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto Threads::Threads std::filesystem)
+target_link_libraries(XrdHTTPServerObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl  tinyxml2::tinyxml2 OpenSSL::Crypto Threads::Threads std::filesystem)
 
 # Compatability library, doesn't match upstream's naming convention
 add_library(XrdHTTPServer MODULE "$<TARGET_OBJECTS:XrdHTTPServerObj>")
