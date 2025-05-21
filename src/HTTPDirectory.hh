@@ -28,7 +28,6 @@ using namespace XrdHTTPServer;
 class HTTPDirectory : public XrdOssDF {
   public:
 	HTTPDirectory(XrdSysError &log, HTTPFileSystem *oss);
-
 	virtual ~HTTPDirectory() {}
 
 	virtual int Opendir(const char *path, XrdOucEnv &env) override;
@@ -40,9 +39,21 @@ class HTTPDirectory : public XrdOssDF {
 	virtual int Close(long long *retsz = 0) override { return -ENOSYS; }
 
   protected:
+	struct FSSpecEntry {
+		std::string mode;
+		std::string flags;
+		std::string size;
+		std::string modified;
+		std::string name;
+	};
+
+	std::string parseHTMLToFSSpecString(const std::string &htmlContent);
+	std::string extractHTMLTable(const std::string &htmlContent);
+
 	XrdSysError &m_log;
 	std::string m_object;
 	HTTPFileSystem *m_oss;
 	std::string m_hostname;
 	std::string m_hostUrl;
+	bool m_readdirCalled; // Tracks if Readdir has been called.
 };
