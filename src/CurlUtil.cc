@@ -58,7 +58,7 @@ CURL *HandlerQueue::GetHandle() {
 		return result;
 	}
 
-	curl_easy_setopt(result, CURLOPT_USERAGENT, "xrootd-s3/devel");
+	curl_easy_setopt(result, CURLOPT_USERAGENT, "xrootd-s3/0.4.0");
 	curl_easy_setopt(result, CURLOPT_BUFFERSIZE, 32 * 1024);
 
 	return result;

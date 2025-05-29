@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.3.0
+Version:        0.4.0
 Release:        1%{?dist}
 Summary:        S3/HTTP filesystem plugins for xrootd
 
@@ -48,6 +48,11 @@ cmake --build redhat-linux-build --verbose
 %license LICENSE
 
 %changelog
+* Thu May 29 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.4.0-1
+- Improve logging messages to include timing of read requests
+- Implement the vector read method, used by some clients.
+- Send basic cache performance statistics out via the XRootD OSS g-stream.
+
 * Sat Mar 15 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.3.0-1
 - Add new filter plugin to the package
 - Add renamed plugins to the package
