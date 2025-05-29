@@ -29,12 +29,14 @@
 #include <XrdSec/XrdSecEntityAttr.hh>
 #include <XrdSfs/XrdSfsInterface.hh>
 #include <XrdVersion.hh>
+#include <XrdXrootd/XrdXrootdGStream.hh>
 
 #include <curl/curl.h>
 
 #include <algorithm>
 #include <charconv>
 #include <filesystem>
+#include <inttypes.h>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -49,6 +51,28 @@
 using namespace XrdHTTPServer;
 
 S3FileSystem *g_s3_oss = nullptr;
+
+size_t S3File::m_cache_entry_size =
+	(2 * 1024 * 1024); // Default size of the cache's buffer
+XrdXrootdGStream *S3File::m_gstream = nullptr;
+
+std::atomic<off_t> S3File::S3Cache::m_hit_bytes{0};
+std::atomic<off_t> S3File::S3Cache::m_miss_bytes{0};
+std::atomic<off_t> S3File::S3Cache::m_full_hit_count{0};
+std::atomic<off_t> S3File::S3Cache::m_partial_hit_count{0};
+std::atomic<off_t> S3File::S3Cache::m_miss_count{0};
+std::atomic<off_t> S3File::S3Cache::m_bypass_bytes{0};
+std::atomic<off_t> S3File::S3Cache::m_bypass_count{0};
+std::atomic<off_t> S3File::S3Cache::m_fetch_bytes{0};
+std::atomic<off_t> S3File::S3Cache::m_fetch_count{0};
+std::atomic<off_t> S3File::S3Cache::m_unused_bytes{0};
+std::atomic<off_t> S3File::S3Cache::m_prefetch_bytes{0};
+std::atomic<off_t> S3File::S3Cache::m_prefetch_count{0};
+std::atomic<off_t> S3File::S3Cache::m_errors{0};
+std::atomic<std::chrono::steady_clock::duration::rep>
+	S3File::S3Cache::m_bypass_duration{0};
+std::atomic<std::chrono::steady_clock::duration::rep>
+	S3File::S3Cache::m_fetch_duration{0};
 
 XrdVERSIONINFO(XrdOssGetFileSystem, S3);
 
@@ -351,16 +375,37 @@ ssize_t S3File::ContinueSendPart(const void *buffer, size_t size) {
 	return write_size;
 }
 
-void S3File::LaunchMonitorThread() {
-	std::call_once(m_monitor_launch, [] {
-		std::thread t(S3File::CleanupTransfers);
+void S3File::LaunchMonitorThread(XrdSysError &log, XrdOucEnv *envP) {
+	std::call_once(m_monitor_launch, [&] {
+		if (envP) {
+			m_gstream = reinterpret_cast<XrdXrootdGStream *>(
+				envP->GetPtr("oss.gStream*"));
+			if (m_gstream) {
+				log.Say("Config", "S3 OSS monitoring has been configured via "
+								  "xrootd.mongstream directive");
+			} else {
+				log.Say(
+					"Config",
+					"S3 OSS plugin is not configured to send statistics; "
+					"use `xrootd.mongstream oss ...` directive to enable it");
+			}
+		} else {
+			log.Say("Config", "XrdOssStats plugin invoked without a configured "
+							  "environment; likely an internal error");
+		}
+		std::thread t(S3File::Maintenance, std::ref(log));
 		t.detach();
 	});
 }
 
-void S3File::CleanupTransfers() {
+void S3File::Maintenance(XrdSysError &log) {
+	auto sleep_duration = HTTPRequest::GetStallTimeout() / 3;
+	if (sleep_duration > std::chrono::seconds(1)) {
+		sleep_duration = std::chrono::seconds(1);
+	}
 	while (true) {
-		std::this_thread::sleep_for(HTTPRequest::GetStallTimeout() / 3);
+
+		std::this_thread::sleep_for(sleep_duration);
 		try {
 			CleanupTransfersOnce();
 		} catch (std::exception &exc) {
@@ -368,6 +413,81 @@ void S3File::CleanupTransfers() {
 						 "clean transfers: "
 					  << exc.what() << std::endl;
 		}
+		try {
+			SendStatistics(log);
+		} catch (std::exception &exc) {
+			std::cerr << "Warning: caught unexpected exception when trying to "
+						 "send statistics: "
+					  << exc.what() << std::endl;
+		}
+	}
+}
+
+void S3File::SendStatistics(XrdSysError &log) {
+	char buf[1500];
+	auto bypass_duration_count =
+		S3Cache::m_bypass_duration.load(std::memory_order_relaxed);
+	auto fetch_duration_count =
+		S3Cache::m_fetch_duration.load(std::memory_order_relaxed);
+	std::chrono::steady_clock::duration bypass_duration{
+		std::chrono::steady_clock::duration::rep(bypass_duration_count)};
+	std::chrono::steady_clock::duration fetch_duration{
+		std::chrono::steady_clock::duration::rep(fetch_duration_count)};
+	auto bypass_s = std::chrono::duration_cast<std::chrono::duration<float>>(
+						bypass_duration)
+						.count();
+	auto fetch_s =
+		std::chrono::duration_cast<std::chrono::duration<float>>(fetch_duration)
+			.count();
+	auto len = snprintf(
+		buf, 500,
+		"{"
+		"\"event\":\"s3file_stats\","
+		"\"hit_b\":%" PRIu64 ",\"miss_b\":%" PRIu64 ",\"full_hit\":%" PRIu64 ","
+		"\"part_hit\":%" PRIu64 ",\"miss\":%" PRIu64 ",\"bypass_b\":%" PRIu64
+		","
+		"\"bypass\":%" PRIu64 ",\"fetch_b\":%" PRIu64 ",\"fetch\":%" PRIu64 ","
+		"\"unused_b\":%" PRIu64 ",\"prefetch_b\":%" PRIu64
+		",\"prefetch\":%" PRIu64 ","
+		"\"errors\":%" PRIu64 ",\"bypass_s\":%.3f,\"fetch_s\":%.3f"
+		"}",
+		static_cast<uint64_t>(
+			S3Cache::m_hit_bytes.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_miss_bytes.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_full_hit_count.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_partial_hit_count.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_miss_count.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_bypass_bytes.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_bypass_count.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_fetch_bytes.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_fetch_count.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_unused_bytes.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_prefetch_bytes.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_prefetch_count.load(std::memory_order_relaxed)),
+		static_cast<uint64_t>(
+			S3Cache::m_errors.load(std::memory_order_relaxed)),
+		bypass_s, fetch_s);
+	if (len >= 500) {
+		log.Log(LogMask::Error, "Statistics",
+				"Failed to generate g-stream statistics packet");
+		return;
+	}
+	log.Log(LogMask::Debug, "Statistics", buf);
+	if (m_gstream && !m_gstream->Insert(buf, len + 1)) {
+		log.Log(LogMask::Error, "Statistics",
+				"Failed to send g-stream statistics packet");
+		return;
 	}
 }
 
@@ -521,23 +641,30 @@ OverlapCopy(off_t req_off, size_t req_size, char *req_buf, off_t cache_off,
 
 std::tuple<off_t, size_t, off_t, size_t>
 S3File::S3Cache::Entry::OverlapCopy(off_t req_off, size_t req_size,
-									char *req_buf) {
+									char *req_buf, bool is_hit) {
 	size_t bytes_copied = 0;
 	auto results =
 		::OverlapCopy(req_off, req_size, req_buf, m_off, m_cache_entry_size,
 					  m_data.data(), bytes_copied);
-	m_parent.m_hit_bytes += bytes_copied;
+	if (is_hit) {
+		m_parent.m_hit_bytes.fetch_add(bytes_copied, std::memory_order_relaxed);
+	}
 	m_used += bytes_copied;
 	return results;
 }
 
 std::tuple<off_t, size_t, bool>
 S3File::DownloadBypass(off_t offset, size_t size, char *buffer) {
-	if (size <= m_cache_entry_size) {
+	if (m_cache_entry_size && (size <= m_cache_entry_size)) {
 		return std::make_tuple(offset, size, false);
 	}
 	AmazonS3Download download(m_ai, m_object, m_log, buffer);
-	if (!download.SendRequest(offset, size)) {
+	auto start = std::chrono::steady_clock::now();
+	auto result = download.SendRequest(offset, size);
+	auto duration = std::chrono::steady_clock::now() - start;
+	m_cache.m_bypass_duration.fetch_add(duration.count(),
+										std::memory_order_relaxed);
+	if (!result) {
 		std::stringstream ss;
 		ss << "Failed to send GetObject command: " << download.getResponseCode()
 		   << "'" << download.getResultString() << "'";
@@ -610,7 +737,7 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 	// Copy as much data out of the cache as possible; wait for the caches to
 	// finish their downloads if a cache fill is in progress and we could
 	// utilize the cache fill.
-	{
+	if (m_cache_entry_size) {
 		std::unique_lock lk{m_mutex};
 		if (m_a.m_inprogress) {
 			m_cv.wait(lk, [&] {
@@ -620,7 +747,7 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 		off_t req1_off, req2_off;
 		size_t req1_size, req2_size;
 		std::tie(req1_off, req1_size, req2_off, req2_size) =
-			m_a.OverlapCopy(offset, size, buffer);
+			m_a.OverlapCopy(offset, size, buffer, true);
 		if (m_b.m_inprogress) {
 			m_cv.wait(lk, [&] {
 				return !m_b.m_inprogress ||
@@ -628,10 +755,23 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 						 CouldUse(req2_off, req2_size, m_b.m_off));
 			});
 		}
-		std::tie(req3_off, req3_size, req4_off, req4_size) =
-			m_b.OverlapCopy(req1_off, req1_size, buffer + req1_off - offset);
-		std::tie(req5_off, req5_size, req6_off, req6_size) =
-			m_b.OverlapCopy(req2_off, req2_size, buffer + req2_off - offset);
+		std::tie(req3_off, req3_size, req4_off, req4_size) = m_b.OverlapCopy(
+			req1_off, req1_size, buffer + req1_off - offset, true);
+		std::tie(req5_off, req5_size, req6_off, req6_size) = m_b.OverlapCopy(
+			req2_off, req2_size, buffer + req2_off - offset, true);
+	} else {
+		auto [off_next, size_next, downloaded] =
+			m_parent.DownloadBypass(offset, size, buffer);
+		if (!downloaded) {
+			m_parent.m_log.Log(LogMask::Warning, "S3File::Read",
+							   "Failed to download data bypassing the cache");
+			m_errors.fetch_add(1, std::memory_order_relaxed);
+			return -1;
+		} else {
+			m_bypass_bytes.fetch_add(size, std::memory_order_relaxed);
+			m_bypass_count.fetch_add(1, std::memory_order_relaxed);
+			return size;
+		}
 	}
 	// If any of the remaining missing bytes are bigger than a single chunk,
 	// download those bypassing the cache.
@@ -640,48 +780,48 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 	std::tie(req3_off, req3_size, downloaded) = m_parent.DownloadBypass(
 		req3_off, req3_size, buffer + req3_off - offset);
 	if (req3_size < 0) {
-		m_errors += 1;
+		m_errors.fetch_add(1, std::memory_order_relaxed);
 		return -1;
 	}
 	if (downloaded) {
-		m_bypass_bytes += bypass_size;
-		m_bypass_count += 1;
+		m_bypass_bytes.fetch_add(bypass_size, std::memory_order_relaxed);
+		m_bypass_count.fetch_add(1, std::memory_order_relaxed);
 	}
 	bypass_size = req4_size;
 	std::tie(req4_off, req4_size, downloaded) = m_parent.DownloadBypass(
 		req4_off, req4_size, buffer + req4_off - offset);
 	if (req4_size < 0) {
-		m_errors += 1;
+		m_errors.fetch_add(1, std::memory_order_relaxed);
 		return -1;
 	}
 	if (downloaded) {
-		m_bypass_bytes += bypass_size;
-		m_bypass_count += 1;
+		m_bypass_bytes.fetch_add(bypass_size, std::memory_order_relaxed);
+		m_bypass_count.fetch_add(1, std::memory_order_relaxed);
 	}
 	bypass_size = req5_size;
 	std::tie(req5_off, req5_size, downloaded) = m_parent.DownloadBypass(
 		req5_off, req5_size, buffer + req5_off - offset);
 	if (req5_size < 0) {
-		m_errors += 1;
+		m_errors.fetch_add(1, std::memory_order_relaxed);
 		return -1;
 	}
 	if (downloaded) {
-		m_bypass_bytes += bypass_size;
-		m_bypass_count += 1;
+		m_bypass_bytes.fetch_add(bypass_size, std::memory_order_relaxed);
+		m_bypass_count.fetch_add(1, std::memory_order_relaxed);
 	}
 	bypass_size = req6_size;
 	std::tie(req6_off, req6_size, downloaded) = m_parent.DownloadBypass(
 		req6_off, req6_size, buffer + req6_off - offset);
 	if (req6_size < 0) {
-		m_errors += 1;
+		m_errors.fetch_add(1, std::memory_order_relaxed);
 		return -1;
 	}
 	if (downloaded) {
-		m_bypass_bytes += bypass_size;
-		m_bypass_count += 1;
+		m_bypass_bytes.fetch_add(bypass_size, std::memory_order_relaxed);
+		m_bypass_count.fetch_add(1, std::memory_order_relaxed);
 	}
 	if (req3_size == 0 && req4_size == 0 && req5_size == 0 && req6_size == 0) {
-		m_full_hit_count += 1;
+		m_full_hit_count.fetch_add(1, std::memory_order_relaxed);
 		// We've used more bytes in the cache, potentially all of the bytes.
 		// In that case, we could drop one of the cache entries and prefetch
 		// more of the object.
@@ -705,12 +845,22 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 			}
 		}
 		if (download_a) {
-			m_prefetch_count++;
-			m_prefetch_bytes += m_cache_entry_size;
+			size_t request_size = m_cache_entry_size;
+			if (m_a.m_off + static_cast<off_t>(request_size) >
+				m_parent.content_length) {
+				request_size = m_parent.content_length - m_a.m_off;
+			}
+			m_prefetch_count.fetch_add(1, std::memory_order_relaxed);
+			m_prefetch_bytes.fetch_add(request_size, std::memory_order_relaxed);
 		}
 		if (download_b) {
-			m_prefetch_count++;
-			m_prefetch_bytes += m_cache_entry_size;
+			size_t request_size = m_cache_entry_size;
+			if (m_b.m_off + static_cast<off_t>(request_size) >
+				m_parent.content_length) {
+				request_size = m_parent.content_length - m_b.m_off;
+			}
+			m_prefetch_count.fetch_add(1, std::memory_order_relaxed);
+			m_prefetch_bytes.fetch_add(request_size, std::memory_order_relaxed);
 		}
 		DownloadCaches(download_a, download_b, false);
 		return size;
@@ -758,11 +908,11 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 	}
 	size_t miss_bytes = req1_size + req2_size;
 	if (miss_bytes == size) {
-		m_miss_count += 1;
+		m_miss_count.fetch_add(1, std::memory_order_relaxed);
 	} else {
-		m_partial_hit_count += 1;
+		m_partial_hit_count.fetch_add(1, std::memory_order_relaxed);
 	}
-	m_miss_bytes += miss_bytes;
+	m_miss_bytes.fetch_add(miss_bytes, std::memory_order_relaxed);
 	while (req1_off != -1) {
 		std::unique_lock lk(m_mutex);
 		m_cv.wait(lk, [&] {
@@ -811,11 +961,11 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 				if (m_a.m_failed) {
 					m_a.m_failed = false;
 					m_a.m_off = -1;
-					m_errors += 1;
+					m_errors.fetch_add(1, std::memory_order_relaxed);
 					return -1;
 				}
-				m_a.OverlapCopy(req2_off, req2_size,
-								buffer + req2_off - offset);
+				m_a.OverlapCopy(req2_off, req2_size, buffer + req2_off - offset,
+								false);
 				req2_off = -1;
 				req2_size = 0;
 				consumed_req = true;
@@ -824,11 +974,11 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 				if (m_a.m_failed) {
 					m_a.m_failed = false;
 					m_a.m_off = -1;
-					m_errors += 1;
+					m_errors.fetch_add(1, std::memory_order_relaxed);
 					return -1;
 				}
-				m_a.OverlapCopy(req1_off, req1_size,
-								buffer + req1_off - offset);
+				m_a.OverlapCopy(req1_off, req1_size, buffer + req1_off - offset,
+								false);
 				req1_off = req2_off;
 				req1_size = req2_size;
 				req2_off = -1;
@@ -841,11 +991,11 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 				if (m_b.m_failed) {
 					m_b.m_failed = false;
 					m_b.m_off = -1;
-					m_errors += 1;
+					m_errors.fetch_add(1, std::memory_order_relaxed);
 					return -1;
 				}
-				m_b.OverlapCopy(req2_off, req2_size,
-								buffer + req2_off - offset);
+				m_b.OverlapCopy(req2_off, req2_size, buffer + req2_off - offset,
+								false);
 				req2_off = -1;
 				req2_size = 0;
 				consumed_req = true;
@@ -854,11 +1004,11 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 				if (m_b.m_failed) {
 					m_b.m_failed = false;
 					m_b.m_off = -1;
-					m_errors += 1;
+					m_errors.fetch_add(1, std::memory_order_relaxed);
 					return -1;
 				}
-				m_b.OverlapCopy(req1_off, req1_size,
-								buffer + req1_off - offset);
+				m_b.OverlapCopy(req1_off, req1_size, buffer + req1_off - offset,
+								false);
 				req1_off = req2_off;
 				req1_size = req2_size;
 				req2_off = -1;
@@ -931,7 +1081,9 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 						auto bytes_unused =
 							static_cast<ssize_t>(m_cache_entry_size) -
 							static_cast<ssize_t>(m_b.m_used);
-						m_unused_bytes += bytes_unused < 0 ? 0 : bytes_unused;
+						m_unused_bytes.fetch_add(
+							bytes_unused < 0 ? 0 : bytes_unused,
+							std::memory_order_relaxed);
 					} else {
 						m_a.m_off = needed_off;
 						download_a = true;
@@ -939,22 +1091,39 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 						auto bytes_unused =
 							static_cast<ssize_t>(m_cache_entry_size) -
 							static_cast<ssize_t>(m_a.m_used);
-						m_unused_bytes += bytes_unused < 0 ? 0 : bytes_unused;
+						m_unused_bytes.fetch_add(
+							bytes_unused < 0 ? 0 : bytes_unused,
+							std::memory_order_relaxed);
 					}
 				}
 			}
 		} // else both caches are in-progress and neither satisfied our needs
 		if (download_a) {
-			m_fetch_count += 1;
-			m_fetch_bytes += m_cache_entry_size;
+			size_t request_size = m_cache_entry_size;
+			if (m_a.m_off + static_cast<off_t>(request_size) >
+				m_parent.content_length) {
+				request_size = m_parent.content_length - m_a.m_off;
+			}
+			m_fetch_count.fetch_add(1, std::memory_order_relaxed);
+			m_fetch_bytes.fetch_add(request_size, std::memory_order_relaxed);
 		}
 		if (download_b) {
-			m_fetch_count += 1;
-			m_fetch_bytes += m_cache_entry_size;
+			size_t request_size = m_cache_entry_size;
+			if (m_b.m_off + static_cast<off_t>(request_size) >
+				m_parent.content_length) {
+				request_size = m_parent.content_length - m_b.m_off;
+			}
+			m_fetch_count.fetch_add(1, std::memory_order_relaxed);
+			m_fetch_bytes.fetch_add(request_size, std::memory_order_relaxed);
 		}
 		if (prefetch_b) {
-			m_prefetch_count += 1;
-			m_prefetch_bytes += m_cache_entry_size;
+			size_t request_size = m_cache_entry_size;
+			if (m_b.m_off + static_cast<off_t>(request_size) >
+				m_parent.content_length) {
+				request_size = m_parent.content_length - m_b.m_off;
+			}
+			m_prefetch_count.fetch_add(1, std::memory_order_relaxed);
+			m_prefetch_bytes.fetch_add(request_size, std::memory_order_relaxed);
 		}
 		DownloadCaches(download_a, download_b || prefetch_b, true);
 	}
@@ -965,11 +1134,13 @@ void S3File::S3Cache::Entry::Notify() {
 	std::unique_lock lk(m_parent.m_mutex);
 	m_inprogress = false;
 	m_failed = !m_request->getErrorCode().empty();
+	auto duration = m_request->getElapsedTime();
+	m_parent.m_fetch_duration.fetch_add(duration.count(),
+										std::memory_order_relaxed);
 	if ((m_parent.m_parent.m_log.getMsgMask() & LogMask::Warning) && m_failed) {
 		std::stringstream ss;
 		auto duration_ms =
-			std::chrono::duration_cast<std::chrono::milliseconds>(
-				m_request->getElapsedTime())
+			std::chrono::duration_cast<std::chrono::milliseconds>(duration)
 				.count();
 		ss << "Finished GET for object=" << m_parent.m_parent.m_object
 		   << ", offset=" << m_off << ", size=" << m_data.size()
@@ -980,8 +1151,7 @@ void S3File::S3Cache::Entry::Notify() {
 	} else if (m_parent.m_parent.m_log.getMsgMask() & LogMask::Debug) {
 		std::stringstream ss;
 		auto duration_ms =
-			std::chrono::duration_cast<std::chrono::milliseconds>(
-				m_request->getElapsedTime())
+			std::chrono::duration_cast<std::chrono::milliseconds>(duration)
 				.count();
 		ss << "Finished GET for object=" << m_parent.m_parent.m_object
 		   << ", offset=" << m_off << ", size=" << m_data.size()
@@ -1057,7 +1227,7 @@ XrdOss *XrdOssGetStorageSystem2(XrdOss *native_oss, XrdSysLogger *Logger,
 
 	envP->Export("XRDXROOTD_NOPOSC", "1");
 
-	S3File::LaunchMonitorThread();
+	S3File::LaunchMonitorThread(*log, envP);
 	try {
 		AmazonRequest::Init(*log);
 		g_s3_oss = new S3FileSystem(Logger, config_fn, envP);

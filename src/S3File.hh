@@ -39,6 +39,7 @@ int parse_path(const S3FileSystem &fs, const char *path,
 
 class AmazonS3SendMultipartPart;
 template <typename T> class AmazonS3NonblockingDownload;
+class XrdXrootdGStream;
 
 class S3File : public XrdOssDF {
   public:
@@ -104,7 +105,10 @@ class S3File : public XrdOssDF {
 	// Launch the global monitor thread associated with S3File objects.
 	// Currently, the monitor thread is used to cleanup in-progress file
 	// transfers that have been abandoned.
-	static void LaunchMonitorThread();
+	static void LaunchMonitorThread(XrdSysError &log, XrdOucEnv *envP);
+
+	// Sets the size of the cache entry; defaults to 2MB.
+	static void SetCacheEntrySize(size_t size) { m_cache_entry_size = size; }
 
   private:
 	// Periodic cleanup of in-progress transfers.
@@ -112,10 +116,13 @@ class S3File : public XrdOssDF {
 	// Iterates through the global list of pending multipart uploads
 	// that may be paused.  For each, call `Tick` on the upload and
 	// see if the transfer has aborted.
-	static void CleanupTransfers();
+	static void Maintenance(XrdSysError &log);
 
 	// Single cleanup run for in-progress transfers.
 	static void CleanupTransfersOnce();
+
+	// Send out the statistics to the log or monitoring system.
+	static void SendStatistics(XrdSysError &log);
 
 	// Write data while in "streaming mode" where we don't know the
 	// ultimate size of the file (and hence can't start streaming
@@ -152,8 +159,8 @@ class S3File : public XrdOssDF {
 	static const size_t m_s3_part_size =
 		100'000'000; // The size of each S3 chunk.
 
-	static constexpr size_t m_cache_entry_size =
-		(2 * 1024 * 1024); // Size of the buffer associated with the cache
+	// Size of the buffer associated with the cache
+	static size_t m_cache_entry_size;
 
 	bool m_create{false};
 	int partNumber;
@@ -202,6 +209,9 @@ class S3File : public XrdOssDF {
 	// Flag determining whether the monitoring thread has been launched.
 	static std::once_flag m_monitor_launch;
 
+	// The pointer to the "g-stream" monitoring object, if available.
+	static XrdXrootdGStream *m_gstream;
+
 	// The double-buffering component for the file handle.  Reads are rounded up
 	// to a particular size and kept in the file handle; before requesting new
 	// data, the cache is searched to see if the read can be serviced from
@@ -234,38 +244,48 @@ class S3File : public XrdOssDF {
 			// - `req_off`: File offset of the beginning of the request buffer.
 			// - `req_size`: Size of the request buffer
 			// - `req_buf`: Request buffer to copy data into
+			// - `is_hit`: If the request is a cache hit, then OverlapCopy will
+			//   increment the hit bytes counter.
 			// - Returns the (offset, size) of the remaining reads needed to
 			// satisfy the request. If there is only one (or no!) remaining
 			// reads, then the corresponding tuple returned is (-1, 0).
 			std::tuple<off_t, size_t, off_t, size_t>
-			OverlapCopy(off_t req_off, size_t req_size, char *req_buf);
+			OverlapCopy(off_t req_off, size_t req_size, char *req_buf,
+						bool is_hit);
 		};
 		friend class AmazonS3NonblockingDownload<S3File::S3Cache::Entry>;
 
-		std::atomic<off_t> m_hit_bytes{0}; // Bytes served from the cache.
-		std::atomic<off_t> m_miss_bytes{
-			0}; // Bytes that resulted in a cache miss.
-		std::atomic<off_t> m_full_hit_count{
-			0}; // Requests completely served from the cache.
-		std::atomic<off_t> m_partial_hit_count{
-			0}; // Requests partially served from the cache.
-		std::atomic<off_t> m_miss_count{
-			0}; // Requests that had no data served from the cache.
-		std::atomic<off_t> m_bypass_bytes{
-			0}; // Bytes for requests that were large enough they bypassed the
-				// cache and fetched directly from S3.
-		std::atomic<off_t> m_bypass_count{
-			0}; // Requests that were large enough they (at least partially)
-				// bypassed the cache and fetched directly from S3.
-		std::atomic<off_t> m_fetch_bytes{
-			0}; // Bytes that were fetched from S3 to serve a cache miss.
-		std::atomic<off_t> m_fetch_count{
-			0}; // Requests sent to S3 to serve a cache miss.
-		std::atomic<off_t> m_unused_bytes{
-			0}; // Bytes that were unused at cache eviction.
-		std::atomic<off_t> m_prefetch_bytes{0}; // Bytes prefetched
-		std::atomic<off_t> m_prefetch_count{0}; // Number of prefetch requests
-		std::atomic<off_t> m_errors{0}; // Count of errors encountered by cache.
+		static std::atomic<off_t> m_hit_bytes; // Bytes served from the cache.
+		static std::atomic<off_t>
+			m_miss_bytes; // Bytes that resulted in a cache miss.
+		static std::atomic<off_t>
+			m_full_hit_count; // Requests completely served from the cache.
+		static std::atomic<off_t>
+			m_partial_hit_count; // Requests partially served from the cache.
+		static std::atomic<off_t>
+			m_miss_count; // Requests that had no data served from the cache.
+		static std::atomic<off_t>
+			m_bypass_bytes; // Bytes for requests that were large enough they
+							// bypassed the cache and fetched directly from S3.
+		static std::atomic<off_t>
+			m_bypass_count; // Requests that were large enough they (at least
+							// partially) bypassed the cache and fetched
+							// directly from S3.
+		static std::atomic<off_t> m_fetch_bytes; // Bytes that were fetched from
+												 // S3 to serve a cache miss.
+		static std::atomic<off_t>
+			m_fetch_count; // Requests sent to S3 to serve a cache miss.
+		static std::atomic<off_t>
+			m_unused_bytes; // Bytes that were unused at cache eviction.
+		static std::atomic<off_t> m_prefetch_bytes; // Bytes prefetched
+		static std::atomic<off_t>
+			m_prefetch_count; // Number of prefetch requests
+		static std::atomic<off_t>
+			m_errors; // Count of errors encountered by cache.
+		static std::atomic<std::chrono::steady_clock::duration::rep>
+			m_bypass_duration; // Duration of bypass requests.
+		static std::atomic<std::chrono::steady_clock::duration::rep>
+			m_fetch_duration; // Duration of fetch requests.
 
 		Entry m_a{*this};	// Cache entry A.  Protected by m_mutex.
 		Entry m_b{*this};	// Cache entry B.  Protected by m_mutex.
