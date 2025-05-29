@@ -89,7 +89,7 @@ class S3File : public XrdOssDF {
 		return -ENOSYS;
 	}
 
-	ssize_t ReadV(XrdOucIOVec *readV, int rdvcnt) override { return -ENOSYS; }
+	ssize_t ReadV(XrdOucIOVec *readV, int rdvcnt) override;
 
 	ssize_t Write(const void *buffer, off_t offset, size_t size) override;
 

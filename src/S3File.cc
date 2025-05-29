@@ -147,6 +147,30 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	return 0;
 }
 
+ssize_t S3File::ReadV(XrdOucIOVec *readV, int rdvcnt) {
+	if (rdvcnt <= 0 || !readV) {
+		return -EINVAL;
+	}
+
+	size_t totalRead = 0;
+	for (int i = 0; i < rdvcnt; ++i) {
+		auto &iov = readV[i];
+		if (iov.size == 0) {
+			continue;
+		}
+		auto bytesRead =
+			Read(static_cast<void *>(iov.data), iov.offset, iov.size);
+		if (bytesRead < 0) {
+			return bytesRead;
+		} else if (bytesRead != iov.size) {
+			// Error number copied from implementation in XrdOss/XrdOssApi.cc
+			return -ESPIPE;
+		}
+		totalRead += bytesRead;
+	}
+	return totalRead;
+}
+
 ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
 	return m_cache.Read(static_cast<char *>(buffer), offset, size);
 }
