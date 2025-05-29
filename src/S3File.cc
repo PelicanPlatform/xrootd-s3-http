@@ -124,7 +124,7 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 }
 
 ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
-	return m_cache.Read(*this, static_cast<char *>(buffer), offset, size);
+	return m_cache.Read(static_cast<char *>(buffer), offset, size);
 }
 
 int S3File::Fstat(struct stat *buff) {
@@ -573,8 +573,8 @@ bool S3File::S3Cache::CouldUse(off_t req_off, size_t req_size,
 	}
 }
 
-void S3File::S3Cache::DownloadCaches(S3File &file, bool download_a,
-									 bool download_b, bool locked) {
+void S3File::S3Cache::DownloadCaches(bool download_a, bool download_b,
+									 bool locked) {
 	if (!download_a && !download_b) {
 		return;
 	}
@@ -584,25 +584,25 @@ void S3File::S3Cache::DownloadCaches(S3File &file, bool download_a,
 		lk.lock();
 	}
 	if (download_a) {
-		m_a.Download(file);
+		m_a.Download(m_parent);
 	}
 	if (download_b) {
-		m_b.Download(file);
+		m_b.Download(m_parent);
 	}
 }
 
-ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
-							  size_t size) {
-	if (offset >= file.content_length) {
+ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
+	if (offset >= m_parent.content_length) {
 		return 0;
 	}
-	if (offset + static_cast<off_t>(size) > file.content_length) {
-		size = file.content_length - offset;
+	if (offset + static_cast<off_t>(size) > m_parent.content_length) {
+		size = m_parent.content_length - offset;
 	}
-	if (file.m_log.getMsgMask() & LogMask::Debug) {
+	if (m_parent.m_log.getMsgMask() & LogMask::Debug) {
 		std::stringstream ss;
-		ss << "Read request for offset=" << offset << ", size=" << size;
-		file.m_log.Log(LogMask::Debug, "cache", ss.str().c_str());
+		ss << "Read request for object=" << m_parent.m_object
+		   << ", offset=" << offset << ", size=" << size;
+		m_parent.m_log.Log(LogMask::Debug, "cache", ss.str().c_str());
 	}
 
 	off_t req3_off, req4_off, req5_off, req6_off;
@@ -637,8 +637,8 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 	// download those bypassing the cache.
 	bool downloaded;
 	size_t bypass_size = req3_size;
-	std::tie(req3_off, req3_size, downloaded) =
-		file.DownloadBypass(req3_off, req3_size, buffer + req3_off - offset);
+	std::tie(req3_off, req3_size, downloaded) = m_parent.DownloadBypass(
+		req3_off, req3_size, buffer + req3_off - offset);
 	if (req3_size < 0) {
 		m_errors += 1;
 		return -1;
@@ -648,8 +648,8 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 		m_bypass_count += 1;
 	}
 	bypass_size = req4_size;
-	std::tie(req4_off, req4_size, downloaded) =
-		file.DownloadBypass(req4_off, req4_size, buffer + req4_off - offset);
+	std::tie(req4_off, req4_size, downloaded) = m_parent.DownloadBypass(
+		req4_off, req4_size, buffer + req4_off - offset);
 	if (req4_size < 0) {
 		m_errors += 1;
 		return -1;
@@ -659,8 +659,8 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 		m_bypass_count += 1;
 	}
 	bypass_size = req5_size;
-	std::tie(req5_off, req5_size, downloaded) =
-		file.DownloadBypass(req5_off, req5_size, buffer + req5_off - offset);
+	std::tie(req5_off, req5_size, downloaded) = m_parent.DownloadBypass(
+		req5_off, req5_size, buffer + req5_off - offset);
 	if (req5_size < 0) {
 		m_errors += 1;
 		return -1;
@@ -670,8 +670,8 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 		m_bypass_count += 1;
 	}
 	bypass_size = req6_size;
-	std::tie(req6_off, req6_size, downloaded) =
-		file.DownloadBypass(req6_off, req6_size, buffer + req6_off - offset);
+	std::tie(req6_off, req6_size, downloaded) = m_parent.DownloadBypass(
+		req6_off, req6_size, buffer + req6_off - offset);
 	if (req6_size < 0) {
 		m_errors += 1;
 		return -1;
@@ -690,7 +690,7 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 			std::unique_lock lk{m_mutex};
 			auto next_offset = std::max(m_a.m_off, m_b.m_off) +
 							   static_cast<off_t>(m_cache_entry_size);
-			if (next_offset < file.content_length) {
+			if (next_offset < m_parent.content_length) {
 				if (!m_a.m_inprogress && m_a.m_used >= m_cache_entry_size) {
 					m_a.m_inprogress = true;
 					m_a.m_off = next_offset;
@@ -712,7 +712,7 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 			m_prefetch_count++;
 			m_prefetch_bytes += m_cache_entry_size;
 		}
-		DownloadCaches(file, download_a, download_b, false);
+		DownloadCaches(download_a, download_b, false);
 		return size;
 	}
 	// At this point, the only remaining data requests must be less than the
@@ -914,7 +914,7 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 					;
 					download_a = true;
 					m_a.m_inprogress = true;
-					if (prefetch_offset < file.content_length) {
+					if (prefetch_offset < m_parent.content_length) {
 						m_b.m_off = prefetch_offset;
 						prefetch_b = true;
 						m_b.m_inprogress = true;
@@ -956,7 +956,7 @@ ssize_t S3File::S3Cache::Read(S3File &file, char *buffer, off_t offset,
 			m_prefetch_count += 1;
 			m_prefetch_bytes += m_cache_entry_size;
 		}
-		DownloadCaches(file, download_a, download_b || prefetch_b, true);
+		DownloadCaches(download_a, download_b || prefetch_b, true);
 	}
 	return size;
 }
@@ -965,6 +965,29 @@ void S3File::S3Cache::Entry::Notify() {
 	std::unique_lock lk(m_parent.m_mutex);
 	m_inprogress = false;
 	m_failed = !m_request->getErrorCode().empty();
+	if ((m_parent.m_parent.m_log.getMsgMask() & LogMask::Warning) && m_failed) {
+		std::stringstream ss;
+		auto duration_ms =
+			std::chrono::duration_cast<std::chrono::milliseconds>(
+				m_request->getElapsedTime())
+				.count();
+		ss << "Finished GET for object=" << m_parent.m_parent.m_object
+		   << ", offset=" << m_off << ", size=" << m_data.size()
+		   << ", duration_ms=" << duration_ms << "; failed with error '"
+		   << m_request->getErrorCode() << "'";
+		m_parent.m_parent.m_log.Log(LogMask::Warning, "cache",
+									ss.str().c_str());
+	} else if (m_parent.m_parent.m_log.getMsgMask() & LogMask::Debug) {
+		std::stringstream ss;
+		auto duration_ms =
+			std::chrono::duration_cast<std::chrono::milliseconds>(
+				m_request->getElapsedTime())
+				.count();
+		ss << "Finished GET for object=" << m_parent.m_parent.m_object
+		   << ", offset=" << m_off << ", size=" << m_data.size()
+		   << ", duration_ms=" << duration_ms << "; succeeded";
+		m_parent.m_parent.m_log.Log(LogMask::Debug, "cache", ss.str().c_str());
+	}
 	m_request = nullptr;
 
 	m_parent.m_cv.notify_all();
@@ -986,6 +1009,14 @@ void S3File::S3Cache::Entry::Download(S3File &file) {
 	// otherwise deadlock may occur.
 	auto off = m_off;
 	m_parent.m_mutex.unlock();
+
+	if (file.m_log.getMsgMask() & LogMask::Debug) {
+		std::stringstream ss;
+		ss << "Issuing GET for object=" << file.m_object << ", offset=" << m_off
+		   << ", size=" << request_size;
+		file.m_log.Log(LogMask::Debug, "cache", ss.str().c_str());
+	}
+
 	if (!m_request->SendRequest(off, m_cache_entry_size)) {
 		m_parent.m_mutex.lock();
 		std::stringstream ss;

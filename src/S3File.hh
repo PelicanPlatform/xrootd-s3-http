@@ -273,6 +273,9 @@ class S3File : public XrdOssDF {
 		std::condition_variable m_cv; // Condition variable for notifying that
 									  // new downloaded data is available.
 
+		S3File
+			&m_parent; // Reference to the S3File object that owns this cache.
+
 		// Returns `true` if the request offset would be inside the cache entry.
 		// The request offset is assumed to be aligned to be inside a single
 		// cache entry (that is, smaller than a cache entry and not spanning two
@@ -286,15 +289,16 @@ class S3File : public XrdOssDF {
 		// Trigger the non-blocking download into the cache entries.
 		// The condition variable will be notified when one of the caches
 		// finishes.
-		void DownloadCaches(S3File &file, bool download_a, bool download_b,
-							bool locked);
+		void DownloadCaches(bool download_a, bool download_b, bool locked);
 
 		// Trigger a blocking read from a given file
-		ssize_t Read(S3File &file, char *buffer, off_t offset, size_t size);
+		ssize_t Read(char *buffer, off_t offset, size_t size);
+
+		S3Cache(S3File &file) : m_parent(file) {}
 
 		// Shutdown the cache; ensure all reads are completed before
 		// deleting the objects.
 		~S3Cache();
 	};
-	S3Cache m_cache;
+	S3Cache m_cache{*this};
 };
