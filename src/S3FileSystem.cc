@@ -30,6 +30,7 @@
 #include <XrdVersion.hh>
 
 #include <algorithm>
+#include <charconv>
 #include <filesystem>
 #include <memory>
 #include <sstream>
@@ -88,6 +89,26 @@ bool S3FileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 			if (!XrdHTTPServer::ConfigLog(s3server_conf, m_log)) {
 				m_log.Emsg("Config", "Failed to configure the log level");
 			}
+			continue;
+		} else if (attribute == "s3.cache_entry_size") {
+			size_t size;
+			auto value = s3server_conf.GetToken();
+			if (!value) {
+				m_log.Emsg("Config", "s3.cache_entry_size must be specified");
+				return false;
+			}
+			std::string_view value_sv(value);
+			auto result = std::from_chars(
+				value_sv.data(), value_sv.data() + value_sv.size(), size);
+			if (result.ec != std::errc()) {
+				m_log.Emsg("Config", "s3.cache_entry_size must be a number");
+				return false;
+			} else if (result.ptr != value_sv.data() + value_sv.size()) {
+				m_log.Emsg("Config",
+						   "s3.cache_entry_size contains trailing characters");
+				return false;
+			}
+			S3File::SetCacheEntrySize(size);
 			continue;
 		}
 
