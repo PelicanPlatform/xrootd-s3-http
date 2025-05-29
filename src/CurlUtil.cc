@@ -46,44 +46,6 @@ HandlerQueue::HandlerQueue() {
 	m_write_fd = filedes[1];
 };
 
-namespace {
-
-// Simple debug function for getting information from libcurl; to enable, you
-// need to recompile with GetHandle(true);
-int dump_header(CURL *handle, curl_infotype type, char *data, size_t size,
-				void *clientp) {
-	(void)handle;
-	(void)clientp;
-
-	switch (type) {
-	case CURLINFO_HEADER_OUT:
-		printf("Header > %s\n", std::string(data, size).c_str());
-		break;
-	default:
-		printf("Info: %s", std::string(data, size).c_str());
-		break;
-	}
-	return 0;
-}
-
-} // namespace
-
-CURL *GetHandle(bool verbose) {
-	auto result = curl_easy_init();
-	if (result == nullptr) {
-		return result;
-	}
-
-	curl_easy_setopt(result, CURLOPT_USERAGENT, "xrootd-s3/devel");
-	curl_easy_setopt(result, CURLOPT_DEBUGFUNCTION, dump_header);
-	if (verbose)
-		curl_easy_setopt(result, CURLOPT_VERBOSE, 1L);
-
-	curl_easy_setopt(result, CURLOPT_BUFFERSIZE, 32 * 1024);
-
-	return result;
-}
-
 CURL *HandlerQueue::GetHandle() {
 	if (!m_handles.empty()) {
 		CURL *result = m_handles.top();
@@ -91,7 +53,15 @@ CURL *HandlerQueue::GetHandle() {
 		return result;
 	}
 
-	return ::GetHandle(false);
+	auto result = curl_easy_init();
+	if (result == nullptr) {
+		return result;
+	}
+
+	curl_easy_setopt(result, CURLOPT_USERAGENT, "xrootd-s3/devel");
+	curl_easy_setopt(result, CURLOPT_BUFFERSIZE, 32 * 1024);
+
+	return result;
 }
 
 void HandlerQueue::RecycleHandle(CURL *curl) { m_handles.push(curl); }
@@ -233,7 +203,7 @@ void CurlWorker::Run() {
 
 			auto curl = queue.GetHandle();
 			if (curl == nullptr) {
-				m_logger.Log(LogMask::Debug, "Run",
+				m_logger.Log(LogMask::Warning, "Run",
 							 "Unable to allocate a curl handle");
 				op->Fail("E_NOMEM", "Unable to get allocate a curl handle");
 				continue;

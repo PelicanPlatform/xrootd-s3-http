@@ -70,18 +70,21 @@ bool XrdHTTPServer::ConfigLog(XrdOucGatherConf &conf, XrdSysError &log) {
 		} else if (!strcmp(val, "error")) {
 			log.setMsgMask(log.getMsgMask() | LogMask::Error);
 		} else if (!strcmp(val, "warning")) {
-			log.setMsgMask(log.getMsgMask() | LogMask::Warning);
+			log.setMsgMask(log.getMsgMask() | LogMask::Warning |
+						   LogMask::Error);
 		} else if (!strcmp(val, "info")) {
-			log.setMsgMask(log.getMsgMask() | LogMask::Info);
+			log.setMsgMask(log.getMsgMask() | LogMask::Info | LogMask::Warning |
+						   LogMask::Error);
 		} else if (!strcmp(val, "dump")) {
-			log.setMsgMask(log.getMsgMask() | LogMask::Dump);
+			log.setMsgMask(log.getMsgMask() | LogMask::Dump | LogMask::Debug |
+						   LogMask::Info | LogMask::Warning | LogMask::Error);
 		} else if (!strcmp(val, "debug")) {
-			log.setMsgMask(log.getMsgMask() | LogMask::Debug);
+			log.setMsgMask(log.getMsgMask() | LogMask::Debug | LogMask::Info |
+						   LogMask::Warning | LogMask::Error);
 		} else if (!strcmp(val, "none")) {
 			log.setMsgMask(0);
 		} else {
-			log.Emsg("Config",
-					 "scitokens.trace encountered an unknown directive:", val);
+			log.Emsg("Config", "trace encountered an unknown directive:", val);
 			return false;
 		}
 	} while ((val = conf.GetToken()));

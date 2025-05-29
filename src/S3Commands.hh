@@ -272,6 +272,11 @@ class AmazonS3Download : public AmazonRequest {
 
 	virtual bool SendRequest(off_t offset, size_t size);
 
+	// Return the elapsed time since the request was started with SendRequest().
+	std::chrono::steady_clock::duration getElapsedTime() const {
+		return std::chrono::steady_clock::now() - m_request_start;
+	}
+
   protected:
 	virtual bool IsBlocking() { return true; }
 	virtual std::string_view *requestResult() override {
@@ -280,6 +285,7 @@ class AmazonS3Download : public AmazonRequest {
 
   private:
 	char *m_buffer{nullptr};
+	std::chrono::steady_clock::time_point m_request_start;
 	std::string_view m_buffer_view;
 };
 
