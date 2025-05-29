@@ -995,13 +995,13 @@ void S3File::S3Cache::Entry::Notify() {
 
 void S3File::S3Cache::Entry::Download(S3File &file) {
 	m_used = false;
-	m_data.resize(m_cache_entry_size);
-	m_request.reset(new AmazonS3NonblockingDownload<Entry>(
-		file.m_ai, file.m_object, file.m_log, m_data.data(), *this));
 	size_t request_size = m_cache_entry_size;
 	if (m_off + static_cast<off_t>(request_size) > file.content_length) {
 		request_size = file.content_length - m_off;
 	}
+	m_data.resize(request_size);
+	m_request.reset(new AmazonS3NonblockingDownload<Entry>(
+		file.m_ai, file.m_object, file.m_log, m_data.data(), *this));
 	// This function is always called with m_mutex held; however,
 	// SendRequest can block if the threads are all busy; the threads
 	// will need to grab the lock to notify of completion.  So, we
@@ -1017,7 +1017,7 @@ void S3File::S3Cache::Entry::Download(S3File &file) {
 		file.m_log.Log(LogMask::Debug, "cache", ss.str().c_str());
 	}
 
-	if (!m_request->SendRequest(off, m_cache_entry_size)) {
+	if (!m_request->SendRequest(off, request_size)) {
 		m_parent.m_mutex.lock();
 		std::stringstream ss;
 		ss << "Failed to send GetObject command: "
