@@ -82,11 +82,13 @@ std::vector<std::pair<std::weak_ptr<std::mutex>,
 std::mutex S3File::m_pending_lk;
 std::once_flag S3File::m_monitor_launch;
 
-S3File::S3File(XrdSysError &log, S3FileSystem *oss)
-	: m_log(log), m_oss(oss), content_length(0), last_modified(0),
-	  partNumber(1) {}
+S3File::S3File(XrdSysError &log, S3FileSystem *oss) : m_log(log), m_oss(oss) {}
 
 int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
+	if (m_is_open) {
+		m_log.Log(LogMask::Warning, "Open", "File already open:", path);
+		return -EBADF;
+	}
 	if (Oflag & O_CREAT) {
 		m_log.Log(LogMask::Info, "Open", "File opened for creation:", path);
 		m_create = true;
@@ -144,10 +146,16 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		}
 	}
 
+	m_is_open = true;
 	return 0;
 }
 
 ssize_t S3File::ReadV(XrdOucIOVec *readV, int rdvcnt) {
+	if (!m_is_open) {
+		m_log.Log(LogMask::Warning, "Write", "File not open");
+		return -EBADF;
+	}
+
 	if (rdvcnt <= 0 || !readV) {
 		return -EINVAL;
 	}
@@ -172,40 +180,52 @@ ssize_t S3File::ReadV(XrdOucIOVec *readV, int rdvcnt) {
 }
 
 ssize_t S3File::Read(void *buffer, off_t offset, size_t size) {
+	if (!m_is_open) {
+		m_log.Log(LogMask::Warning, "Write", "File not open");
+		return -EBADF;
+	}
+
 	return m_cache.Read(static_cast<char *>(buffer), offset, size);
 }
 
 int S3File::Fstat(struct stat *buff) {
-	AmazonS3Head head(m_ai, m_object, m_log);
 
-	if (!head.SendRequest()) {
-		auto httpCode = head.getResponseCode();
-		if (httpCode) {
-			std::stringstream ss;
-			ss << "HEAD command failed: " << head.getResponseCode() << ": "
-			   << head.getResultString();
-			m_log.Log(LogMask::Warning, "S3ile::Fstat", ss.str().c_str());
-			switch (httpCode) {
-			case 404:
-				return -ENOENT;
-			case 500:
-				return -EIO;
-			case 403:
-				return -EPERM;
-			default:
+	if (content_length == -1) {
+		AmazonS3Head head(m_ai, m_object, m_log);
+		if (!head.SendRequest()) {
+			auto httpCode = head.getResponseCode();
+			if (httpCode) {
+				std::stringstream ss;
+				ss << "HEAD command failed: " << head.getResponseCode() << ": "
+				   << head.getResultString();
+				m_log.Log(LogMask::Warning, "S3ile::Fstat", ss.str().c_str());
+				switch (httpCode) {
+				case 404:
+					return -ENOENT;
+				case 500:
+					return -EIO;
+				case 403:
+					return -EPERM;
+				default:
+					return -EIO;
+				}
+			} else {
+				std::stringstream ss;
+				ss << "Failed to send HEAD command: " << head.getErrorCode()
+				   << ": " << head.getErrorMessage();
+				m_log.Log(LogMask::Warning, "S3File::Fstat", ss.str().c_str());
 				return -EIO;
 			}
-		} else {
-			std::stringstream ss;
-			ss << "Failed to send HEAD command: " << head.getErrorCode() << ": "
-			   << head.getErrorMessage();
-			m_log.Log(LogMask::Warning, "S3File::Fstat", ss.str().c_str());
-			return -EIO;
+		}
+
+		content_length = head.getSize();
+		last_modified = head.getLastModified();
+		if (content_length < 0) {
+			m_log.Log(LogMask::Warning, "S3File::Fstat",
+					  "Returned content length is negative");
+			return -EINVAL;
 		}
 	}
-
-	content_length = head.getSize();
-	last_modified = head.getLastModified();
 
 	if (buff) {
 		memset(buff, '\0', sizeof(struct stat));
@@ -225,6 +245,11 @@ int S3File::Fstat(struct stat *buff) {
 }
 
 ssize_t S3File::Write(const void *buffer, off_t offset, size_t size) {
+	if (!m_is_open) {
+		m_log.Log(LogMask::Warning, "Write", "File not open");
+		return -EBADF;
+	}
+
 	auto write_mutex = m_write_lk;
 	if (!write_mutex) {
 		return -EBADF;
@@ -557,6 +582,12 @@ void S3File::CleanupTransfersOnce() {
 }
 
 int S3File::Close(long long *retsz) {
+	if (!m_is_open) {
+		m_log.Log(LogMask::Warning, "Close", "File not open");
+		return -EBADF;
+	}
+	m_is_open = false;
+
 	// If we opened the object in create mode but did not actually write
 	// anything, make a quick zero-length file.
 	if (m_create && !m_write_offset) {

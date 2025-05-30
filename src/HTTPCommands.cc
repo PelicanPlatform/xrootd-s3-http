@@ -302,11 +302,18 @@ size_t HTTPRequest::ReadCallback(char *buffer, size_t size, size_t n, void *v) {
 	return request;
 }
 
-int HTTPRequest::XferInfoCallback(void *clientp, curl_off_t dltotal,
-								  curl_off_t /*dlnow*/, curl_off_t ultotal,
-								  curl_off_t /*ulnow*/) {
+// Periodic callback from libcurl reporting overall transfer progress.
+// This is used to detect transfer stalls, where no data has been sent for
+// at least `m_transfer_stall` duration (defaults to 10s).
+//
+// Note:
+// - dltotal/ultotal are the total number of bytes to be downloaded/uploaded.
+// - dlnow/ulnow are the number of bytes downloaded/uploaded so far.
+int HTTPRequest::XferInfoCallback(void *clientp, curl_off_t /*dltotal*/,
+								  curl_off_t dlnow, curl_off_t /*ultotal*/,
+								  curl_off_t ulnow) {
 	auto me = reinterpret_cast<HTTPRequest *>(clientp);
-	if ((me->m_bytes_recv != dltotal) || (me->m_bytes_sent != ultotal)) {
+	if ((me->m_bytes_recv != dlnow) || (me->m_bytes_sent != ulnow)) {
 		me->m_last_movement = std::chrono::steady_clock::now();
 	} else if (std::chrono::steady_clock::now() - me->m_last_movement >
 			   m_transfer_stall) {
@@ -314,8 +321,8 @@ int HTTPRequest::XferInfoCallback(void *clientp, curl_off_t dltotal,
 		me->errorMessage = "I/O stall during transfer";
 		return 1;
 	}
-	me->m_bytes_recv = dltotal;
-	me->m_bytes_sent = ultotal;
+	me->m_bytes_recv = dlnow;
+	me->m_bytes_sent = ulnow;
 	return 0;
 }
 bool HTTPRequest::sendPreparedRequestNonblocking(const std::string &uri,
@@ -355,6 +362,7 @@ bool HTTPRequest::sendPreparedRequestNonblocking(const std::string &uri,
 	if (m_unpause_queue) {
 		m_unpause_queue->Produce(this);
 	} else {
+		m_last_movement = std::chrono::steady_clock::now();
 		m_queue->Produce(this);
 	}
 	return true;
@@ -530,7 +538,7 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		}
 	}
 
-	rv = curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
+	rv = curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
 	if (rv != CURLE_OK) {
 		this->errorCode = "E_CURL_LIB";
 		this->errorMessage = "curl_easy_setopt( CURLOPT_NOPROGRESS ) failed.";
@@ -709,8 +717,7 @@ void HTTPRequest::Notify() {
 	m_cv.notify_one();
 }
 
-HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
-													   CURLcode rv) {
+void HTTPRequest::ProcessCurlResult(CURL *curl, CURLcode rv) {
 
 	if (rv != 0) {
 		if (errorCode.empty()) {
@@ -721,7 +728,7 @@ HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 			errorMessage = error.str();
 		}
 
-		return CurlResult::Fail;
+		return;
 	}
 
 	responseCode = 0;
@@ -735,16 +742,19 @@ HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 		errorCode = "E_CURL_LIB";
 		errorMessage = "curl_easy_getinfo() failed.";
 
-		return CurlResult::Fail;
+		return;
 	}
 
+	// 503 is "Service Unavailable"; S3 uses this for throttling
 	if (responseCode == 503 &&
 		(m_result.find("<Error><Code>RequestLimitExceeded</Code>") !=
-		 std::string::npos) &&
-		m_retry_count == 0) {
+		 std::string::npos)) {
 		m_result.clear();
-		m_retry_count++;
-		return CurlResult::Retry;
+		errorCode = "E_HTTP_REQUEST_LIMIT_EXCEEDED";
+		errorMessage = "Request limit exceeded.";
+		m_log.Log(LogMask::Warning, "HTTPRequest::ProcessCurlResult",
+				  "Request limit exceeded for ", m_uri.c_str());
+		return;
 	}
 
 	if (responseCode != expectedResponseCode) {
@@ -758,10 +768,10 @@ HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 				"HTTP response was %lu, not %lu, and no body was returned.",
 				responseCode, expectedResponseCode);
 		}
-		return CurlResult::Fail;
+		return;
 	}
 
-	return CurlResult::Ok;
+	return;
 }
 
 // ---------------------------------------------------------------------------
