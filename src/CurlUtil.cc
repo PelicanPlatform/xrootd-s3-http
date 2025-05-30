@@ -243,8 +243,8 @@ void CurlWorker::Run() {
 		if (now >= next_marker) {
 			if (m_logger.getMsgMask() & LogMask::Debug) {
 				std::stringstream ss;
-				ss << "Curl worker thread " << getpid() << " is running "
-				   << running_handles << " operations";
+				ss << "Curl worker thread is running " << running_handles
+				   << " operations";
 				m_logger.Log(LogMask::Debug, "CurlWorker", ss.str().c_str());
 			}
 			last_marker = now;
