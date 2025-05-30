@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.4.0
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        S3/HTTP filesystem plugins for xrootd
 
@@ -48,6 +48,12 @@ cmake --build redhat-linux-build --verbose
 %license LICENSE
 
 %changelog
+* Fri May 30 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.4.1-1
+- Fix stall timeouts which would never fire.
+- Fix bug where S3 rate limiting would result in corrupt data being sent back to the client.
+- Remove redundant HEAD which was invoked twice on S3 file open.
+- Put libcurl into threadsafe mode, avoiding potential deadlocks or long unresponsive periods.
+
 * Thu May 29 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.4.0-1
 - Improve logging messages to include timing of read requests
 - Implement the vector read method, used by some clients.
