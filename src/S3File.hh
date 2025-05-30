@@ -153,8 +153,8 @@ class S3File : public XrdOssDF {
 	std::string m_object;
 	S3AccessInfo m_ai;
 
-	off_t content_length;
-	time_t last_modified;
+	off_t content_length{-1};
+	time_t last_modified{-1};
 
 	static const size_t m_s3_part_size =
 		100'000'000; // The size of each S3 chunk.
@@ -162,8 +162,9 @@ class S3File : public XrdOssDF {
 	// Size of the buffer associated with the cache
 	static size_t m_cache_entry_size;
 
+	bool m_is_open{false}; // File open state
 	bool m_create{false};
-	int partNumber;
+	int partNumber{1};
 	size_t m_part_written{
 		0}; // Number of bytes written for the current upload chunk.
 	size_t m_part_size{0};	 // Size of the current upload chunk (0 if unknon);
