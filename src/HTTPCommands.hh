@@ -195,17 +195,16 @@ class HTTPRequest {
 	XrdSysError &m_log;
 
   private:
-	enum class CurlResult { Ok, Fail, Retry };
-
 	virtual bool SetupHandle(
 		CURL *curl); // Configure the curl handle to be used by a given request.
 
 	virtual bool
 	ContinueHandle(); // Continue the request processing after a pause.
 
-	CurlResult ProcessCurlResult(
+	void ProcessCurlResult(
 		CURL *curl,
 		CURLcode rv); // Process a curl command that ran to completion.
+
 	bool
 	Fail(const std::string &ecode,
 		 const std::string &emsg); // Record a failure occurring for the request
@@ -275,7 +274,6 @@ class HTTPRequest {
 	std::string_view m_result_buffer;
 	CURL *m_curl_handle{nullptr}; // The curl handle for the ongoing request
 	char m_errorBuffer[CURL_ERROR_SIZE]; // Static error buffer for libcurl
-	unsigned m_retry_count{0};
 
 	// Time when the last request was sent on this object; used to determine
 	// whether the operation has timed out.

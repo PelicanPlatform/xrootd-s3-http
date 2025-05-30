@@ -717,8 +717,7 @@ void HTTPRequest::Notify() {
 	m_cv.notify_one();
 }
 
-HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
-													   CURLcode rv) {
+void HTTPRequest::ProcessCurlResult(CURL *curl, CURLcode rv) {
 
 	if (rv != 0) {
 		if (errorCode.empty()) {
@@ -729,7 +728,7 @@ HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 			errorMessage = error.str();
 		}
 
-		return CurlResult::Fail;
+		return;
 	}
 
 	responseCode = 0;
@@ -743,16 +742,19 @@ HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 		errorCode = "E_CURL_LIB";
 		errorMessage = "curl_easy_getinfo() failed.";
 
-		return CurlResult::Fail;
+		return;
 	}
 
+	// 503 is "Service Unavailable"; S3 uses this for throttling
 	if (responseCode == 503 &&
 		(m_result.find("<Error><Code>RequestLimitExceeded</Code>") !=
-		 std::string::npos) &&
-		m_retry_count == 0) {
+		 std::string::npos)) {
 		m_result.clear();
-		m_retry_count++;
-		return CurlResult::Retry;
+		errorCode = "E_HTTP_REQUEST_LIMIT_EXCEEDED";
+		errorMessage = "Request limit exceeded.";
+		m_log.Log(LogMask::Warning, "HTTPRequest::ProcessCurlResult",
+				  "Request limit exceeded for ", m_uri.c_str());
+		return;
 	}
 
 	if (responseCode != expectedResponseCode) {
@@ -766,10 +768,10 @@ HTTPRequest::CurlResult HTTPRequest::ProcessCurlResult(CURL *curl,
 				"HTTP response was %lu, not %lu, and no body was returned.",
 				responseCode, expectedResponseCode);
 		}
-		return CurlResult::Fail;
+		return;
 	}
 
-	return CurlResult::Ok;
+	return;
 }
 
 // ---------------------------------------------------------------------------
