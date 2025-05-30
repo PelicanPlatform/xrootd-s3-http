@@ -268,7 +268,7 @@ class HTTPRequest {
 	std::chrono::steady_clock::time_point m_last_movement;
 	// Transfer stall timeout
 	static constexpr std::chrono::steady_clock::duration m_transfer_stall{
-		std::chrono::seconds(10)};
+		std::chrono::seconds(9)};
 
 	// The contents of a successful GET request.
 	std::string_view m_result_buffer;
