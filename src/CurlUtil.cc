@@ -60,6 +60,7 @@ CURL *HandlerQueue::GetHandle() {
 
 	curl_easy_setopt(result, CURLOPT_USERAGENT, "xrootd-s3/0.4.0");
 	curl_easy_setopt(result, CURLOPT_BUFFERSIZE, 32 * 1024);
+	curl_easy_setopt(result, CURLOPT_NOSIGNAL, 1L);
 
 	return result;
 }
