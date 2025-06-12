@@ -30,6 +30,7 @@
 #include <XrdVersion.hh>
 #include <curl/curl.h>
 
+#include <charconv>
 #include <filesystem>
 #include <iostream>
 #include <map>
@@ -93,6 +94,56 @@ int parse_path(const std::string &storagePrefixStr, const char *pathStr,
 }
 
 int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
+	if (m_is_open) {
+		m_log.Log(LogMask::Warning, "HTTPFile::Open",
+				  "File already open:", path);
+		return -EBADF;
+	}
+	if (Oflag & O_CREAT) {
+		m_log.Log(LogMask::Info, "HTTPFile::Open",
+				  "File opened for creation:", path);
+	}
+	if (Oflag & O_APPEND) {
+		m_log.Log(LogMask::Info, "HTTPFile::Open",
+				  "File opened for append:", path);
+	}
+	if (Oflag & (O_RDWR | O_WRONLY)) {
+		m_write = true;
+		m_log.Log(LogMask::Debug, "HTTPFile::Open",
+				  "File opened for writing:", path);
+		m_write_lk.reset(new std::mutex);
+	}
+	// get the expected file size; only relevant for O_RDWR | O_WRONLY
+	char *asize_char;
+	if ((asize_char = env.Get("oss.asize"))) {
+		off_t result{0};
+		auto [ptr, ec] = std::from_chars(
+			asize_char, asize_char + strlen(asize_char), result);
+		if (ec == std::errc() && ptr == asize_char + strlen(asize_char)) {
+			if (result < 0) {
+				m_log.Log(LogMask::Warning, "HTTPFile::Open",
+						  "Opened file has oss.asize set to a negative value:",
+						  asize_char);
+				return -EIO;
+			}
+			m_object_size = result;
+		} else {
+			std::stringstream ss;
+			ss << "Opened file has oss.asize set to an unparseable value: "
+			   << asize_char;
+			m_log.Log(LogMask::Warning, "HTTPFile::Open", ss.str().c_str());
+			return -EIO;
+		}
+	}
+	// } else if (m_write) {
+	// 	// If there is a use case in the future where we want to write to a
+	// 	// file that we don't know the size of ahead of time, we should
+	// 	// remove this check and redo the logic to handle this case.
+	// 	m_log.Log(LogMask::Warning, "HTTPFile::Open",
+	// 			  "File opened for writing but oss.asize is not set");
+	// 	return -EIO;
+	// }
+
 	auto configured_hostname = m_oss->getHTTPHostName();
 	auto configured_hostUrl = m_oss->getHTTPHostUrl();
 	const auto &configured_url_base = m_oss->getHTTPUrlBase();
@@ -120,10 +171,15 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		return Fstat(&buf);
 	}
 
+	m_is_open = true;
 	return 0;
 }
 
 ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
+	if (!m_is_open) {
+		m_log.Log(LogMask::Warning, "HTTPFile::Read", "File not open");
+		return -EBADF;
+	}
 	HTTPDownload download(m_hostUrl, m_object, m_log, m_oss->getToken());
 	m_log.Log(
 		LogMask::Debug, "HTTPFile::Read",
@@ -251,20 +307,104 @@ int HTTPFile::Fstat(struct stat *buff) {
 }
 
 ssize_t HTTPFile::Write(const void *buffer, off_t offset, size_t size) {
-	HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
-
-	std::string payload((char *)buffer, size);
-	if (!upload.SendRequest(payload, offset, size)) {
-		m_log.Emsg("Open", "upload.SendRequest() failed");
-		return -ENOENT;
-	} else {
-		m_log.Emsg("Open", "upload.SendRequest() succeeded");
-		return 0;
+	if (!m_is_open) {
+		m_log.Log(LogMask::Warning, "HTTPFile::Write", "File not open");
+		return -EBADF;
 	}
+
+	if (!m_write_lk) {
+		return -EBADF;
+	}
+	std::lock_guard lk(*m_write_lk);
+
+	// Small object optimization as in S3File::Write()
+	if (!m_write_offset && m_object_size == static_cast<off_t>(size)) {
+		HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
+		std::string payload((char *)buffer, size);
+		if (!upload.SendRequest(payload)) {
+			m_log.Log(LogMask::Error, "HTTPFile::Write",
+					  "upload.SendRequest() failed");
+			return -EIO;
+		} else {
+			m_write_offset += size;
+			m_log.Log(LogMask::Debug, "HTTPFile::Write",
+					  "Creation of small object succeeded",
+					  std::to_string(size).c_str());
+			return size;
+		}
+	}
+	// If we don't have an in-progress upload, start one
+	if (!m_write_op) {
+		if (offset != 0) {
+			m_log.Log(LogMask::Error, "HTTPFile::Write",
+					  "Out-of-order write detected; HTTP "
+					  "requires writes to be in order");
+			m_write_offset = -1;
+			return -EIO;
+		}
+		m_write_op.reset(
+			new HTTPUpload(m_hostUrl, m_object, m_log, m_oss->getToken()));
+		std::string payload((char *)buffer, size);
+		if (!m_write_op->StartStreamingRequest(payload, m_object_size)) {
+			m_log.Log(LogMask::Error, "HTTPFile::Write",
+					  "First write request failed");
+			return -EIO;
+		} else {
+			m_write_offset += size;
+			m_log.Log(LogMask::Debug, "HTTPFile::Write",
+					  "First write request succeeded",
+					  std::to_string(size).c_str());
+			return size;
+		}
+	}
+	// Validate continuing writing at offset
+	if (offset != static_cast<int64_t>(m_write_offset)) {
+		std::stringstream ss;
+		ss << "Requested write offset at " << offset
+		   << " does not match current file descriptor offset at "
+		   << m_write_offset;
+		m_log.Log(LogMask::Warning, "HTTPFile::Write", ss.str().c_str());
+		return -EIO;
+	}
+
+	// Continue the write
+	std::string payload((char *)buffer, size);
+	if (!m_write_op->ContinueStreamingRequest(payload, m_object_size, false)) {
+		m_log.Log(LogMask::Error, "HTTPFile::Write",
+				  "Failed to continue write request");
+		return -EIO;
+	} else {
+		m_write_offset += size;
+		m_log.Log(LogMask::Debug, "HTTPFile::Write",
+				  "Continued request succeeded", std::to_string(size).c_str());
+	}
+	return size;
 }
 
 int HTTPFile::Close(long long *retsz) {
-	m_log.Emsg("Close", "Closed our HTTP file");
+	if (!m_is_open) {
+		m_log.Log(LogMask::Error, "HTTPFile::Close",
+				  "Cannot close. URL isn't open");
+		return -EBADF;
+	}
+	m_is_open = false;
+	// If we opened the object in write mode but did not actually write
+	// anything, make a quick zero-length file.
+	if (m_write && !m_write_offset) {
+		HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
+		if (!upload.SendRequest("")) {
+			m_log.Log(LogMask::Error, "HTTPFile::Close",
+					  "Failed to create zero-length object");
+			return -EIO;
+		} else {
+			m_log.Log(LogMask::Debug, "HTTPFile::Close",
+					  "Creation of zero-length succeeded");
+			return 0;
+		}
+	}
+
+	m_log.Log(LogMask::Debug, "HTTPFile::Close",
+			  "Closed HTTP file:", m_object.c_str());
 	return 0;
 }
 

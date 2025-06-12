@@ -277,6 +277,15 @@ size_t HTTPRequest::ReadCallback(char *buffer, size_t size, size_t n, void *v) {
 		return CURL_READFUNC_ABORT;
 	}
 
+	if (payload->m_parent.m_log.getMsgMask() & LogMask::Dump) {
+		payload->m_parent.m_log.Log(
+			LogMask::Dump, "ReadCallback",
+			("sentSoFar=" + std::to_string(payload->sentSoFar) +
+			 " data.size=" + std::to_string(payload->data.size()) +
+			 " final=" + std::to_string(payload->final))
+				.c_str());
+	}
+
 	if (payload->sentSoFar == static_cast<off_t>(payload->data.size())) {
 		payload->sentSoFar = 0;
 		if (payload->final) {
@@ -778,17 +787,26 @@ void HTTPRequest::ProcessCurlResult(CURL *curl, CURLcode rv) {
 
 HTTPUpload::~HTTPUpload() {}
 
-bool HTTPUpload::SendRequest(const std::string &payload, off_t offset,
-							 size_t size) {
-	if (offset != 0 || size != 0) {
-		std::string range;
-		formatstr(range, "bytes=%lld-%lld", static_cast<long long int>(offset),
-				  static_cast<long long int>(offset + size - 1));
-		headers["Range"] = range.c_str();
-	}
-
+bool HTTPUpload::SendRequest(const std::string &payload) {
 	httpVerb = "PUT";
 	return SendHTTPRequest(payload);
+}
+
+bool HTTPUpload::StartStreamingRequest(const std::string_view payload,
+									   off_t object_size) {
+	httpVerb = "PUT";
+	headers["Content-Type"] = "binary/octet-stream";
+	return sendPreparedRequest(hostUrl, payload, object_size, false);
+}
+
+bool HTTPUpload::ContinueStreamingRequest(const std::string_view payload,
+										  off_t object_size, bool final) {
+    // Note that despite the fact that final gets passed through here,
+    // in reality the way that curl determines whether the data transfer is
+    // done is by seeing if the total amount of data sent is equal to the 
+    // expected size of the entire payload, stored in m_object_size.
+    // See HTTPRequest::ReadCallback for more info
+	return sendPreparedRequest(hostUrl, payload, object_size, final);
 }
 
 void HTTPRequest::Init(XrdSysError &log) {

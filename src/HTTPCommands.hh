@@ -295,8 +295,13 @@ class HTTPUpload : public HTTPRequest {
 
 	virtual ~HTTPUpload();
 
-	virtual bool SendRequest(const std::string &payload, off_t offset,
-							 size_t size);
+	virtual bool SendRequest(const std::string &payload);
+
+	bool StartStreamingRequest(const std::string_view payload,
+							   off_t object_size);
+
+	bool ContinueStreamingRequest(const std::string_view payload,
+								  off_t object_size, bool final);
 
   protected:
 	std::string object;
