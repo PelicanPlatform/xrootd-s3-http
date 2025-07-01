@@ -1,0 +1,64 @@
+/***************************************************************
+ *
+ * Copyright (C) 2025, Pelican Project, Morgridge Institute for Research
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you
+ * may not use this file except in compliance with the License.  You may
+ * obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ ***************************************************************/
+
+#pragma once
+
+#include "HTTPDirectory.hh"
+#include "GlobusFileSystem.hh"
+
+#include <string>
+#include <vector>
+
+class XrdSysError;
+
+// Structure to hold Globus object information
+struct GlobusObjectInfo {
+	size_t m_size;
+	std::string m_key;
+	std::string m_last_modified;
+};
+
+class GlobusDirectory : public HTTPDirectory {
+  public:
+	GlobusDirectory(XrdSysError &log, const GlobusFileSystem *fs)
+		: HTTPDirectory(log), m_fs(fs) {}
+
+	virtual ~GlobusDirectory() {}
+
+	virtual int Opendir(const char *path, XrdOucEnv &env) override;
+
+	int Readdir(char *buff, int blen) override;
+
+	int StatRet(struct stat *statStruct) override;
+
+	int Close(long long *retsz = 0) override;
+
+  private:
+	void Reset();
+	int ListGlobusDir(const std::string &continuation_token);
+
+	bool m_opened{false};
+	ssize_t m_idx{0};
+	std::vector<GlobusObjectInfo> m_objInfo;
+	std::vector<std::string> m_commonPrefixes;
+	std::string m_prefix;
+	std::string m_continuation_token;
+	std::string m_object;
+	const GlobusFileSystem *m_fs;
+	struct stat *m_stat_buf{nullptr};
+}; 
