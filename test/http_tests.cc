@@ -159,7 +159,6 @@ TEST(TestHTTPFile, TestWriteLargeFile) {
 	// Generate 2 MB of test data
 	const size_t file_size = 2 * 1024 * 1024; // 2 MB
 	std::vector<char> test_data(file_size);
-
 	// Fill with a repeating pattern for easy verification
 	for (size_t i = 0; i < file_size; i++) {
 		test_data[i] = static_cast<char>(i % 256);
