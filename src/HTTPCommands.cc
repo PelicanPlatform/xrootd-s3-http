@@ -855,3 +855,43 @@ bool HTTPHead::SendRequest() {
 }
 
 // ---------------------------------------------------------------------------
+
+int HTTPRequest::HandleHTTPError(const HTTPRequest &request, XrdSysError &log,
+								 const char *operation, const char *context) {
+	auto httpCode = request.getResponseCode();
+	if (httpCode) {
+		std::stringstream ss;
+		ss << operation << " failed: " << request.getResponseCode() << ": "
+		   << request.getResultString();
+		if (context) {
+			ss << " (context: " << context << ")";
+		}
+		log.Log(LogMask::Warning, "HTTPRequest::HandleHTTPError", ss.str().c_str());
+		
+		switch (httpCode) {
+		case 404:
+			return -ENOENT;
+		case 500:
+			return -EIO;
+		case 403:
+			return -EPERM;
+		case 401:
+			return -EACCES;
+		case 400:
+			return -EINVAL;
+		case 503:
+			return -EAGAIN;
+		default:
+			return -EIO;
+		}
+	} else {
+		std::stringstream ss;
+		ss << "Failed to send " << operation << " command: " 
+		   << request.getErrorCode() << ": " << request.getErrorMessage();
+		if (context) {
+			ss << " (context: " << context << ")";
+		}
+		log.Log(LogMask::Warning, "HTTPRequest::HandleHTTPError", ss.str().c_str());
+		return -EIO;
+	}
+}

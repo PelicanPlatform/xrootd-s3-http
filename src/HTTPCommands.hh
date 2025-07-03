@@ -95,6 +95,19 @@ class HTTPRequest {
 		return m_timeout_duration;
 	}
 
+	// Handle HTTP request errors and convert them to appropriate POSIX error codes.
+	// This function can be used anywhere HTTP requests are made to provide
+	// consistent error handling.
+	//
+	// - request: The HTTPRequest object that was used for the request
+	// - log: The logger instance for error reporting
+	// - operation: A string describing the operation being performed (for logging)
+	// - context: Additional context information (for logging)
+	//
+	// Returns: A POSIX error code (-ENOENT, -EIO, -EPERM, etc.) or 0 if no error
+	static int HandleHTTPError(const HTTPRequest &request, XrdSysError &log,
+							   const char *operation, const char *context = nullptr);
+
   protected:
 	// Send the request to the HTTP server.
 	// Blocks until the request has completed.

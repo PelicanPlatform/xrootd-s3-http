@@ -135,6 +135,7 @@ http.trace   all
 xrd.trace    all
 xrootd.trace all
 scitokens.trace all
+httpserver.trace all dump
 
 xrd.port any
 
@@ -161,7 +162,7 @@ EOF
 
 cat > $XROOTD_CONFIGDIR/authdb <<EOF
 
-u * / lr
+u * / all
 
 EOF
 
@@ -200,6 +201,7 @@ echo "xrootd started at $XROOTD_URL"
 XROOTD_HTTPSERVER_CONFIG="$XROOTD_CONFIGDIR/xrootd-httpserver.cfg"
 cat > "$XROOTD_HTTPSERVER_CONFIG" <<EOF
 
+httpserver.trace all dump
 httpserver.url_base $XROOTD_URL
 httpserver.storage_prefix /
 

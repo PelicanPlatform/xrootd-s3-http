@@ -32,7 +32,6 @@
 
 #include <charconv>
 #include <filesystem>
-#include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -135,14 +134,6 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 			return -EIO;
 		}
 	}
-	// } else if (m_write) {
-	// 	// If there is a use case in the future where we want to write to a
-	// 	// file that we don't know the size of ahead of time, we should
-	// 	// remove this check and redo the logic to handle this case.
-	// 	m_log.Log(LogMask::Warning, "HTTPFile::Open",
-	// 			  "File opened for writing but oss.asize is not set");
-	// 	return -EIO;
-	// }
 
 	auto configured_hostname = m_oss->getHTTPHostName();
 	auto configured_hostUrl = m_oss->getHTTPHostUrl();
@@ -168,7 +159,10 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 
 	if (!Oflag) {
 		struct stat buf;
-		return Fstat(&buf);
+		auto rv = Fstat(&buf);
+		if (rv < 0) {
+			return rv;
+		}
 	}
 
 	m_is_open = true;
@@ -187,11 +181,8 @@ ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
 		m_hostname.c_str(), m_object.c_str());
 
 	if (!download.SendRequest(offset, size)) {
-		std::stringstream ss;
-		ss << "Failed to send GetObject command: " << download.getResponseCode()
-		   << "'" << download.getResultString() << "'";
-		m_log.Log(LogMask::Warning, "HTTPFile::Read", ss.str().c_str());
-		return 0;
+		return HTTPRequest::HandleHTTPError(download, m_log, "GET",
+											m_object.c_str());
 	}
 
 	const std::string &bytes = download.getResultString();
@@ -226,29 +217,8 @@ int HTTPFile::Fstat(struct stat *buff) {
 		// than code 200.  If xrootd wants us to distinguish between
 		// these cases, head.getResponseCode() is initialized to 0, so
 		// we can check.
-		auto httpCode = head.getResponseCode();
-		if (httpCode) {
-			std::stringstream ss;
-			ss << "HEAD command failed: " << head.getResponseCode() << ": "
-			   << head.getResultString();
-			m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
-			switch (httpCode) {
-			case 404:
-				return -ENOENT;
-			case 500:
-				return -EIO;
-			case 403:
-				return -EPERM;
-			default:
-				return -EIO;
-			}
-		} else {
-			std::stringstream ss;
-			ss << "Failed to send HEAD command: " << head.getErrorCode() << ": "
-			   << head.getErrorMessage();
-			m_log.Log(LogMask::Warning, "HTTPFile::Fstat", ss.str().c_str());
-			return -EIO;
-		}
+		return HTTPRequest::HandleHTTPError(head, m_log, "HEAD",
+											m_object.c_str());
 	}
 
 	std::string headers = head.getResultString();
@@ -322,9 +292,8 @@ ssize_t HTTPFile::Write(const void *buffer, off_t offset, size_t size) {
 		HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
 		std::string payload((char *)buffer, size);
 		if (!upload.SendRequest(payload)) {
-			m_log.Log(LogMask::Error, "HTTPFile::Write",
-					  "upload.SendRequest() failed");
-			return -EIO;
+			return HTTPRequest::HandleHTTPError(upload, m_log, "PUT",
+												m_object.c_str());
 		} else {
 			m_write_offset += size;
 			m_log.Log(LogMask::Debug, "HTTPFile::Write",
@@ -346,9 +315,8 @@ ssize_t HTTPFile::Write(const void *buffer, off_t offset, size_t size) {
 			new HTTPUpload(m_hostUrl, m_object, m_log, m_oss->getToken()));
 		std::string payload((char *)buffer, size);
 		if (!m_write_op->StartStreamingRequest(payload, m_object_size)) {
-			m_log.Log(LogMask::Error, "HTTPFile::Write",
-					  "First write request failed");
-			return -EIO;
+			return HTTPRequest::HandleHTTPError(
+				*m_write_op, m_log, "PUT streaming start", m_object.c_str());
 		} else {
 			m_write_offset += size;
 			m_log.Log(LogMask::Debug, "HTTPFile::Write",
@@ -370,9 +338,8 @@ ssize_t HTTPFile::Write(const void *buffer, off_t offset, size_t size) {
 	// Continue the write
 	std::string payload((char *)buffer, size);
 	if (!m_write_op->ContinueStreamingRequest(payload, m_object_size, false)) {
-		m_log.Log(LogMask::Error, "HTTPFile::Write",
-				  "Failed to continue write request");
-		return -EIO;
+		return HTTPRequest::HandleHTTPError(
+			*m_write_op, m_log, "PUT streaming continue", m_object.c_str());
 	} else {
 		m_write_offset += size;
 		m_log.Log(LogMask::Debug, "HTTPFile::Write",
@@ -393,13 +360,23 @@ int HTTPFile::Close(long long *retsz) {
 	if (m_write && !m_write_offset) {
 		HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
 		if (!upload.SendRequest("")) {
-			m_log.Log(LogMask::Error, "HTTPFile::Close",
-					  "Failed to create zero-length object");
-			return -EIO;
+			return HTTPRequest::HandleHTTPError(
+				upload, m_log, "PUT zero-length", m_object.c_str());
 		} else {
 			m_log.Log(LogMask::Debug, "HTTPFile::Close",
 					  "Creation of zero-length succeeded");
 			return 0;
+		}
+	}
+
+	if (m_write && m_object_size == -1) {
+		// if we didn't get a size, we need to explicitly close the upload
+		if (!m_write_op->ContinueStreamingRequest("", 0, true)) {
+			return HTTPRequest::HandleHTTPError(
+				*m_write_op, m_log, "PUT streaming close", m_object.c_str());
+		} else {
+			m_log.Log(LogMask::Debug, "HTTPFile::Write",
+					  "PUT streaming close succeeded");
 		}
 	}
 
