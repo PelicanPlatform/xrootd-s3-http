@@ -1,6 +1,6 @@
 /***************************************************************
  *
- * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
+ * Copyright (C) 2025, Pelican Project, Morgridge Institute for Research
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License.  You may
@@ -297,9 +297,19 @@ class HTTPUpload : public HTTPRequest {
 
 	virtual bool SendRequest(const std::string &payload);
 
+	// Start a streaming request.
+	//
+	// - payload: The payload contents when uploading.
+	// - object_size: Size of the entire upload payload.
 	bool StartStreamingRequest(const std::string_view payload,
 							   off_t object_size);
 
+	// Continue a streaming request.
+	//
+	// - payload: The payload contents when uploading.
+	// - object_size: Size of the entire upload payload.
+	// - final: True if this is the last or only payload for the request.  False
+	// otherwise.
 	bool ContinueStreamingRequest(const std::string_view payload,
 								  off_t object_size, bool final);
 
