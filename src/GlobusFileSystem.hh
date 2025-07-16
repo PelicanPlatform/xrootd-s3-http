@@ -18,48 +18,94 @@
 
 #pragma once
 
-#include "HTTPFileSystem.hh"
 #include "TokenFile.hh"
 
-#include <XrdOss/XrdOss.hh>
+#include <XrdOss/XrdOssWrapper.hh>
 #include <XrdOuc/XrdOucStream.hh>
-#include <XrdSec/XrdSecEntity.hh>
-#include <XrdSys/XrdSysPthread.hh>
-#include <XrdVersion.hh>
+#include <XrdSys/XrdSysError.hh>
 
 #include <memory>
 #include <string>
 
-class GlobusFileSystem : public HTTPFileSystem {
+class GlobusFileSystem : public XrdOssWrapper {
   public:
-	GlobusFileSystem(XrdSysLogger *lp, const char *configfn, XrdOucEnv *envP);
+	GlobusFileSystem(XrdOss *oss, XrdSysLogger *lp, const char *configfn,
+					 XrdOucEnv *envP);
 	virtual ~GlobusFileSystem();
 
 	virtual bool Config(XrdSysLogger *lp, const char *configfn);
 
-	XrdOssDF *newDir(const char *user = 0);
-	XrdOssDF *newFile(const char *user = 0);
+	XrdOssDF *newDir(const char *user = 0) override;
+	XrdOssDF *newFile(const char *user = 0) override;
+	int Chmod(const char *path, mode_t mode, XrdOucEnv *env = 0) override {
+		return -ENOSYS;
+	}
+	int Rename(const char *oPath, const char *nPath, XrdOucEnv *oEnvP = 0,
+			   XrdOucEnv *nEnvP = 0) override {
+		return -ENOSYS;
+	}
+	int Stat(const char *path, struct stat *buff, int opts = 0,
+			 XrdOucEnv *env = 0);
+	int StatFS(const char *path, char *buff, int &blen,
+			   XrdOucEnv *env = 0) override {
+		return -ENOSYS;
+	}
+	int StatLS(XrdOucEnv &env, const char *path, char *buff,
+			   int &blen) override {
+		return -ENOSYS;
+	}
+	int StatPF(const char *path, struct stat *buff, int opts) override {
+		return -ENOSYS;
+	}
+	int StatPF(const char *path, struct stat *buff) override { return -ENOSYS; }
+	int StatVS(XrdOssVSInfo *vsP, const char *sname = 0,
+			   int updt = 0) override {
+		return -ENOSYS;
+	}
+	int StatXA(const char *path, char *buff, int &blen,
+			   XrdOucEnv *env = 0) override {
+		return -ENOSYS;
+	}
+	int StatXP(const char *path, unsigned long long &attr,
+			   XrdOucEnv *env = 0) override {
+		return -ENOSYS;
+	}
+	int Truncate(const char *path, unsigned long long fsize,
+				 XrdOucEnv *env = 0) override {
+		return -ENOSYS;
+	}
+	int Unlink(const char *path, int Opts = 0, XrdOucEnv *env = 0) override {
+		return -ENOSYS;
+	}
 
-	// Inherit all other methods from HTTPFileSystem
-	// Override only what's needed for Globus-specific functionality
-
-	// Additional getter for Globus-specific token
-	const TokenFile *getGlobusToken() const { return &m_globus_token; }
-	
 	// Getters for Globus-specific configuration
-	const std::string &getGlobusEndpoint() const { return m_globus_endpoint; }
-	const std::string &getGlobusCollectionId() const { return m_globus_collection_id; }
+	const std::string &getStoragePrefix() const { return m_storage_prefix; }
+	const TokenFile *getTransferToken() const { return &m_transfer_token; }
+
+	// Methods to get operation-specific URLs
+	const std::string getLsUrl(const std::string &relative_path = "") const;
+	const std::string getStatUrl(const std::string &relative_path = "") const;
+
+	// Static utility method for parsing timestamps
+	static time_t parseTimestamp(const std::string& last_modified);
 
   protected:
-	XrdSysError m_log;
-
 	bool handle_required_config(const std::string &name_from_config,
 								const char *desired_name,
 								const std::string &source, std::string &target);
 
   private:
+	const std::string
+	getOperationUrl(const std::string &operation,
+					const std::string &relative_path = "") const;
+
+	std::unique_ptr<XrdOss> m_oss;
+	std::string m_object;
+	XrdOucEnv *m_env;
+	XrdSysError m_log;
+
 	// Globus-specific configuration
-	std::string m_globus_endpoint;
-	std::string m_globus_collection_id;
-	TokenFile m_globus_token; // Additional token for Globus operations
-}; 
+	std::string m_transfer_url;
+	std::string m_storage_prefix;
+	TokenFile m_transfer_token;
+};

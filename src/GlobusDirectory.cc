@@ -17,101 +17,92 @@
  ***************************************************************/
 
 #include "GlobusDirectory.hh"
+#include "GlobusFileSystem.hh"
 #include "HTTPCommands.hh"
 #include "logging.hh"
 #include "stl_string_utils.hh"
 
+#include <XrdOss/XrdOssWrapper.hh>
 #include <XrdSys/XrdSysError.hh>
+
+#include <nlohmann/json.hpp>
 
 #include <sstream>
 
+using json = nlohmann::json;
+
+time_t parseTimestamp(const std::string& last_modified) {
+	if (!last_modified.empty()) {
+		struct tm tm_time = {};
+		if (strptime(last_modified.c_str(), "%Y-%m-%d %H:%M:%S", &tm_time) != nullptr) {
+			return mktime(&tm_time);
+		}
+	}
+	return 0;
+}
+
 void GlobusDirectory::Reset() {
 	m_opened = false;
-	m_continuation_token = "";
 	m_idx = 0;
 	m_objInfo.clear();
-	m_commonPrefixes.clear();
+	m_directories.clear();
 	m_stat_buf = nullptr;
 	m_object = "";
 }
 
-int GlobusDirectory::ListGlobusDir(const std::string &continuation_token) {
-	// Construct the Globus Transfer API endpoint for listing
-	std::string endpoint = m_fs->getGlobusEndpoint();
-	std::string collection_id = m_fs->getGlobusCollectionId();
-	
-	// Build the URL for the Globus Transfer API list operation
-	std::string url = endpoint + "/v0.10/operation/endpoint/" + collection_id + "/ls";
-	
-	// Add path parameter if we have a specific path to list
-	if (!m_object.empty()) {
-		url += "?path=" + m_object;
-	}
-	
-	// Add continuation token if provided
-	if (!continuation_token.empty()) {
-		url += (m_object.empty() ? "?" : "&") + std::string("marker=") + continuation_token;
+int GlobusDirectory::ListGlobusDir() {
+	m_log.Log(XrdHTTPServer::Debug, "GlobusDirectory::ListGlobusDir",
+			  "Listing directory:", m_object.c_str());
+	HTTPDownload listCommand(m_fs->getLsUrl(), m_object, m_log,
+							 m_fs->getTransferToken());
+
+	if (!listCommand.SendRequest(0, 0)) { 
+		return HTTPRequest::HandleHTTPError(
+			listCommand, m_log, "Globus directory listing", m_object.c_str());
 	}
 
-	// Use HTTPHead to make the request (we'll use HTTPDownload for the actual listing)
-	HTTPDownload listCommand(url, "", m_log, m_fs->getGlobusToken());
-	
-	if (!listCommand.SendRequest(0, 0)) { // Request all data
-		switch (listCommand.getResponseCode()) {
-		case 404:
-			return -ENOENT;
-		case 500:
-			return -EIO;
-		case 403:
-			return -EPERM;
-		default:
-			return -EIO;
-		}
-	}
-
-	// Parse the JSON response from Globus
 	std::string response = listCommand.getResultString();
-	
-	// TODO: Parse JSON response and populate m_objInfo and m_commonPrefixes
-	// This is a placeholder implementation - you'll need to implement the actual JSON parsing
-	// based on the Globus Transfer API response format
-	
-	// Example JSON structure from Globus Transfer API:
-	// {
-	//   "DATA": [
-	//     {
-	//       "DATA_TYPE": "file",
-	//       "name": "example.txt",
-	//       "size": 1024,
-	//       "last_modified": "2024-01-01T00:00:00Z"
-	//     }
-	//   ],
-	//   "next_marker": "next_token_here"
-	// }
-	
-	// For now, set up basic structure
+
+	try {
+		auto json = json::parse(response);
+
+		if (json.contains("DATA") && json["DATA"].is_array()) {
+			const auto &data = json["DATA"];
+			for (const auto &item : data) {
+				if (item.contains("name") && item.contains("size") &&
+					item.contains("type")) {
+					GlobusObjectInfo obj;
+					obj.m_key = item["name"].get<std::string>();
+					obj.m_size = item["size"].get<size_t>();
+
+					if (item.contains("last_modified")) {
+						obj.m_last_modified =
+							item["last_modified"].get<std::string>();
+					}
+
+					if (item["type"].get<std::string>() == "file") {
+						m_objInfo.push_back(obj);
+					} else if (item["type"].get<std::string>() == "dir") {
+						std::string dirName = obj.m_key;
+						if (dirName.back() != '/') {
+							dirName += "/";
+						}
+						obj.m_key = dirName;
+						m_directories.push_back(obj);
+					}
+				}
+			}
+		}
+
+	} catch (const json::exception &e) {
+		m_log.Log(XrdHTTPServer::Warning, "GlobusDirectory::ListGlobusDir",
+				  "Failed to parse JSON response:", e.what());
+		return -EIO;
+	}
+
 	m_idx = 0;
 	m_opened = true;
-	
-	// TODO: Implement JSON parsing here
-	// Json::Value root;
-	// Json::Reader reader;
-	// if (reader.parse(response, root)) {
-	//     if (root.isMember("DATA")) {
-	//         const Json::Value& data = root["DATA"];
-	//         for (const Json::Value& item : data) {
-	//             GlobusObjectInfo obj;
-	//             obj.m_key = item["name"].asString();
-	//             obj.m_size = item["size"].asUInt64();
-	//             obj.m_last_modified = item["last_modified"].asString();
-	//             m_objInfo.push_back(obj);
-	//         }
-	//     }
-	//     if (root.isMember("next_marker")) {
-	//         m_continuation_token = root["next_marker"].asString();
-	//     }
-	// }
-	
+
 	return 0;
 }
 
@@ -120,32 +111,28 @@ int GlobusDirectory::Opendir(const char *path, XrdOucEnv &env) {
 		return -EBADF;
 	}
 	Reset();
-	
+
 	std::string realPath = path;
 	if (realPath.back() != '/') {
 		realPath = realPath + "/";
 	}
 
-	// Parse the path to extract the object path within the Globus collection
-	// This is similar to how HTTPFileSystem parses paths
 	std::string storagePrefix = m_fs->getStoragePrefix();
 	std::string object;
-	
-	// Simple path parsing - you may need to adjust this based on your needs
+
 	if (realPath.find(storagePrefix) == 0) {
 		object = realPath.substr(storagePrefix.length());
 	} else {
 		object = realPath;
 	}
-	
-	// Remove leading slash if present
+
 	if (!object.empty() && object[0] == '/') {
 		object = object.substr(1);
 	}
-	
+
 	m_object = object;
 
-	return ListGlobusDir("");
+	return ListGlobusDir();
 }
 
 int GlobusDirectory::Readdir(char *buff, int blen) {
@@ -157,53 +144,94 @@ int GlobusDirectory::Readdir(char *buff, int blen) {
 		memset(m_stat_buf, '\0', sizeof(struct stat));
 	}
 
-	// Check if we need to fetch more results
-	if (m_idx >= static_cast<ssize_t>(m_objInfo.size())) {
-		if (!m_continuation_token.empty()) {
-			// Get the next set of results from Globus
-			m_idx = 0;
-			m_objInfo.clear();
-			m_commonPrefixes.clear();
-			if (m_stat_buf) {
-				memset(m_stat_buf, '\0', sizeof(struct stat));
-			}
-			auto rv = ListGlobusDir(m_continuation_token);
-			if (rv != 0) {
-				m_opened = false;
-				return rv;
-			}
-			// Recurse to parse the fresh results
-			return Readdir(buff, blen);
-		}
+	// m_idx encodes the location inside the current directory.
+	// - m_idx in [0, m_objInfo.size) means return a "file" from the object list.
+	// - m_idx == m_objInfo.size means return the first entry in the directories list.
+	// - m_idx in (m_directories.size, -1] means return an entry from the directories list.
+	// - m_idx == -m_directories.size means that all the path elements have been consumed.
+	auto idx = m_idx;
+	if (m_objInfo.empty() && m_directories.empty()) {
 		*buff = '\0';
 		return XrdOssOK;
+	} else if (idx >= 0 && idx < static_cast<ssize_t>(m_objInfo.size())) {
+		// Return a file entry
+		m_idx++;
+		std::string full_name = m_objInfo[idx].m_key;
+		auto lastSlashIdx = full_name.rfind("/");
+		if (lastSlashIdx != std::string::npos) {
+			full_name.erase(0, lastSlashIdx + 1);
+		}
+
+		strncpy(buff, full_name.c_str(), blen);
+		if (buff[blen - 1] != '\0') {
+			buff[blen - 1] = '\0';
+			return -ENOMEM;
+		}
+
+		if (m_stat_buf) {
+			m_stat_buf->st_mode = 0x0600 | S_IFREG;
+			m_stat_buf->st_nlink = 1;
+			m_stat_buf->st_size = m_objInfo[idx].m_size;
+			time_t timestamp = parseTimestamp(m_objInfo[idx].m_last_modified);
+			if (timestamp != 0) {
+				m_stat_buf->st_mtime = timestamp;
+				m_stat_buf->st_atime = timestamp;
+				m_stat_buf->st_ctime = timestamp;
+			}
+		}
+	} else if (idx < 0 && -idx == static_cast<ssize_t>(m_directories.size())) {
+		// All items have been consumed
+		*buff = '\0';
+		return XrdOssOK;
+	} else if (idx == static_cast<ssize_t>(m_objInfo.size()) ||
+			   -idx < static_cast<ssize_t>(m_directories.size())) {
+		// Handle directory entries
+		if (m_directories.empty()) {
+			*buff = '\0';
+			return XrdOssOK;
+		}
+		if (idx == static_cast<ssize_t>(m_objInfo.size())) {
+			m_idx = -1;
+			idx = 0;
+		} else {
+			idx = -m_idx;
+			m_idx--;
+		}
+		std::string full_name = m_directories[idx].m_key;
+		if (!full_name.empty() && full_name.back() == '/') {
+			full_name.pop_back();
+		}
+
+		strncpy(buff, full_name.c_str(), blen);
+		if (buff[blen - 1] != '\0') {
+			buff[blen - 1] = '\0';
+			return -ENOMEM;
+		}
+
+		if (m_stat_buf) {
+			m_stat_buf->st_mode = 0x0700 | S_IFDIR;
+			m_stat_buf->st_nlink = 2;
+			m_stat_buf->st_size = 4096;
+			time_t timestamp = parseTimestamp(m_directories[idx].m_last_modified);
+			if (timestamp != 0) {
+				m_stat_buf->st_mtime = timestamp;
+				m_stat_buf->st_atime = timestamp;
+				m_stat_buf->st_ctime = timestamp;
+			}
+		}
+	} else {
+		return -EBADF;
 	}
 
-	// Return the next object name
-	std::string full_name = m_objInfo[m_idx].m_key;
-	auto lastSlashIdx = full_name.rfind("/");
-	if (lastSlashIdx != std::string::npos) {
-		full_name.erase(0, lastSlashIdx + 1);
-	}
-	
-	strncpy(buff, full_name.c_str(), blen);
-	if (buff[blen - 1] != '\0') {
-		buff[blen - 1] = '\0';
-		return -ENOMEM;
-	}
-	
 	if (m_stat_buf) {
-		m_stat_buf->st_mode = 0x0600 | S_IFREG;
-		m_stat_buf->st_nlink = 1;
-		m_stat_buf->st_size = m_objInfo[m_idx].m_size;
 		m_stat_buf->st_uid = 1;
 		m_stat_buf->st_gid = 1;
-		m_stat_buf->st_mtime = m_stat_buf->st_ctime = m_stat_buf->st_atime = 0;
+		if (m_stat_buf->st_mtime == 0) {
+			m_stat_buf->st_mtime = m_stat_buf->st_ctime = m_stat_buf->st_atime = 0;
+		}
 		m_stat_buf->st_dev = 0;
 		m_stat_buf->st_ino = 1;
 	}
-	
-	m_idx++;
 	return XrdOssOK;
 }
 
@@ -222,4 +250,4 @@ int GlobusDirectory::Close(long long *retsz) {
 	}
 	Reset();
 	return XrdOssOK;
-} 
+}

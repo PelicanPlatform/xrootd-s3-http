@@ -411,6 +411,8 @@ XrdOss *XrdOssGetStorageSystem2(XrdOss *native_oss, XrdSysLogger *Logger,
 
 	envP->Export("XRDXROOTD_NOPOSC", "1");
 
+    log->Log(LogMask::Debug, "XrdOssGetStorageSystem2", "called");
+
 	try {
 		HTTPRequest::Init(*log);
 		g_http_oss = new HTTPFileSystem(Logger, config_fn, envP);

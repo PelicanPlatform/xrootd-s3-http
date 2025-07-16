@@ -18,13 +18,11 @@
 
 #pragma once
 
-#include "HTTPDirectory.hh"
 #include "GlobusFileSystem.hh"
+#include "HTTPDirectory.hh"
 
 #include <string>
 #include <vector>
-
-class XrdSysError;
 
 // Structure to hold Globus object information
 struct GlobusObjectInfo {
@@ -50,15 +48,14 @@ class GlobusDirectory : public HTTPDirectory {
 
   private:
 	void Reset();
-	int ListGlobusDir(const std::string &continuation_token);
+	int ListGlobusDir();
 
 	bool m_opened{false};
 	ssize_t m_idx{0};
 	std::vector<GlobusObjectInfo> m_objInfo;
-	std::vector<std::string> m_commonPrefixes;
+	std::vector<GlobusObjectInfo> m_directories;
 	std::string m_prefix;
-	std::string m_continuation_token;
 	std::string m_object;
 	const GlobusFileSystem *m_fs;
 	struct stat *m_stat_buf{nullptr};
-}; 
+};

@@ -44,6 +44,9 @@ find_package( Filesystem REQUIRED )
 # Similar setup for libatomic; required only on 32-bit systems
 find_package( Atomic REQUIRED )
 
+# Add nlohmann/json dependency
+find_package(nlohmann_json 3.11.2 REQUIRED)
+
 if( NOT XROOTD_EXTERNAL_TINYXML2 )
   include(FetchContent)
   # Allow a locally-found tinyxml2 tarball to be used; provides the ability for packagers
@@ -116,6 +119,17 @@ target_link_libraries( XrdOssFilterObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER
 add_library( XrdOssFilter MODULE "$<TARGET_OBJECTS:XrdOssFilterObj>" )
 target_link_libraries( XrdOssFilter XrdOssFilterObj )
 
+######################
+## libXrdOssGlobus  ##
+######################
+add_library(XrdOssGlobusObj OBJECT src/HTTPCommands.cc src/GlobusFile.cc src/GlobusFileSystem.cc src/GlobusDirectory.cc src/logging.cc src/stl_string_utils.cc src/shortfile.cc src/TokenFile.cc src/CurlUtil.cc)
+set_target_properties(XrdOssGlobusObj PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(XrdOssGlobusObj PRIVATE ${XRootD_INCLUDE_DIRS})
+target_link_libraries(XrdOssGlobusObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} nlohmann_json::nlohmann_json CURL::libcurl OpenSSL::Crypto Threads::Threads std::filesystem)
+
+add_library(XrdOssGlobus MODULE "$<TARGET_OBJECTS:XrdOssGlobusObj>")
+target_link_libraries(XrdOssGlobus XrdOssGlobusObj)
+
 # Customize module's suffix and, on Linux, hide unnecessary symbols
 if( APPLE )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
@@ -123,18 +137,20 @@ if( APPLE )
   set_target_properties( XrdOssS3 PROPERTIES OUTPUT_NAME "XrdOssS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssHttp PROPERTIES OUTPUT_NAME "XrdOssHttp-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  set_target_properties( XrdOssGlobus PROPERTIES OUTPUT_NAME "XrdOssGlobus-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
 else()
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssS3 PROPERTIES OUTPUT_NAME "XrdOssS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssHttp PROPERTIES OUTPUT_NAME "XrdOssHttp-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  set_target_properties( XrdOssGlobus PROPERTIES OUTPUT_NAME "XrdOssGlobus-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
 endif()
 
 include(GNUInstallDirs)
 
 install(
-  TARGETS XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter
+  TARGETS XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
@@ -151,6 +167,10 @@ if( BUILD_TESTING )
   add_library( XrdOssFilterTesting SHARED "$<TARGET_OBJECTS:XrdOssFilterObj>" )
   target_link_libraries( XrdOssFilterTesting XrdOssFilterObj )
   target_include_directories( XrdOssFilterTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
+
+  add_library(XrdOssGlobusTesting SHARED "$<TARGET_OBJECTS:XrdOssGlobusObj>")
+  target_link_libraries(XrdOssGlobusTesting XrdOssGlobusObj)
+  target_include_directories(XrdOssGlobusTesting INTERFACE ${XRootD_INCLUDE_DIRS})
 
   find_program(GoWrk go-wrk HINTS "$ENV{HOME}/go/bin")
   if( NOT GoWrk )

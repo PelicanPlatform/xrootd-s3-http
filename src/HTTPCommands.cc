@@ -142,7 +142,9 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 
 	headers["Content-Type"] = "binary/octet-stream";
 
-	return sendPreparedRequest(hostUrl, payload, payload.size(), true);
+	m_log.Log(LogMask::Debug, "HTTPRequest::SendHTTPRequest", "Sending request");
+    
+	return sendPreparedRequest(hostUrl, payload, payload.size(), final);
 }
 
 static void dump(XrdSysError *log, const char *text, unsigned char *ptr,
@@ -390,6 +392,7 @@ bool HTTPRequest::sendPreparedRequest(const std::string &uri,
 }
 
 void HTTPRequest::Tick(std::chrono::steady_clock::time_point now) {
+    m_log.Log(LogMask::Debug, "HTTPRequest::Tick", "Tick called");
 	if (!m_is_streaming) {
 		return;
 	}
@@ -684,7 +687,9 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 			return false;
 		}
 	}
+    m_log.Log(LogMask::Debug, "SetupHandle", "Checking if curl verbose logging is enabled");
 	if (m_log.getMsgMask() & LogMask::Dump) {
+		m_log.Log(LogMask::Dump, "SetupHandle", "Enabling curl verbose logging for URL:", m_uri.c_str());
 		rv =
 			curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, debugAndDumpCallback);
 		if (rv != CURLE_OK) {
@@ -812,6 +817,7 @@ bool HTTPUpload::ContinueStreamingRequest(const std::string_view payload,
 }
 
 void HTTPRequest::Init(XrdSysError &log) {
+    log.Log(LogMask::Debug, "HTTPRequest::Init", "called");
 	if (!m_workers_initialized) {
 		for (unsigned idx = 0; idx < CurlWorker::GetPollThreads(); idx++) {
 			m_workers.push_back(new CurlWorker(m_queue, log));
@@ -839,7 +845,7 @@ bool HTTPDownload::SendRequest(off_t offset, size_t size) {
 		headers["Range"] = range.c_str();
 		this->expectedResponseCode = 206;
 	}
-
+    m_log.Log(LogMask::Debug, "HTTPDownload::SendRequest", "Sending GET request");
 	httpVerb = "GET";
 	std::string noPayloadAllowed;
 	return SendHTTPRequest(noPayloadAllowed);
