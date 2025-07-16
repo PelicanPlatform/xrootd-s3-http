@@ -801,11 +801,11 @@ bool HTTPUpload::StartStreamingRequest(const std::string_view payload,
 
 bool HTTPUpload::ContinueStreamingRequest(const std::string_view payload,
 										  off_t object_size, bool final) {
-    // Note that despite the fact that final gets passed through here,
-    // in reality the way that curl determines whether the data transfer is
-    // done is by seeing if the total amount of data sent is equal to the 
-    // expected size of the entire payload, stored in m_object_size.
-    // See HTTPRequest::ReadCallback for more info
+	// Note that despite the fact that final gets passed through here,
+	// in reality the way that curl determines whether the data transfer is
+	// done is by seeing if the total amount of data sent is equal to the
+	// expected size of the entire payload, stored in m_object_size.
+	// See HTTPRequest::ReadCallback for more info
 	return sendPreparedRequest(hostUrl, payload, object_size, final);
 }
 
@@ -866,8 +866,9 @@ int HTTPRequest::HandleHTTPError(const HTTPRequest &request, XrdSysError &log,
 		if (context) {
 			ss << " (context: " << context << ")";
 		}
-		log.Log(LogMask::Warning, "HTTPRequest::HandleHTTPError", ss.str().c_str());
-		
+		log.Log(LogMask::Warning, "HTTPRequest::HandleHTTPError",
+				ss.str().c_str());
+
 		switch (httpCode) {
 		case 404:
 			return -ENOENT;
@@ -886,12 +887,14 @@ int HTTPRequest::HandleHTTPError(const HTTPRequest &request, XrdSysError &log,
 		}
 	} else {
 		std::stringstream ss;
-		ss << "Failed to send " << operation << " command: " 
-		   << request.getErrorCode() << ": " << request.getErrorMessage();
+		ss << "Failed to send " << operation
+		   << " command: " << request.getErrorCode() << ": "
+		   << request.getErrorMessage();
 		if (context) {
 			ss << " (context: " << context << ")";
 		}
-		log.Log(LogMask::Warning, "HTTPRequest::HandleHTTPError", ss.str().c_str());
+		log.Log(LogMask::Warning, "HTTPRequest::HandleHTTPError",
+				ss.str().c_str());
 		return -EIO;
 	}
 }
