@@ -4,7 +4,7 @@ project( xrootd-http/s3 )
 
 option( XROOTD_PLUGINS_EXTERNAL_GTEST "Use an external/pre-installed copy of GTest" OFF )
 option( VALGRIND "Run select unit tests under valgrind" OFF )
-option( ASAN "Build the plugin with the address sanitizer" OFF )
+option( ENABLE_ASAN "Build the plugin with the address sanitizer" OFF )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 if( "${CMAKE_BUILD_TYPE}" STREQUAL "" )
@@ -20,7 +20,7 @@ if(VALGRIND)
   find_program(VALGRIND_BIN valgrind REQUIRED)
 endif()
 
-if(ASAN)
+if( ENABLE_ASAN )
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
   set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
@@ -170,7 +170,7 @@ install(
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
-if( BUILD_TESTING )
+if( ENABLE_TESTS )
   # Create shared libraries for testing from the existing objects
   add_library(XrdS3Testing SHARED "$<TARGET_OBJECTS:XrdS3Obj>")
   target_link_libraries(XrdS3Testing XrdS3Obj)
