@@ -17,6 +17,8 @@
  ***************************************************************/
 #pragma once
 
+#include <string>
+
 class AWSCredential {
 
   public:
