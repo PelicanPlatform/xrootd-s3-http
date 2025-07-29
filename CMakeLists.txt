@@ -146,6 +146,16 @@ target_link_libraries(XrdOssGlobusObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_
 add_library(XrdOssGlobus MODULE "$<TARGET_OBJECTS:XrdOssGlobusObj>")
 target_link_libraries(XrdOssGlobus XrdOssGlobusObj)
 
+#######################
+## libXrdOssPosc     ##
+#######################
+add_library( XrdOssPoscObj OBJECT src/Posc.cc )
+set_target_properties( XrdOssPoscObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
+target_link_libraries( XrdOssPoscObj XRootD::XrdServer XRootD::XrdUtils )
+
+add_library( XrdOssPosc MODULE "$<TARGET_OBJECTS:XrdOssPoscObj>" )
+target_link_libraries( XrdOssPosc XrdOssPoscObj )
+
 # Customize module's suffix and, on Linux, hide unnecessary symbols
 if( APPLE )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
@@ -154,6 +164,7 @@ if( APPLE )
   set_target_properties( XrdOssHttp PROPERTIES OUTPUT_NAME "XrdOssHttp-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssGlobus PROPERTIES OUTPUT_NAME "XrdOssGlobus-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  set_target_properties( XrdOssPosc PROPERTIES OUTPUT_NAME "XrdOssPosc-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
 else()
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
@@ -161,6 +172,7 @@ else()
   set_target_properties( XrdOssHttp PROPERTIES OUTPUT_NAME "XrdOssHttp-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssGlobus PROPERTIES OUTPUT_NAME "XrdOssGlobus-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  set_target_properties( XrdOssPosc PROPERTIES OUTPUT_NAME "XrdOssPosc-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
 endif()
 
 include(GNUInstallDirs)
@@ -187,6 +199,10 @@ if( ENABLE_TESTS )
   add_library(XrdOssGlobusTesting SHARED "$<TARGET_OBJECTS:XrdOssGlobusObj>")
   target_link_libraries(XrdOssGlobusTesting XrdOssGlobusObj)
   target_include_directories(XrdOssGlobusTesting INTERFACE ${XRootD_INCLUDE_DIRS})
+  
+  add_library( XrdOssPoscTesting SHARED "$<TARGET_OBJECTS:XrdOssPoscObj>" )
+  target_link_libraries( XrdOssPoscTesting XrdOssPoscObj )
+  target_include_directories( XrdOssPoscTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
 
   find_program(GoWrk go-wrk HINTS "$ENV{HOME}/go/bin")
   if( NOT GoWrk )
