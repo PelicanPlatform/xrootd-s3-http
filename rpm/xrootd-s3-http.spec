@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.4.1
+Version:        0.5.0
 Release:        1%{?dist}
 Summary:        S3/HTTP filesystem plugins for xrootd
 
@@ -42,12 +42,17 @@ cmake --build redhat-linux-build --verbose
 %{_libdir}/libXrdHTTPServer-5.so
 %{_libdir}/libXrdS3-5.so
 %{_libdir}/libXrdOssHttp-5.so
+%{_libdir}/libXrdOssGlobus-5.so
 %{_libdir}/libXrdOssS3-5.so
 %{_libdir}/libXrdOssFilter-5.so
 %doc README.md
 %license LICENSE
 
 %changelog
+* Wed Jul 30 2025 William Jiang <whjiang@wisc.edu> - 0.5.0-1
+- Add support for Globus endpoints (reads, writes, listings)
+- Add support for HTTP writes 
+
 * Fri May 30 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.4.1-1
 - Fix stall timeouts which would never fire.
 - Fix bug where S3 rate limiting would result in corrupt data being sent back to the client.
