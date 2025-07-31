@@ -159,18 +159,10 @@ int HTTPFile::Fstat(struct stat *buff) {
 		return 0;
 	}
 
-	std::cout << "TUNA 000000000000000000000000000" << std::endl;
-	std::cout << "HTTPFile::Fstat "
-		  << "About to perform HTTPFile::Fstat():"
-		  << " " << m_hostUrl.c_str()
-		  << " " << m_object.c_str()
-		  << std::endl;
 	m_log.Log(LogMask::Debug, "HTTPFile::Fstat",
 			  "About to perform HTTPFile::Fstat():", m_hostUrl.c_str(),
 			  m_object.c_str());
-	std::cout << "TUNA 111111111111111111111111111" << std::endl;
 	HTTPHead head(m_hostUrl, m_object, m_log, m_oss->getToken());
-	std::cout << "TUNA 222222222222222222222222222" << std::endl;
 
 	if (!head.SendRequest()) {
 		// SendRequest() returns false for all errors, including ones
