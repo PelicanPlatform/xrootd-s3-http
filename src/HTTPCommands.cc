@@ -469,6 +469,15 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		}
 	}
 
+	if (httpVerb == "MKCOL") {
+		rv = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "MKCOL");
+		if (rv != CURLE_OK) {
+			this->errorCode = "E_CURL_LIB";
+			this->errorMessage = "curl_easy_setopt( CURLOPT_MKCOL ) failed.";
+			return false;
+		}
+	}
+
 	if (httpVerb == "POST") {
 		rv = curl_easy_setopt(curl, CURLOPT_POST, 1);
 		if (rv != CURLE_OK) {
@@ -833,10 +842,8 @@ HTTPMkcol::~HTTPMkcol() {}
 
 bool HTTPMkcol::SendRequest() {
 	httpVerb = "MKCOL";
+	expectedResponseCode = 201;
 	std::string noPayloadAllowed;
-	std::cout << "TUNA MKCOL BEFORE responseCode " << responseCode << std::endl;
-	const auto res = SendHTTPRequest(noPayloadAllowed);
-	std::cout << "TUNA MKCOL AFTER responseCode " << responseCode << std::endl;
-	return res;
+	return SendHTTPRequest(noPayloadAllowed);
 }
 
