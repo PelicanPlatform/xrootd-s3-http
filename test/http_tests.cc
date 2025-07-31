@@ -87,7 +87,7 @@ TEST(TestHTTPFile, TestMkdir) {
 
 	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
 
-	const auto ret = fs.Mkdir("/newdir", 0755);
+	const auto ret = fs.Mkdir("newdir/", 0755);
 	ASSERT_EQ(ret, 0);
 }
 
