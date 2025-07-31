@@ -178,23 +178,7 @@ int HTTPFileSystem::Create(const char *tid, const char *path, mode_t mode,
 
 int HTTPFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
 			  XrdOucEnv *env) {
-	// Is path valid?
-	// std::string object;
-	// std::string hostname = this->getHTTPHostName();
-	// int rv = parse_path(hostname, path, object);
-	// if (rv != 0) {
-	// 	return rv;
-	// }
-  std::cout << "TUNA HTTPFileSystem::Mkdir" << std::endl;
-  std::cout << "TUNA HTTPFileSystem::Mkdir" << std::endl;
-  std::cout << "TUNA HTTPFileSystem::Mkdir http_host_name " << http_host_name << std::endl;
-  std::cout << "TUNA HTTPFileSystem::Mkdir http_host_url " << http_host_url << std::endl;
-  std::cout << "TUNA HTTPFileSystem::Mkdir m_url_base " << m_url_base << std::endl;
-  std::cout << "TUNA HTTPFileSystem::Mkdir m_storage_prefix " << m_storage_prefix << std::endl;
-  HTTPMkcol mkcol(m_url_base, path, m_log, getToken());
-  // HTTPMkcol mkcol(m_hostUrl, m_object, m_log, m_oss->getToken());
-  std::cout << "TUNA HTTPFileSystem::Mkdir SendRequest " << mkcol.SendRequest() << std::endl;
-  std::cout << "TUNA HTTPFileSystem::Mkdir" << std::endl;
-  std::cout << "TUNA HTTPFileSystem::Mkdir" << std::endl;
+	HTTPMkcol mkcol(m_url_base, path, m_log, getToken());
+	mkcol.SendRequest();
 	return 0;
 }
