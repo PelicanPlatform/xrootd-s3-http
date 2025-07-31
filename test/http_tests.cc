@@ -82,6 +82,15 @@ TEST(TestHTTPFile, TestXfer) {
 	ASSERT_EQ(fh->Close(), 0);
 }
 
+TEST(TestHTTPFile, TestMkdir) {
+	XrdSysLogger log;
+
+	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
+
+	const auto ret = fs.Mkdir("newdir/", 0755);
+	ASSERT_EQ(ret, 0);
+}
+
 class TestHTTPRequest : public HTTPRequest {
   public:
 	XrdSysLogger log{};

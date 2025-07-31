@@ -54,9 +54,7 @@ class HTTPFileSystem : public XrdOss {
 	int Init(XrdSysLogger *lp, const char *cfn) { return 0; }
 	int Init(XrdSysLogger *lp, const char *cfn, XrdOucEnv *en) { return 0; }
 	int Mkdir(const char *path, mode_t mode, int mkpath = 0,
-			  XrdOucEnv *env = 0) {
-		return -ENOSYS;
-	}
+			 XrdOucEnv *env = 0);
 	int Reloc(const char *tident, const char *path, const char *cgName,
 			  const char *anchor = 0) {
 		return -ENOSYS;

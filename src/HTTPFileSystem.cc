@@ -18,6 +18,7 @@
 
 #include "HTTPFileSystem.hh"
 #include "HTTPDirectory.hh"
+#include "HTTPCommands.hh"
 #include "HTTPFile.hh"
 #include "logging.hh"
 
@@ -171,5 +172,12 @@ int HTTPFileSystem::Create(const char *tid, const char *path, mode_t mode,
 		return rv;
 	}
 
+	return 0;
+}
+
+int HTTPFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
+			  XrdOucEnv *env) {
+	HTTPMkcol mkcol(m_url_base, path, m_log, getToken());
+	mkcol.SendRequest();
 	return 0;
 }

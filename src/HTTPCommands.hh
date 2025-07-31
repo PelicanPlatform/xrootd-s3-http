@@ -334,3 +334,19 @@ class HTTPHead : public HTTPRequest {
   protected:
 	std::string object;
 };
+
+class HTTPMkcol : public HTTPRequest {
+  public:
+	HTTPMkcol(const std::string &h, const std::string &o, XrdSysError &log,
+			 const TokenFile *token)
+		: HTTPRequest(h, log, token), object(o) {
+		hostUrl = hostUrl + "/" + object;
+	}
+
+	virtual ~HTTPMkcol();
+
+	virtual bool SendRequest();
+
+  protected:
+	std::string object;
+};
