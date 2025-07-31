@@ -25,7 +25,6 @@
 #include <sstream>
 #include <string>
 #include <thread>
-#include <iostream>
 
 #include <XrdSys/XrdSysError.hh>
 #include <curl/curl.h>
