@@ -35,11 +35,11 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 #include <time.h>
+#include <unistd.h>
 
-#include "stl_string_utils.hh"
 #include "HTTPCommands.hh"
+#include "stl_string_utils.hh"
 #include <nlohmann/json.hpp>
 
 using namespace XrdHTTPServer;
@@ -49,7 +49,7 @@ GlobusFileSystem::GlobusFileSystem(XrdOss *oss, XrdSysLogger *lp,
 	: XrdOssWrapper(*oss), m_oss(oss), m_env(envP), m_log(lp, "globus_"),
 	  m_transfer_token("", nullptr) {
 	m_log.Say("------ Initializing the Globus filesystem plugin.");
-	
+
 	if (!Config(lp, configfn)) {
 		throw std::runtime_error(
 			"Failed to configure Globus filesystem plugin.");
@@ -93,7 +93,6 @@ bool GlobusFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	}
 
 	std::string attribute;
-	std::string globus_token_file;
 	std::string transfer_token_file;
 	std::string endpoint_path;
 
@@ -134,15 +133,6 @@ bool GlobusFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 		m_transfer_token = TokenFile(transfer_token_file, &m_log);
 	}
 
-	m_log.Log(LogMask::Debug, "Config",
-			  ("Transfer URL: " + m_transfer_url).c_str());
-	m_log.Log(LogMask::Debug, "Config",
-			  ("Storage Prefix: " + m_storage_prefix).c_str());
-	m_log.Log(LogMask::Debug, "Config",
-			  ("Endpoint Path: " + endpoint_path).c_str());
-	m_log.Log(LogMask::Debug, "Config",
-			  ("Transfer Token File: " + transfer_token_file).c_str());
-
 	return true;
 }
 
@@ -158,13 +148,104 @@ XrdOssDF *GlobusFileSystem::newFile(const char *user) {
 int GlobusFileSystem::Stat(const char *path, struct stat *buff, int opts,
 						   XrdOucEnv *env) {
 	// Extract the part of path that comes after the storage prefix
-	std::string path_str(path);
+	std::string relative_path = extractRelativePath(path);
+
+	m_log.Log(LogMask::Debug, "GlobusFileSystem::Stat", "Stat'ing path",
+			  relative_path.c_str());
+
+	HTTPDownload statCommand(getStatUrl(relative_path), "", m_log,
+							 &m_transfer_token);
+	if (!statCommand.SendRequest(0, 0)) {
+		return HTTPRequest::HandleHTTPError(statCommand, m_log, "GET", "");
+	}
+
+	std::string response = statCommand.getResultString();
+
+	// Parse the JSON response and populate the stat buffer
+	try {
+		auto json_response = nlohmann::json::parse(response);
+
+		// Initialize the stat buffer
+		memset(buff, 0, sizeof(struct stat));
+
+		// Set file type and permissions
+		if (json_response.contains("type")) {
+			std::string type = json_response["type"].get<std::string>();
+			if (type == "dir") {
+				buff->st_mode = S_IFDIR | 0755;
+			} else if (type == "file") {
+				buff->st_mode = S_IFREG | 0644;
+			}
+		}
+
+		// Set file size
+		if (json_response.contains("size")) {
+			buff->st_size = json_response["size"].get<off_t>();
+		}
+
+		buff->st_uid = buff->st_gid = 1;
+
+		if (json_response.contains("last_modified")) {
+			std::string last_modified =
+				json_response["last_modified"].get<std::string>();
+			time_t timestamp = parseTimestamp(last_modified);
+			if (timestamp != 0) {
+				buff->st_mtime = timestamp;
+				buff->st_atime = timestamp;
+				buff->st_ctime = timestamp;
+			}
+		}
+
+		// Set number of links (1 for regular files, 2 for directories)
+		buff->st_nlink = (buff->st_mode & S_IFDIR) ? 2 : 1;
+		return 0;
+
+	} catch (const nlohmann::json::exception &e) {
+		m_log.Log(LogMask::Error, "GlobusFileSystem::Stat",
+				  "Failed to parse JSON response:", e.what());
+		return -EIO;
+	}
+}
+
+int GlobusFileSystem::Unlink(const char *path, int Opts, XrdOucEnv *env) {
+	return m_oss->Unlink(path, Opts, env);
+}
+
+const std::string
+GlobusFileSystem::getLsUrl(const std::string &relative_path) const {
+	return getOperationUrl("ls", relative_path);
+}
+
+const std::string
+GlobusFileSystem::getStatUrl(const std::string &relative_path) const {
+	return getOperationUrl("stat", relative_path);
+}
+
+const std::string
+GlobusFileSystem::getOperationUrl(const std::string &operation,
+								  const std::string &relative_path) const {
+	if (m_transfer_url.empty()) {
+		return "";
+	}
+
+	size_t format_pos = m_transfer_url.find("%s");
+	std::string result = m_transfer_url;
+	result.replace(format_pos, 2, operation);
+
+	// Append the relative path to the URL
+	if (!relative_path.empty()) {
+		result += relative_path;
+	}
+
+	return result;
+}
+
+std::string
+GlobusFileSystem::extractRelativePath(const std::string &path) const {
 	std::string relative_path = "/";
-	
-	if (!m_storage_prefix.empty() && path_str.find(m_storage_prefix) == 0) {
-		// Path starts with storage prefix, extract the remaining part
-		relative_path = path_str.substr(m_storage_prefix.length());
-		// Ensure it starts with "/" if it's not empty
+
+	if (!m_storage_prefix.empty() && path.find(m_storage_prefix) == 0) {
+		relative_path = path.substr(m_storage_prefix.length());
 		if (relative_path.empty()) {
 			relative_path = "/";
 		} else if (relative_path[0] != '/') {
@@ -172,93 +253,14 @@ int GlobusFileSystem::Stat(const char *path, struct stat *buff, int opts,
 		}
 	}
 
-    m_log.Log(LogMask::Debug, "GlobusFileSystem::Stat", "Stat'ing path", relative_path.c_str());
-    
-    HTTPDownload statCommand(getStatUrl(relative_path), m_object, m_log, &m_transfer_token);
-    if (!statCommand.SendRequest(0, 0)) {
-        return HTTPRequest::HandleHTTPError(statCommand, m_log, "GET", m_object.c_str());
-    }
-
-    std::string response = statCommand.getResultString();
-    
-    // Parse the JSON response and populate the stat buffer
-    try {
-        auto json_response = nlohmann::json::parse(response);
-        
-        // Initialize the stat buffer
-        memset(buff, 0, sizeof(struct stat));
-        
-        // Set file type and permissions
-        if (json_response.contains("type")) {
-            std::string type = json_response["type"].get<std::string>();
-            if (type == "dir") {
-                buff->st_mode = S_IFDIR | 0755;  // Directory with rwxr-xr-x
-            } else if (type == "file") {
-                buff->st_mode = S_IFREG | 0644;  // Regular file with rw-r--r--
-            }
-        }
-        
-        // Set file size
-        if (json_response.contains("size")) {
-            buff->st_size = json_response["size"].get<off_t>();
-        }
-        
-        // Set ownership (use current user/group if not specified)
-        buff->st_uid = getuid();
-        buff->st_gid = getgid();
-        
-        // Set timestamps using the static method
-        if (json_response.contains("last_modified")) {
-            std::string last_modified = json_response["last_modified"].get<std::string>();
-            time_t timestamp = parseTimestamp(last_modified);
-            if (timestamp != 0) {
-                buff->st_mtime = timestamp;
-                buff->st_atime = timestamp;
-                buff->st_ctime = timestamp;
-            }
-        }
-        
-        // Set number of links (1 for regular files, 2 for directories)
-        buff->st_nlink = (buff->st_mode & S_IFDIR) ? 2 : 1;
-        
-        m_log.Log(LogMask::Debug, "GlobusFileSystem::Stat", "Successfully parsed stat response");
-        return 0;
-        
-    } catch (const nlohmann::json::exception &e) {
-        m_log.Log(LogMask::Error, "GlobusFileSystem::Stat", "Failed to parse JSON response:", e.what());
-        return -EIO;
-    }
+	return relative_path;
 }
 
-const std::string GlobusFileSystem::getLsUrl(const std::string &relative_path) const {
-	return getOperationUrl("ls", relative_path);
-}
-
-const std::string GlobusFileSystem::getStatUrl(const std::string &relative_path) const {
-	return getOperationUrl("stat", relative_path);
-}
-
-const std::string GlobusFileSystem::getOperationUrl(const std::string &operation, const std::string &relative_path) const {
-	if (m_transfer_url.empty()) {
-		return "";
-	}
-	
-	size_t format_pos = m_transfer_url.find("%s");
-	std::string result = m_transfer_url;
-	result.replace(format_pos, 2, operation);
-	
-	// Append the relative path to the URL
-	if (!relative_path.empty()) {
-		result += "&relative_path=" + relative_path;
-	}
-	
-	return result;
-}
-
-time_t GlobusFileSystem::parseTimestamp(const std::string& last_modified) {
+time_t GlobusFileSystem::parseTimestamp(const std::string &last_modified) {
 	if (!last_modified.empty()) {
 		struct tm tm_time = {};
-		if (strptime(last_modified.c_str(), "%Y-%m-%d %H:%M:%S", &tm_time) != nullptr) {
+		if (strptime(last_modified.c_str(), "%Y-%m-%d %H:%M:%S", &tm_time) !=
+			nullptr) {
 			return mktime(&tm_time);
 		}
 	}

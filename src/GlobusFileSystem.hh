@@ -45,7 +45,7 @@ class GlobusFileSystem : public XrdOssWrapper {
 		return -ENOSYS;
 	}
 	int Stat(const char *path, struct stat *buff, int opts = 0,
-			 XrdOucEnv *env = 0);
+			 XrdOucEnv *env = 0) override;
 	int StatFS(const char *path, char *buff, int &blen,
 			   XrdOucEnv *env = 0) override {
 		return -ENOSYS;
@@ -74,9 +74,7 @@ class GlobusFileSystem : public XrdOssWrapper {
 				 XrdOucEnv *env = 0) override {
 		return -ENOSYS;
 	}
-	int Unlink(const char *path, int Opts = 0, XrdOucEnv *env = 0) override {
-		return -ENOSYS;
-	}
+	int Unlink(const char *path, int Opts = 0, XrdOucEnv *env = 0) override;
 
 	// Getters for Globus-specific configuration
 	const std::string &getStoragePrefix() const { return m_storage_prefix; }
@@ -87,7 +85,7 @@ class GlobusFileSystem : public XrdOssWrapper {
 	const std::string getStatUrl(const std::string &relative_path = "") const;
 
 	// Static utility method for parsing timestamps
-	static time_t parseTimestamp(const std::string& last_modified);
+	static time_t parseTimestamp(const std::string &last_modified);
 
   protected:
 	bool handle_required_config(const std::string &name_from_config,
@@ -99,8 +97,10 @@ class GlobusFileSystem : public XrdOssWrapper {
 	getOperationUrl(const std::string &operation,
 					const std::string &relative_path = "") const;
 
+	// Extract the relative path by removing the storage prefix
+	std::string extractRelativePath(const std::string &path) const;
+
 	std::unique_ptr<XrdOss> m_oss;
-	std::string m_object;
 	XrdOucEnv *m_env;
 	XrdSysError m_log;
 

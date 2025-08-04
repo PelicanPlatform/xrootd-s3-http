@@ -31,10 +31,11 @@
 
 using json = nlohmann::json;
 
-time_t parseTimestamp(const std::string& last_modified) {
+time_t parseTimestamp(const std::string &last_modified) {
 	if (!last_modified.empty()) {
 		struct tm tm_time = {};
-		if (strptime(last_modified.c_str(), "%Y-%m-%d %H:%M:%S", &tm_time) != nullptr) {
+		if (strptime(last_modified.c_str(), "%Y-%m-%d %H:%M:%S", &tm_time) !=
+			nullptr) {
 			return mktime(&tm_time);
 		}
 	}
@@ -56,7 +57,7 @@ int GlobusDirectory::ListGlobusDir() {
 	HTTPDownload listCommand(m_fs->getLsUrl(), m_object, m_log,
 							 m_fs->getTransferToken());
 
-	if (!listCommand.SendRequest(0, 0)) { 
+	if (!listCommand.SendRequest(0, 0)) {
 		return HTTPRequest::HandleHTTPError(
 			listCommand, m_log, "Globus directory listing", m_object.c_str());
 	}
@@ -145,10 +146,14 @@ int GlobusDirectory::Readdir(char *buff, int blen) {
 	}
 
 	// m_idx encodes the location inside the current directory.
-	// - m_idx in [0, m_objInfo.size) means return a "file" from the object list.
-	// - m_idx == m_objInfo.size means return the first entry in the directories list.
-	// - m_idx in (m_directories.size, -1] means return an entry from the directories list.
-	// - m_idx == -m_directories.size means that all the path elements have been consumed.
+	// - m_idx in [0, m_objInfo.size) means return a "file" from the object
+	// list.
+	// - m_idx == m_objInfo.size means return the first entry in the directories
+	// list.
+	// - m_idx in (m_directories.size, -1] means return an entry from the
+	// directories list.
+	// - m_idx == -m_directories.size means that all the path elements have been
+	// consumed.
 	auto idx = m_idx;
 	if (m_objInfo.empty() && m_directories.empty()) {
 		*buff = '\0';
@@ -212,7 +217,8 @@ int GlobusDirectory::Readdir(char *buff, int blen) {
 			m_stat_buf->st_mode = 0x0700 | S_IFDIR;
 			m_stat_buf->st_nlink = 2;
 			m_stat_buf->st_size = 4096;
-			time_t timestamp = parseTimestamp(m_directories[idx].m_last_modified);
+			time_t timestamp =
+				parseTimestamp(m_directories[idx].m_last_modified);
 			if (timestamp != 0) {
 				m_stat_buf->st_mtime = timestamp;
 				m_stat_buf->st_atime = timestamp;
@@ -227,7 +233,8 @@ int GlobusDirectory::Readdir(char *buff, int blen) {
 		m_stat_buf->st_uid = 1;
 		m_stat_buf->st_gid = 1;
 		if (m_stat_buf->st_mtime == 0) {
-			m_stat_buf->st_mtime = m_stat_buf->st_ctime = m_stat_buf->st_atime = 0;
+			m_stat_buf->st_mtime = m_stat_buf->st_ctime = m_stat_buf->st_atime =
+				0;
 		}
 		m_stat_buf->st_dev = 0;
 		m_stat_buf->st_ino = 1;

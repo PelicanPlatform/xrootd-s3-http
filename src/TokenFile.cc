@@ -54,9 +54,9 @@ bool TokenFile::Get(std::string &token) const {
 	std::string contents;
 	if (!readShortFile(m_token_file, contents)) {
 		if (m_log) {
-			m_log->Log(
-				XrdHTTPServer::LogMask::Warning, "getAuthToken",
-				"Failed to read token authorization file:", strerror(errno));
+			m_log->Log(XrdHTTPServer::LogMask::Warning, "getAuthToken",
+					   "Failed to read token authorization file",
+					   m_token_file.c_str(), strerror(errno));
 		}
 		m_token_load_success = false;
 		return false;
