@@ -135,7 +135,6 @@ http.trace   all
 xrd.trace    all
 xrootd.trace all
 scitokens.trace all
-httpserver.trace all dump
 
 xrd.port any
 
