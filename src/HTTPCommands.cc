@@ -789,12 +789,14 @@ HTTPUpload::~HTTPUpload() {}
 
 bool HTTPUpload::SendRequest(const std::string &payload) {
 	httpVerb = "PUT";
+    expectedResponseCode = 201;
 	return SendHTTPRequest(payload);
 }
 
 bool HTTPUpload::StartStreamingRequest(const std::string_view payload,
 									   off_t object_size) {
 	httpVerb = "PUT";
+    expectedResponseCode = 201;
 	headers["Content-Type"] = "binary/octet-stream";
 	return sendPreparedRequest(hostUrl, payload, object_size, false);
 }
