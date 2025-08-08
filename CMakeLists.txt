@@ -44,8 +44,22 @@ find_package( Filesystem REQUIRED )
 # Similar setup for libatomic; required only on 32-bit systems
 find_package( Atomic REQUIRED )
 
-# Add nlohmann/json dependency
-find_package(nlohmann_json 3.11.2 REQUIRED)
+# Add nlohmann/json dependency (use system if available; otherwise, fetch it)
+find_package(nlohmann_json 3.11.2 QUIET)
+if(NOT nlohmann_json_FOUND)
+  include(FetchContent)
+  # Allow a locally-found tarball; if missing, fall back to upstream URL
+  set(JSON_URL "${CMAKE_CURRENT_SOURCE_DIR}/nlohmann-json-3.11.2.tar.xz")
+  if(NOT EXISTS "${JSON_URL}")
+    set(JSON_URL "https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz")
+  endif()
+  cmake_policy(SET CMP0135 NEW)
+  FetchContent_Declare(
+    nlohmann_json
+    URL "${JSON_URL}"
+  )
+  FetchContent_MakeAvailable(nlohmann_json)
+endif()
 
 if( NOT XROOTD_EXTERNAL_TINYXML2 )
   include(FetchContent)
