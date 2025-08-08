@@ -26,6 +26,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 #include <curl/curl.h>
@@ -196,7 +197,7 @@ class HTTPRequest {
 	// the results are populated in the m_result_buffer instead.
 	std::string m_result;
 	unsigned long responseCode{0};
-	unsigned long expectedResponseCode = 200;
+	std::unordered_set<unsigned long> expectedResponseCode{200};
 	bool includeResponseHeader{false};
 
 	std::string httpVerb{"POST"};

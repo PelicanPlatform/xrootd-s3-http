@@ -81,7 +81,7 @@ size_t HTTPRequest::handleResults(const void *ptr, size_t size, size_t nmemb,
 				return 0;
 			}
 		}
-		if (me->getResponseCode() == me->expectedResponseCode &&
+		if (me->expectedResponseCode.count(me->getResponseCode()) &&
 			me->requestResult() != nullptr) {
 			if (!me->m_result_buffer_initialized) {
 				me->m_result_buffer_initialized = true;
@@ -784,16 +784,22 @@ void HTTPRequest::ProcessCurlResult(CURL *curl, CURLcode rv) {
 		return;
 	}
 
-	if (responseCode != expectedResponseCode) {
-		formatstr(errorCode,
-				  "E_HTTP_RESPONSE_NOT_EXPECTED (response %lu != expected %lu)",
-				  responseCode, expectedResponseCode);
+	if (!expectedResponseCode.count(responseCode)) {
+		errorCode = "E_HTTP_RESPONSE_NOT_EXPECTED";
 		errorMessage = m_result;
 		if (errorMessage.empty()) {
-			formatstr(
-				errorMessage,
-				"HTTP response was %lu, not %lu, and no body was returned.",
-				responseCode, expectedResponseCode);
+			std::ostringstream ss;
+			ss << "HTTP response was " << responseCode << ", expected one of {";
+			bool first = true;
+			for (const auto &code : expectedResponseCode) {
+				if (!first) {
+					ss << ", ";
+				}
+				first = false;
+				ss << code;
+			}
+			ss << "}, and no body was returned.";
+			errorMessage = ss.str();
 		}
 		return;
 	}
@@ -807,14 +813,14 @@ HTTPUpload::~HTTPUpload() {}
 
 bool HTTPUpload::SendRequest(const std::string &payload) {
 	httpVerb = "PUT";
-	expectedResponseCode = 201;
+	expectedResponseCode = {200, 201};
 	return SendHTTPRequest(payload);
 }
 
 bool HTTPUpload::StartStreamingRequest(const std::string_view payload,
 									   off_t object_size) {
 	httpVerb = "PUT";
-	expectedResponseCode = 201;
+	expectedResponseCode = {200, 201};
 	headers["Content-Type"] = "binary/octet-stream";
 	return sendPreparedRequest(hostUrl, payload, object_size, false);
 }
@@ -856,7 +862,7 @@ bool HTTPDownload::SendRequest(off_t offset, size_t size) {
 		formatstr(range, "bytes=%lld-%lld", static_cast<long long int>(offset),
 				  static_cast<long long int>(offset + size - 1));
 		headers["Range"] = range.c_str();
-		this->expectedResponseCode = 206;
+		this->expectedResponseCode = {206};
 	}
 	m_log.Log(LogMask::Debug, "HTTPDownload::SendRequest",
 			  "Sending GET request");
@@ -882,7 +888,7 @@ HTTPDelete::~HTTPDelete() {}
 
 bool HTTPDelete::SendRequest() {
 	httpVerb = "DELETE";
-	this->expectedResponseCode = 204;
+	this->expectedResponseCode = {204};
 	includeResponseHeader = true;
 	std::string noPayloadAllowed;
 	return SendHTTPRequest(noPayloadAllowed);
