@@ -27,10 +27,10 @@
 
 class XrdSysError;
 
-class S3Directory : public HTTPDirectory {
+class S3Directory : public XrdOssDF {
   public:
 	S3Directory(XrdSysError &log, const S3FileSystem &fs)
-		: HTTPDirectory(log), m_fs(fs) {}
+		: m_log(log), m_fs(fs) {} // Initialize it to false.
 
 	virtual ~S3Directory() {}
 
@@ -46,6 +46,7 @@ class S3Directory : public HTTPDirectory {
 	void Reset();
 	int ListS3Dir(const std::string &ct);
 
+	XrdSysError &m_log;
 	bool m_opened{false};
 	ssize_t m_idx{0};
 	std::vector<S3ObjectInfo> m_objInfo;
