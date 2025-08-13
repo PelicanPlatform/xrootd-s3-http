@@ -22,6 +22,8 @@
 #include "XrdOss/XrdOss.hh"
 #include "XrdOuc/XrdOucEnv.hh"
 #include "logging.hh"
+#include <XrdSfs/XrdSfsInterface.hh>
+#include <map>
 
 using namespace XrdHTTPServer;
 
@@ -34,7 +36,10 @@ class HTTPDirectory : public XrdOssDF {
 
 	virtual int Readdir(char *buff, int blen) override;
 
-	virtual int StatRet(struct stat *statStruct) override { return -ENOSYS; }
+	virtual int StatRet(struct stat *statStruct) override {
+		mystat = statStruct;
+		return SFS_OK;
+	}
 
 	virtual int Close(long long *retsz = 0) override { return -ENOSYS; }
 
@@ -47,13 +52,17 @@ class HTTPDirectory : public XrdOssDF {
 		std::string name;
 	};
 
-	std::string parseHTMLToFSSpecString(const std::string &htmlContent);
+	std::map<std::string, struct stat>
+	parseHTMLToFSSpecString(const std::string &htmlContent);
 	std::string extractHTMLTable(const std::string &htmlContent);
 
+	struct stat *mystat;
 	XrdSysError &m_log;
 	std::string m_object;
 	HTTPFileSystem *m_oss;
 	std::string m_hostname;
 	std::string m_hostUrl;
-	bool m_readdirCalled; // Tracks if Readdir has been called.
+	std::map<std::string, struct stat> m_remoteList;
+	std::string m_remote_flavor;
+	int m_bytesReturned;
 };

@@ -30,9 +30,6 @@
 #include <memory>
 #include <mutex>
 
-int parse_path(const std::string &hostname, const char *path,
-			   std::string &object);
-
 class HTTPFile : public XrdOssDF {
   public:
 	HTTPFile(XrdSysError &log, HTTPFileSystem *oss);

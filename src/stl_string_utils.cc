@@ -183,3 +183,47 @@ void trimslashes(std::string &path) {
 		path = path.substr(begin, (end - begin) + 1);
 	}
 }
+
+// Ensures that path is of the form /storagePrefix/object and returns
+// the resulting object value.  The storagePrefix does not necessarily begin
+// with '/'
+//
+// Examples:
+// /foo/bar, /foo/bar/baz -> baz
+// storage.com/foo, /storage.com/foo/bar -> bar
+// /baz, /foo/bar -> error
+int parse_path(const std::string &storagePrefixStr, const char *pathStr,
+			   std::string &object) {
+	const std::filesystem::path storagePath(pathStr);
+	const std::filesystem::path storagePrefix(storagePrefixStr);
+
+	auto prefixComponents = storagePrefix.begin();
+	auto pathComponents = storagePath.begin();
+
+	std::filesystem::path full;
+	std::filesystem::path prefix;
+
+	pathComponents++;
+	if (!storagePrefixStr.empty() && storagePrefixStr[0] == '/') {
+		prefixComponents++;
+	}
+
+	while (prefixComponents != storagePrefix.end() &&
+		   *prefixComponents == *pathComponents) {
+		full /= *prefixComponents++;
+		prefix /= *pathComponents++;
+	}
+
+	// Check that nothing diverged before reaching end of service name
+	if (prefixComponents != storagePrefix.end()) {
+		return -ENOENT;
+	}
+
+	std::filesystem::path obj_path;
+	while (pathComponents != storagePath.end()) {
+		obj_path /= *pathComponents++;
+	}
+
+	object = obj_path.string();
+	return 0;
+}

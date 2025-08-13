@@ -108,6 +108,8 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 									http_host_url) ||
 			!handle_required_config(attribute, "httpserver.url_base", value,
 									m_url_base) ||
+			!handle_required_config(attribute, "httpserver.remote_flavor",
+									value, m_remote_flavor) ||
 			!handle_required_config(attribute, "httpserver.storage_prefix",
 									value, m_storage_prefix) ||
 			!handle_required_config(attribute, "httpserver.token_file", value,
@@ -125,6 +127,12 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 		if (http_host_url.empty()) {
 			m_log.Emsg("Config", "httpserver.host_url not specified; this or "
 								 "httpserver.url_base are required");
+			return false;
+		}
+		if (m_remote_flavor != "http" && m_remote_flavor != "webdav" &&
+			m_remote_flavor != "auto") {
+			m_log.Emsg("Config", "Invalid httpserver.remote_flavor specified; "
+								 "must be one of: 'http', 'webdav', or 'auto'");
 			return false;
 		}
 	}
