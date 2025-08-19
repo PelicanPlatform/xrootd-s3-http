@@ -158,8 +158,6 @@ int HTTPFileSystem::Stat(const char *path, struct stat *buff, int opts,
 						 XrdOucEnv *env) {
 	std::string error;
 
-	m_log.Emsg("Stat", "Stat'ing path", path);
-
 	// need to forward a HEAD request to the remote server
 
 	HTTPFile httpFile(m_log, this);

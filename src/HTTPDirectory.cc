@@ -188,17 +188,17 @@ int HTTPDirectory::Opendir(const char *path, XrdOucEnv &env) {
 	m_remote_flavor = m_oss->getRemoteFlavor();
 
 	if (m_remoteList.empty()) {
-		m_log.Log(LogMask::Debug, "HTTPFile::Readdir", "Readdir called");
+		m_log.Log(LogMask::Debug, "HTTPFile::Opendir", "Opendir called");
 		HTTPList list(m_hostUrl, m_object, m_log, m_oss->getToken());
-		m_log.Log(LogMask::Debug, "HTTPDirectory::Readdir",
-				  "About to perform download from HTTPDirectory::Readdir(): "
+		m_log.Log(LogMask::Debug, "HTTPDirectory::Opendir",
+				  "About to perform download from HTTPDirectory::Opendir(): "
 				  "hostname / object:",
 				  m_hostname.c_str(), m_object.c_str());
 		if (!list.SendRequest()) {
 			std::stringstream ss;
 			ss << "Failed to send GetObject command: " << list.getResponseCode()
 			   << "'" << list.getResultString() << "'";
-			m_log.Log(LogMask::Warning, "HTTPDirectory::Readdir",
+			m_log.Log(LogMask::Warning, "HTTPDirectory::Opendir",
 					  ss.str().c_str());
 			return 0;
 		}

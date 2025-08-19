@@ -22,9 +22,12 @@
 #include <XrdOuc/XrdOucEnv.hh>
 #include <XrdSys/XrdSysError.hh>
 #include <XrdSys/XrdSysLogger.hh>
+#include <execinfo.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <csignal>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
@@ -67,22 +70,21 @@ TEST(TestHTTPFile, TestList) {
 	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
 
 	struct stat si;
-	auto rc = fs.Stat("/hello_world.txt", &si);
+	auto rc = fs.Stat("/testdir", &si);
 	ASSERT_EQ(rc, 0);
-	ASSERT_EQ(si.st_size, 13);
+	ASSERT_EQ(si.st_size, 4096);
 
-	auto fh = fs.newFile();
+	auto fd = fs.newDir();
+	struct stat *statStruct = new struct stat;
+	fd->StatRet(statStruct);
 	XrdOucEnv env;
-	rc = fh->Open("/hello_world.txt", O_RDONLY, 0700, env);
-	ASSERT_EQ(rc, 0);
+	rc = fd->Open("/testdir", O_RDONLY, 0700, env);
+	ASSERT_EQ(rc, -21);
+	ASSERT_EQ(fd->Opendir("/testdir", env), 0);
 
-	char buf[12];
-	auto res = fh->Read(buf, 0, 12);
-	ASSERT_EQ(res, 12);
-
-	ASSERT_EQ(memcmp(buf, "Hello, World", 12), 0);
-
-	ASSERT_EQ(fh->Close(), 0);
+	char buf[255];
+	auto res = fd->Readdir(buf, 255);
+	ASSERT_EQ(res, 15);
 }
 
 TEST(TestHTTPFile, TestXfer) {
@@ -254,7 +256,23 @@ TEST(TestHTTPParseProtocol, Test1) {
 	ASSERT_EQ(protocol, "http");
 }
 
+void segfaultHandler(int sig) {
+	void *array[20];
+	size_t size;
+
+	// Get void*'s for all entries on the stack
+	size = backtrace(array, 20);
+
+	// Print stack trace to stderr
+	fprintf(stderr, "Error: signal %d:\n", sig);
+	backtrace_symbols_fd(array, size, STDERR_FILENO);
+
+	exit(1);
+}
+
 int main(int argc, char **argv) {
+	signal(SIGSEGV, segfaultHandler);
+
 	::testing::InitGoogleTest(&argc, argv);
 
 	if (argc != 2) {
