@@ -167,6 +167,8 @@ EOF
 
 # Export some data through the origin
 echo "Hello, World" > "$XROOTD_EXPORTDIR/hello_world.txt"
+mkdir "$XROOTD_EXPORTDIR/testdir"
+echo "Hello, World" > "$XROOTD_EXPORTDIR/testdir/hello_world.txt"
 
 # Launch XRootD daemon.
 "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- >>"$BINARY_DIR/tests/$TEST_NAME/server.log" 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
@@ -199,9 +201,15 @@ echo "xrootd started at $XROOTD_URL"
 
 XROOTD_HTTPSERVER_CONFIG="$XROOTD_CONFIGDIR/xrootd-httpserver.cfg"
 cat > "$XROOTD_HTTPSERVER_CONFIG" <<EOF
+all.trace    all
+http.trace   all
+xrd.trace    all
+xrootd.trace all
+scitokens.trace all
 
 httpserver.url_base $XROOTD_URL
 httpserver.storage_prefix /
+httpserver.remote_flavor http
 
 EOF
 
