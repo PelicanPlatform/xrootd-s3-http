@@ -140,7 +140,7 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 		return false;
 	}
 
-	headers["Content-Type"] = "binary/octet-stream";
+	// headers["Content-Type"] = "binary/octet-stream";
 
 	return sendPreparedRequest(hostUrl, payload, payload.size(), true);
 }
@@ -468,6 +468,16 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		}
 	}
 
+	if (httpVerb == "PROPFIND") {
+		rv = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PROPFIND");
+		if (rv != CURLE_OK) {
+			this->errorCode = "E_CURL_LIB";
+			this->errorMessage =
+				"curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST) failed.";
+			return false;
+		}
+	}
+
 	if (httpVerb == "POST") {
 		rv = curl_easy_setopt(curl, CURLOPT_POST, 1);
 		if (rv != CURLE_OK) {
@@ -475,7 +485,9 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 			this->errorMessage = "curl_easy_setopt( CURLOPT_POST ) failed.";
 			return false;
 		}
+	}
 
+	if (httpVerb == "POST" || httpVerb == "PROPFIND") {
 		rv = curl_easy_setopt(curl, CURLOPT_POSTFIELDS, m_payload.data());
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
@@ -825,6 +837,35 @@ bool HTTPList::SendRequest() {
 	httpVerb = "GET";
 	std::string noPayloadAllowed;
 	return SendHTTPRequest(noPayloadAllowed);
+}
+
+// ---------------------------------------------------------------------------
+
+HTTPPropfind::~HTTPPropfind() {}
+
+bool HTTPPropfind::SendRequest() {
+	httpVerb = "PROPFIND";
+	headers["Depth"] = "1";
+	headers["Content-Type"] = "application/xml";
+
+	if (!object.empty()) {
+		if (hostUrl.back() != '/' && object.front() != '/') {
+			hostUrl += '/';
+		}
+		hostUrl += object;
+	}
+
+	std::string payload = "<d:propfind xmlns:d=\"DAV:\">"
+						  "  <d:prop>"
+						  "    <d:resourcetype/>"
+						  "    <d:getcontentlength/>"
+						  "    <d:getlastmodified/>"
+						  "  </d:prop>"
+						  "</d:propfind>";
+
+	expectedResponseCode = 207;
+
+	return SendHTTPRequest(payload);
 }
 
 // ---------------------------------------------------------------------------

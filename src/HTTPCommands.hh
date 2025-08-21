@@ -337,6 +337,19 @@ class HTTPList : public HTTPRequest {
 	std::string object;
 };
 
+class HTTPPropfind : public HTTPRequest {
+  public:
+	HTTPPropfind(const std::string &h, const std::string &o, XrdSysError &log,
+				 const TokenFile *token)
+		: HTTPRequest(h, log, token), object(o) {}
+
+	virtual ~HTTPPropfind();
+
+	virtual bool SendRequest();
+
+	std::string object;
+};
+
 class HTTPHead : public HTTPRequest {
   public:
 	HTTPHead(const std::string &h, const std::string &o, XrdSysError &log,

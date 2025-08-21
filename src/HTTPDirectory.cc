@@ -44,7 +44,142 @@
 #include <vector>
 
 HTTPDirectory::HTTPDirectory(XrdSysError &log, HTTPFileSystem *oss)
-	: m_log(log), m_oss(oss), m_bytesReturned(0) {} // Initialize it to false.
+	: m_log(log), m_oss(oss), m_bytesReturned(0) {}
+
+std::map<std::string, struct stat>
+HTTPDirectory::parseWebDAVToFSSpecString(const std::string &content) {
+	using namespace tinyxml2;
+	std::map<std::string, struct stat> remoteList;
+
+	XMLDocument doc;
+	XMLError error = doc.Parse(content.c_str());
+	if (error != XML_SUCCESS) {
+		std::cerr << "Failed to parse WebDAV XML response!" << std::endl;
+		return remoteList;
+	}
+
+	XMLElement *multistatus = doc.FirstChildElement("ns0:multistatus");
+	if (!multistatus) {
+		std::cerr << "No multistatus element found in WebDAV response!"
+				  << std::endl;
+		return remoteList;
+	}
+
+	for (XMLElement *response = multistatus->FirstChildElement("ns0:response");
+		 response != nullptr;
+		 response = response->NextSiblingElement("ns0:response")) {
+
+		XMLElement *href = response->FirstChildElement("ns0:href");
+		if (!href || !href->GetText()) {
+			continue;
+		}
+
+		std::string path = href->GetText();
+
+		struct stat fileStat = {};
+		fileStat.st_nlink = 1;
+		fileStat.st_uid = 1;
+		fileStat.st_gid = 1;
+		fileStat.st_atime = 0;
+		fileStat.st_ctime = 0;
+		fileStat.st_dev = 0;
+		fileStat.st_ino = 0;
+		fileStat.st_mode = 0600 | S_IFREG;
+
+		time_t modTime = 0;
+		off_t fileSize = 0;
+
+		for (XMLElement *propstat = response->FirstChildElement("ns0:propstat");
+			 propstat != nullptr;
+			 propstat = propstat->NextSiblingElement("ns0:propstat")) {
+
+			// Check status first - we only want properties with 200 OK status
+			XMLElement *status = propstat->FirstChildElement("ns0:status");
+			if (!status || !status->GetText() ||
+				std::string(status->GetText()).find("200 OK") ==
+					std::string::npos) {
+				continue;
+			}
+
+			XMLElement *prop = propstat->FirstChildElement("ns0:prop");
+			if (!prop)
+				continue;
+
+			XMLElement *resourceType =
+				prop->FirstChildElement("ns0:resourcetype");
+			if (resourceType &&
+				resourceType->FirstChildElement("ns0:collection")) {
+				fileStat.st_mode = 0600 | S_IFDIR;
+			}
+
+			XMLElement *lastModified =
+				prop->FirstChildElement("ns0:getlastmodified");
+			if (lastModified && lastModified->GetText()) {
+				std::string modifiedStr = lastModified->GetText();
+
+				struct tm tm = {};
+				char month[4] = {};
+				int day, year, hour, min, sec;
+
+				if (sscanf(modifiedStr.c_str(), "%*[^,], %d %3s %d %d:%d:%d",
+						   &day, month, &year, &hour, &min, &sec) == 6) {
+
+					const char *months[] = {"Jan", "Feb", "Mar", "Apr",
+											"May", "Jun", "Jul", "Aug",
+											"Sep", "Oct", "Nov", "Dec"};
+					int monthNum = 0;
+					for (int i = 0; i < 12; i++) {
+						if (strcmp(month, months[i]) == 0) {
+							monthNum = i;
+							break;
+						}
+					}
+
+					tm.tm_year = year - 1900;
+					tm.tm_mon = monthNum;
+					tm.tm_mday = day;
+					tm.tm_hour = hour;
+					tm.tm_min = min;
+					tm.tm_sec = sec;
+
+					modTime = mktime(&tm);
+				}
+			}
+
+			// Get content length
+			XMLElement *contentLength =
+				prop->FirstChildElement("ns0:getcontentlength");
+			if (contentLength && contentLength->GetText()) {
+				try {
+					fileSize = std::stoll(contentLength->GetText());
+				} catch (std::exception &e) {
+					fileSize = 0;
+				}
+			}
+		}
+
+		fileStat.st_size = fileSize;
+		fileStat.st_mtime = modTime;
+		std::string name = path;
+
+		if (!name.empty() && name.back() == '/') {
+			name.pop_back();
+		}
+
+		size_t lastSlash = name.find_last_of('/');
+		if (lastSlash != std::string::npos) {
+			name = name.substr(lastSlash + 1);
+		}
+
+		if (name.empty() && path.length() > 0 && path[0] == '/') {
+			name = "/";
+		}
+
+		remoteList[name] = fileStat;
+	}
+
+	return remoteList;
+}
 
 std::map<std::string, struct stat>
 HTTPDirectory::parseHTMLToFSSpecString(const std::string &htmlContent) {
@@ -188,24 +323,39 @@ int HTTPDirectory::Opendir(const char *path, XrdOucEnv &env) {
 	m_remote_flavor = m_oss->getRemoteFlavor();
 
 	if (m_remoteList.empty()) {
-		m_log.Log(LogMask::Debug, "HTTPFile::Opendir", "Opendir called");
-		HTTPList list(m_hostUrl, m_object, m_log, m_oss->getToken());
 		m_log.Log(LogMask::Debug, "HTTPDirectory::Opendir",
 				  "About to perform download from HTTPDirectory::Opendir(): "
 				  "hostname / object:",
 				  m_hostname.c_str(), m_object.c_str());
-		if (!list.SendRequest()) {
-			std::stringstream ss;
-			ss << "Failed to send GetObject command: " << list.getResponseCode()
-			   << "'" << list.getResultString() << "'";
-			m_log.Log(LogMask::Warning, "HTTPDirectory::Opendir",
-					  ss.str().c_str());
-			return 0;
+		if (m_oss->getRemoteFlavor() == "webdav") {
+			HTTPPropfind request =
+				HTTPPropfind(m_hostUrl, m_object, m_log, m_oss->getToken());
+			if (!request.SendRequest()) {
+				std::stringstream ss;
+				ss << "Failed to send GetObject command: "
+				   << request.getResponseCode() << "'"
+				   << request.getResultString() << "'";
+				m_log.Log(LogMask::Warning, "HTTPDirectory::Opendir",
+						  ss.str().c_str());
+				return 0;
+			}
+			m_remoteList = parseWebDAVToFSSpecString(request.getResultString());
+
+		} else {
+			HTTPList request =
+				HTTPList(m_hostUrl, m_object, m_log, m_oss->getToken());
+			if (!request.SendRequest()) {
+				std::stringstream ss;
+				ss << "Failed to send GetObject command: "
+				   << request.getResponseCode() << "'"
+				   << request.getResultString() << "'";
+				m_log.Log(LogMask::Warning, "HTTPDirectory::Opendir",
+						  ss.str().c_str());
+				return 0;
+			}
+			m_remoteList = parseHTMLToFSSpecString(
+				extractHTMLTable(request.getResultString()));
 		}
-
-		m_remoteList =
-			parseHTMLToFSSpecString(extractHTMLTable(list.getResultString()));
 	}
-
 	return 0;
 }

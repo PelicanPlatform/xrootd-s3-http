@@ -54,6 +54,8 @@ class HTTPDirectory : public XrdOssDF {
 
 	std::map<std::string, struct stat>
 	parseHTMLToFSSpecString(const std::string &htmlContent);
+	std::map<std::string, struct stat>
+	parseWebDAVToFSSpecString(const std::string &htmlContent);
 	std::string extractHTMLTable(const std::string &htmlContent);
 
 	struct stat *mystat;
