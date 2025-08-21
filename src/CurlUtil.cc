@@ -34,7 +34,7 @@
 
 using namespace XrdHTTPServer;
 
-thread_local std::vector<CURL *> HandlerQueue::m_handles;
+thread_local std::stack<CURL *> HandlerQueue::m_handles;
 
 HandlerQueue::HandlerQueue() {
 	int filedes[2];
@@ -46,55 +46,26 @@ HandlerQueue::HandlerQueue() {
 	m_write_fd = filedes[1];
 };
 
-namespace {
-
-// Simple debug function for getting information from libcurl; to enable, you
-// need to recompile with GetHandle(true);
-int dump_header(CURL *handle, curl_infotype type, char *data, size_t size,
-				void *clientp) {
-	(void)handle;
-	(void)clientp;
-
-	switch (type) {
-	case CURLINFO_HEADER_OUT:
-		printf("Header > %s\n", std::string(data, size).c_str());
-		break;
-	default:
-		printf("Info: %s", std::string(data, size).c_str());
-		break;
+CURL *HandlerQueue::GetHandle() {
+	if (!m_handles.empty()) {
+		CURL *result = m_handles.top();
+		m_handles.pop();
+		return result;
 	}
-	return 0;
-}
 
-} // namespace
-
-CURL *GetHandle(bool verbose) {
 	auto result = curl_easy_init();
 	if (result == nullptr) {
 		return result;
 	}
 
-	curl_easy_setopt(result, CURLOPT_USERAGENT, "xrootd-s3/devel");
-	curl_easy_setopt(result, CURLOPT_DEBUGFUNCTION, dump_header);
-	if (verbose)
-		curl_easy_setopt(result, CURLOPT_VERBOSE, 1L);
-
+	curl_easy_setopt(result, CURLOPT_USERAGENT, "xrootd-s3/0.4.1");
 	curl_easy_setopt(result, CURLOPT_BUFFERSIZE, 32 * 1024);
+	curl_easy_setopt(result, CURLOPT_NOSIGNAL, 1L);
 
 	return result;
 }
 
-CURL *HandlerQueue::GetHandle() {
-	if (m_handles.size()) {
-		auto result = m_handles.back();
-		m_handles.pop_back();
-		return result;
-	}
-
-	return ::GetHandle(false);
-}
-
-void HandlerQueue::RecycleHandle(CURL *curl) { m_handles.push_back(curl); }
+void HandlerQueue::RecycleHandle(CURL *curl) { m_handles.push(curl); }
 
 void HandlerQueue::Produce(HTTPRequest *handler) {
 	std::unique_lock<std::mutex> lk{m_mutex};
@@ -233,7 +204,7 @@ void CurlWorker::Run() {
 
 			auto curl = queue.GetHandle();
 			if (curl == nullptr) {
-				m_logger.Log(LogMask::Debug, "Run",
+				m_logger.Log(LogMask::Warning, "Run",
 							 "Unable to allocate a curl handle");
 				op->Fail("E_NOMEM", "Unable to get allocate a curl handle");
 				continue;
@@ -258,6 +229,7 @@ void CurlWorker::Run() {
 					   << curl_multi_strerror(mres);
 					m_logger.Log(LogMask::Debug, "Run", ss.str().c_str());
 				}
+				m_op_map.erase(curl);
 				op->Fail("E_CURL_LIB",
 						 "Unable to add operation to the curl multi-handle");
 				continue;
@@ -271,8 +243,8 @@ void CurlWorker::Run() {
 		if (now >= next_marker) {
 			if (m_logger.getMsgMask() & LogMask::Debug) {
 				std::stringstream ss;
-				ss << "Curl worker thread " << getpid() << " is running "
-				   << running_handles << " operations";
+				ss << "Curl worker thread is running " << running_handles
+				   << " operations";
 				m_logger.Log(LogMask::Debug, "CurlWorker", ss.str().c_str());
 			}
 			last_marker = now;

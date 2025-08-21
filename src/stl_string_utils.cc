@@ -151,9 +151,9 @@ std::string urlquote(const std::string input) {
 	std::string output;
 	output.reserve(3 * input.size());
 	for (char val : input) {
-		if ((val >= 48 || val <= 57) ||	 // Digits 0-9
-			(val >= 65 || val <= 90) ||	 // Uppercase A-Z
-			(val >= 97 || val <= 122) || // Lowercase a-z
+		if ((val >= 48 && val <= 57) ||	 // Digits 0-9
+			(val >= 65 && val <= 90) ||	 // Uppercase A-Z
+			(val >= 97 && val <= 122) || // Lowercase a-z
 			(val == 95 || val == 46 || val == 45 || val == 126 ||
 			 val == 47)) // '_.-~/'
 		{

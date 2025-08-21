@@ -22,8 +22,8 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <stack>
 #include <unordered_map>
-#include <vector>
 
 // Forward dec'ls
 typedef void CURL;
@@ -58,7 +58,7 @@ class HandlerQueue {
 
   private:
 	std::deque<HTTPRequest *> m_ops;
-	thread_local static std::vector<CURL *> m_handles;
+	thread_local static std::stack<CURL *> m_handles;
 	std::condition_variable m_cv;
 	std::mutex m_mutex;
 	const static unsigned m_max_pending_ops{20};

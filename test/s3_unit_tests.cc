@@ -347,9 +347,10 @@ TEST_F(FileSystemS3Fixture, UploadMultiPartUnaligned) {
 // Ensure that uploads timeout if no action occurs.
 TEST_F(FileSystemS3Fixture, UploadStall) {
 	HTTPRequest::SetStallTimeout(std::chrono::milliseconds(200));
-	S3File::LaunchMonitorThread();
-
 	XrdSysLogger log;
+	auto eLog = new XrdSysError(&log, "s3_");
+	S3File::LaunchMonitorThread(*eLog, nullptr);
+
 	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
 
 	std::unique_ptr<XrdOssDF> fh(fs.newFile());

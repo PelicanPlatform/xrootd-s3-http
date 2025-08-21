@@ -1,23 +1,65 @@
-add_executable( s3-gtest s3_tests.cc )
+set(EXECUTABLES "minio" "mc")
 
-add_executable( s3-unit-test s3_unit_tests.cc )
+foreach(EXE IN LISTS EXECUTABLES)
 
-add_executable( http-gtest http_tests.cc )
+  find_program(EXE_BIN ${EXE} HINTS "${CMAKE_CURRENT_BINARY_DIR}")
+
+  if(NOT EXE_BIN)
+    message("Didnt find ${EXE}. Downloading it ...")
+
+    if (APPLE)
+      set(SYS_NAME "darwin")
+    else()
+      set(SYS_NAME "linux")
+    endif()
+
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64" OR
+       CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+      set(SYS_PROC "arm64")
+    else()
+      set(SYS_PROC "amd64")
+    endif()
+
+    if (EXE STREQUAL "minio")
+      set(DIR "server")
+    else()
+      set(DIR "client")
+    endif()
+
+    set(URL "https://dl.min.io/${DIR}/${EXE}/release/${SYS_NAME}-${SYS_PROC}/${EXE}")
+    set(FILE "${CMAKE_CURRENT_BINARY_DIR}/${EXE}")
+    message("Downloading ${URL} to ${FILE}")
+    file(DOWNLOAD "${URL}" "${FILE}" STATUS download_status)
+
+    list(GET download_status 0 RESULT_CODE)
+    if (NOT RESULT_CODE EQUAL 0)
+      message(FATAL_ERROR "Failed to download ${EXE}: ${RESULT_CODE}")
+    endif()
+
+    file(CHMOD "${FILE}" PERMISSIONS
+          OWNER_READ OWNER_WRITE OWNER_EXECUTE
+          GROUP_READ GROUP_EXECUTE
+          WORLD_READ WORLD_EXECUTE)
+  endif()
+
+endforeach()
+
+find_program(MINIO_BIN minio HINTS "${CMAKE_CURRENT_BINARY_DIR}")
+find_program(MC_BIN mc       HINTS "${CMAKE_CURRENT_BINARY_DIR}")
 
 include(GoogleTest)
 
-if(XROOTD_PLUGINS_EXTERNAL_GTEST)
-    set(LIBGTEST "gtest")
-else()
-    add_dependencies(s3-gtest gtest)
-    add_dependencies(http-gtest gtest)
-    include_directories("${PROJECT_SOURCE_DIR}/vendor/gtest/googletest/include")
-    set(LIBGTEST "${CMAKE_BINARY_DIR}/external/gtest/src/gtest-build/lib/libgtest.a")
-endif()
+add_executable( s3-gtest s3_tests.cc )
+add_executable( s3-unit-test s3_unit_tests.cc )
+add_executable( http-gtest http_tests.cc )
+add_executable( filter-gtest filter_tests.cc ../src/shortfile.cc )
 
-target_link_libraries(s3-gtest XrdS3Testing "${LIBGTEST}" pthread)
-target_link_libraries(s3-unit-test XrdS3Testing "${LIBGTEST}" pthread)
-target_link_libraries(http-gtest XrdHTTPServerTesting "${LIBGTEST}" pthread)
+target_link_libraries(s3-gtest XrdS3Testing GTest::gtest_main Threads::Threads)
+target_link_libraries(s3-unit-test XrdS3Testing GTest::gtest_main Threads::Threads)
+target_link_libraries(http-gtest XrdHTTPServerTesting GTest::gtest_main Threads::Threads)
+target_link_libraries(filter-gtest XrdOssFilterTesting GTest::gtest_main Threads::Threads)
+
+gtest_add_tests(TARGET filter-gtest)
 
 gtest_add_tests(TARGET s3-unit-test TEST_LIST s3UnitTests)
 set_tests_properties(${s3UnitTests}
@@ -68,7 +110,7 @@ add_test(NAME HTTP::basic::setup
 set_tests_properties(HTTP::basic::setup
   PROPERTIES
     FIXTURES_SETUP HTTP::basic
-    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin"
 )
 
 add_test(NAME HTTP::basic::teardown
@@ -102,7 +144,7 @@ add_test(NAME S3::s3_basic::setup
 set_tests_properties(S3::s3_basic::setup
   PROPERTIES
     FIXTURES_SETUP S3::s3_basic
-    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;MINIO_BIN=${MINIO_BIN};MC_BIN=${MC_BIN}"
 )
 
 add_test(NAME S3::s3_basic::teardown
@@ -134,5 +176,19 @@ set_tests_properties(S3::s3_basic::stress_test
   PROPERTIES
     FIXTURES_REQUIRED S3::s3_basic
     ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+    ATTACHED_FILES_ON_FAIL "${S3_BASIC_TEST_LOGS}"
+)
+
+#######################################
+# Stress-test using the go-wrk binary #
+#######################################
+
+add_test( NAME S3::s3_basic::gowrk_test
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/s3-gowrk-test.sh" s3_basic )
+
+set_tests_properties( S3::s3_basic::gowrk_test
+  PROPERTIES
+    FIXTURES_REQUIRED S3::s3_basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};WRK_BIN=${GoWrk}"
     ATTACHED_FILES_ON_FAIL "${S3_BASIC_TEST_LOGS}"
 )

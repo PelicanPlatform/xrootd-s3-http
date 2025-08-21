@@ -26,19 +26,17 @@ fi
 
 echo "Setting up S3 server for $TEST_NAME test"
 
-MINIO_BIN="$(command -v minio)"
 if [ -z "$MINIO_BIN" ]; then
   echo "minio binary not found; cannot run unit test"
   exit 1
 fi
 
-MC_BIN="$(command -v mc)"
 if [ -z "$MC_BIN" ]; then
   echo "mc binary not found; cannot run unit test"
   exit 1
 fi
 
-XROOTD_BIN="$(command -v xrootd)"
+XROOTD_BIN="$XROOTD_BINDIR/xrootd"
 if [ -z "XROOTD_BIN" ]; then
   echo "xrootd binary not found; cannot run unit test"
   exit 1
@@ -167,7 +165,7 @@ while [ -z "$MINIO_URL" ]; do
   if [ $IDX -gt 1 ]; then
     echo "Waiting for minio to start ($IDX seconds so far) ..."
   fi
-  if [ $IDX -eq 10 ]; then
+  if [ $IDX -eq 60 ]; then
     echo "minio failed to start - failing"
     exit 1
   fi
@@ -200,6 +198,21 @@ fi
 
 echo "Hello, World" > "$RUNDIR/hello_world.txt"
 "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/hello_world.txt
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/hello_world2.txt
+
+IDX=0
+COUNT=25
+while [ $IDX -ne $COUNT ]; do
+  if ! dd if=/dev/urandom "of=$RUNDIR/test_file" bs=1024 count=3096 2> /dev/null; then
+    echo "Failed to create random file to upload"
+    exit 1
+  fi
+  if ! "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/test_file" "userminio/test-bucket/test_file_$IDX.random" > /dev/null; then
+    echo "Failed to upload random file to S3 instance"
+    exit 1
+  fi
+  IDX=$((IDX+1))
+done
 
 ####
 #    Starting XRootD config with S3 backend
@@ -236,11 +249,29 @@ xrd.tls $MINIO_CERTSDIR/public.crt $MINIO_CERTSDIR/private.key
 
 oss.local_root /
 ofs.osslib $BINARY_DIR/libXrdS3.so
+ofs.osslib ++ $BINARY_DIR/libXrdOssFilter.so
 
 s3.trace debug
 
 s3.begin
 s3.path_name /test
+s3.bucket_name $BUCKET_NAME
+s3.service_url $MINIO_URL
+s3.service_name $(hostname)
+s3.url_style path
+s3.region us-east-1
+s3.access_key_file $XROOTD_CONFIGDIR/access_key
+s3.secret_key_file $XROOTD_CONFIGDIR/secret_key
+s3.end
+
+#
+# Integration test for the filter module.  Export the
+# same bucket again as /test2 but filter out some contents
+#
+filter.prefix /test
+filter.glob /test2/hello_world.*
+s3.begin
+s3.path_name /test2
 s3.bucket_name $BUCKET_NAME
 s3.service_url $MINIO_URL
 s3.service_name $(hostname)
@@ -274,6 +305,10 @@ while [ -z "$XROOTD_URL" ]; do
   sleep 1
   XROOTD_URL=$(grep "Xrd_ProtLoad: enabling port" "$BINARY_DIR/tests/$TEST_NAME/server.log" | grep 'for protocol XrdHttp' | awk '{print $7}')
   IDX=$(($IDX+1))
+  if ! kill -0 "$XROOTD_PID" 2>/dev/null; then
+    echo "xrootd process (PID $XROOTD_PID) failed to start" >&2
+    exit 1
+  fi
   if [ $IDX -gt 1 ]; then
     echo "Waiting for xrootd to start ($IDX seconds so far) ..."
   fi
@@ -285,8 +320,16 @@ done
 XROOTD_URL="https://$(hostname):$XROOTD_URL/"
 echo "xrootd started at $XROOTD_URL"
 
+IDX=0
+touch "$RUNDIR/playback.txt"
+while [ $IDX -ne $COUNT ]; do
+  echo "$XROOTD_URL/test/test_file_$IDX.random" >> "$RUNDIR/playback.txt"
+  IDX=$((IDX+1))
+done
+
 cat >> "$BINARY_DIR/tests/$TEST_NAME/setup.sh" <<EOF
 XROOTD_PID=$XROOTD_PID
 XROOTD_URL=$XROOTD_URL
 BUCKET_NAME=$BUCKET_NAME
+PLAYBACK_FILE=$RUNDIR/playback.txt
 EOF
