@@ -140,7 +140,8 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 		return false;
 	}
 
-	// headers["Content-Type"] = "binary/octet-stream";
+	if (headers.find("Content-Type") == headers.end())
+		headers["Content-Type"] = "binary/octet-stream";
 
 	return sendPreparedRequest(hostUrl, payload, payload.size(), true);
 }
