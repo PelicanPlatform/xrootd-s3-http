@@ -27,6 +27,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <fcntl.h>
 #include <string>
 #include <thread>
 

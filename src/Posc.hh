@@ -25,6 +25,7 @@
 #include <XrdSec/XrdSecEntity.hh>
 #include <XrdSec/XrdSecEntityAttr.hh>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>

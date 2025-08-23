@@ -27,6 +27,7 @@
 #include <XrdVersion.hh>
 
 #include <fcntl.h>
+#include <functional>
 #include <sstream>
 #include <thread>
 
@@ -216,8 +217,7 @@ void PoscFileSystem::ExpireFiles() {
 			continue;
 		}
 
-		XrdSecEntity secEnt;
-		memset(&secEnt, '\0', sizeof(XrdSecEntity));
+		XrdSecEntity secEnt = {};
 		secEnt.name = buff;
 		XrdOucEnv userEnv(nullptr, 0, &secEnt);
 
@@ -281,7 +281,6 @@ void PoscFileSystem::ExpireUserFiles(XrdOucEnv &env) {
 		return;
 	}
 	std::unique_ptr<XrdOssDF> dp(dp_raw);
-	XrdOucEnv env;
 	if (dp->Opendir(user_posc_dir.c_str(), env) != 0) {
 		m_log->Emsg("ExpireUserFiles", "Failed to open POSC user directory",
 					user_posc_dir.c_str());
