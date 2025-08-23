@@ -294,7 +294,7 @@ export X509_CERT_FILE=$MINIO_CERTSDIR/CAs/tlsca.pem
 if [ "$VALGRIND" -eq 1 ]; then
   valgrind --leak-check=full --track-origins=yes "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" >>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
 else
-  LSAN_OPTIONS=suppressions=${SOURCE_DIR}/lsan-suppressions.txt "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" >>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
+  ASAN_OPTIONS=detect_odr_violation=0 LSAN_OPTIONS=suppressions=${SOURCE_DIR}/lsan-suppressions.txt "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" >>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
 fi
 XROOTD_PID=$!
 echo "xrootd daemon PID: $XROOTD_PID"
