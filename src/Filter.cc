@@ -434,6 +434,7 @@ bool FilterFileSystem::GlobOne(const std::filesystem::path &path,
 			// If the globstar is at the end of the glob, then we match
 			// any subsequent part of the path.
 			if (++cur_glob_component == glob.m_glob.end()) {
+				partial = false;
 				return true;
 			} else {
 				// To evaluate the globstar, we compare the remainder of the
@@ -489,6 +490,7 @@ bool FilterFileSystem::GlobOne(const std::filesystem::path &path,
 					if (GlobOne(subpath, {glob.m_match_dotfile, new_glob},
 								subpartial)) {
 						if (!subpartial && !path_prefix_has_dotfile) {
+							partial = false;
 							return true;
 						} else if (path_prefix_has_dotfile) {
 							potential_match = false;
