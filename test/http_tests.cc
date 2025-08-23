@@ -24,10 +24,13 @@
 #include <XrdSys/XrdSysLogger.hh>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
+#include <memory>
 #include <string>
+#include <vector>
 
 std::string g_ca_file;
 std::string g_config_file;
@@ -60,16 +63,15 @@ void parseEnvFile(const std::string &fname) {
 
 TEST(TestHTTPFile, TestXfer) {
 	XrdSysLogger log;
-
 	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
 
 	struct stat si;
-	auto rc = fs.Stat("/hello_world.txt", &si);
+	XrdOucEnv env;
+	auto rc = fs.Stat("/hello_world.txt", &si, 0, &env);
 	ASSERT_EQ(rc, 0);
 	ASSERT_EQ(si.st_size, 13);
 
-	auto fh = fs.newFile();
-	XrdOucEnv env;
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
 	rc = fh->Open("/hello_world.txt", O_RDONLY, 0700, env);
 	ASSERT_EQ(rc, 0);
 
@@ -82,10 +84,125 @@ TEST(TestHTTPFile, TestXfer) {
 	ASSERT_EQ(fh->Close(), 0);
 }
 
+TEST(TestHTTPFile, TestWriteZeroByteFile) {
+	XrdSysLogger log;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
+
+	XrdOucEnv env;
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	// Create a 0-byte file
+	auto rc =
+		fh->Open("/empty_file.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644, env);
+	ASSERT_EQ(rc, 0);
+
+	// Close the file immediately (0 bytes written)
+	ASSERT_EQ(fh->Close(), 0);
+
+	// Verify the file exists and has 0 size
+	struct stat si;
+	rc = fs.Stat("/empty_file.txt", &si, 0, &env);
+	ASSERT_EQ(rc, 0);
+	ASSERT_EQ(si.st_size, 0);
+}
+
+TEST(TestHTTPFile, TestWriteSmallFile) {
+	XrdSysLogger log;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
+
+	XrdOucEnv env;
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	auto rc =
+		fh->Open("/test_write.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644, env);
+	ASSERT_EQ(rc, 0);
+
+	// Write some test data
+	const char test_data[] = "This is a test file for writing operations.";
+	const size_t data_size = strlen(test_data);
+	auto write_res = fh->Write(test_data, 0, data_size);
+	ASSERT_EQ(write_res, static_cast<ssize_t>(data_size));
+
+	ASSERT_EQ(fh->Close(), 0);
+
+	// Verify the file was written correctly
+	struct stat si;
+	rc = fs.Stat("/test_write.txt", &si, 0, &env);
+	ASSERT_EQ(rc, 0);
+	ASSERT_EQ(si.st_size, data_size);
+
+	// Read back the file to verify content
+	std::unique_ptr<XrdOssDF> read_fh(fs.newFile());
+	rc = read_fh->Open("/test_write.txt", O_RDONLY, 0700, env);
+	ASSERT_EQ(rc, 0);
+
+	char read_buf[256];
+	auto read_res = read_fh->Read(read_buf, 0, data_size);
+	ASSERT_EQ(read_res, static_cast<ssize_t>(data_size));
+	ASSERT_EQ(memcmp(read_buf, test_data, data_size), 0);
+
+	ASSERT_EQ(read_fh->Close(), 0);
+}
+
+TEST(TestHTTPFile, TestWriteLargeFile) {
+	XrdSysLogger log;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
+
+	XrdOucEnv env;
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	auto rc = fh->Open("/test_large_file.txt", O_WRONLY | O_CREAT | O_TRUNC,
+					   0644, env);
+	ASSERT_EQ(rc, 0);
+
+	// Generate 2 MB of test data
+	const size_t file_size = 2 * 1024 * 1024; // 2 MB
+	std::vector<char> test_data(file_size);
+	// Fill with a repeating pattern for easy verification
+	for (size_t i = 0; i < file_size; i++) {
+		test_data[i] = static_cast<char>(i % 256);
+	}
+	// Write the data in chunks to test streaming upload
+	const size_t chunk_size = 64 * 1024; // 64 KB chunks
+	size_t total_written = 0;
+	for (size_t offset = 0; offset < file_size; offset += chunk_size) {
+		size_t current_chunk_size = std::min(chunk_size, file_size - offset);
+		auto write_res =
+			fh->Write(&test_data[offset], offset, current_chunk_size);
+		ASSERT_EQ(write_res, static_cast<ssize_t>(current_chunk_size));
+		total_written += current_chunk_size;
+	}
+	ASSERT_EQ(total_written, file_size);
+	ASSERT_EQ(fh->Close(), 0);
+
+	// Verify the file was written correctly
+	struct stat si;
+	rc = fs.Stat("/test_large_file.txt", &si, 0, &env);
+	ASSERT_EQ(rc, 0);
+	ASSERT_EQ(si.st_size, file_size);
+
+	// Read back the file to verify content
+	std::unique_ptr<XrdOssDF> read_fh(fs.newFile());
+	rc = read_fh->Open("/test_large_file.txt", O_RDONLY, 0700, env);
+	ASSERT_EQ(rc, 0);
+
+	// Read the data in chunks
+	std::vector<char> read_buf(file_size);
+	size_t total_read = 0;
+	for (size_t offset = 0; offset < file_size; offset += chunk_size) {
+		size_t current_chunk_size = std::min(chunk_size, file_size - offset);
+		auto read_res =
+			read_fh->Read(&read_buf[offset], offset, current_chunk_size);
+		ASSERT_EQ(read_res, static_cast<ssize_t>(current_chunk_size));
+		total_read += current_chunk_size;
+	}
+	ASSERT_EQ(total_read, file_size);
+	ASSERT_EQ(memcmp(read_buf.data(), test_data.data(), file_size), 0);
+
+	ASSERT_EQ(read_fh->Close(), 0);
+}
+
 class TestHTTPRequest : public HTTPRequest {
   public:
 	XrdSysLogger log{};
-	XrdSysError err{&log, "TestHTTPR3equest"};
+	XrdSysError err{&log, "TestHTTPRequest"};
 
 	TestHTTPRequest(const std::string &url) : HTTPRequest(url, err, nullptr) {}
 };

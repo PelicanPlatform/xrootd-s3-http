@@ -1,6 +1,6 @@
 /***************************************************************
  *
- * Copyright (C) 2024, Pelican Project, Morgridge Institute for Research
+ * Copyright (C) 2025, Pelican Project, Morgridge Institute for Research
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License.  You may
@@ -94,6 +94,19 @@ class HTTPRequest {
 	static std::chrono::steady_clock::duration GetStallTimeout() {
 		return m_timeout_duration;
 	}
+
+	// Handle HTTP request errors and convert them to appropriate POSIX error codes.
+	// This function can be used anywhere HTTP requests are made to provide
+	// consistent error handling.
+	//
+	// - request: The HTTPRequest object that was used for the request
+	// - log: The logger instance for error reporting
+	// - operation: A string describing the operation being performed (for logging)
+	// - context: Additional context information (for logging)
+	//
+	// Returns: A POSIX error code (-ENOENT, -EIO, -EPERM, etc.) or 0 if no error
+	static int HandleHTTPError(const HTTPRequest &request, XrdSysError &log,
+							   const char *operation, const char *context = nullptr);
 
   protected:
 	// Send the request to the HTTP server.
@@ -295,8 +308,23 @@ class HTTPUpload : public HTTPRequest {
 
 	virtual ~HTTPUpload();
 
-	virtual bool SendRequest(const std::string &payload, off_t offset,
-							 size_t size);
+	virtual bool SendRequest(const std::string &payload);
+
+	// Start a streaming request.
+	//
+	// - payload: The payload contents when uploading.
+	// - object_size: Size of the entire upload payload.
+	bool StartStreamingRequest(const std::string_view payload,
+							   off_t object_size);
+
+	// Continue a streaming request.
+	//
+	// - payload: The payload contents when uploading.
+	// - object_size: Size of the entire upload payload.
+	// - final: True if this is the last or only payload for the request.  False
+	// otherwise.
+	bool ContinueStreamingRequest(const std::string_view payload,
+								  off_t object_size, bool final);
 
   protected:
 	std::string object;

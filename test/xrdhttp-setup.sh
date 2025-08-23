@@ -161,7 +161,7 @@ EOF
 
 cat > $XROOTD_CONFIGDIR/authdb <<EOF
 
-u * / lr
+u * / all
 
 EOF
 

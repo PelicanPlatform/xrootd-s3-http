@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "HTTPCommands.hh"
 #include "HTTPFileSystem.hh"
 #include "XrdOss/XrdOss.hh"
 #include "XrdOuc/XrdOucEnv.hh"
@@ -25,7 +26,9 @@
 #include "XrdSec/XrdSecEntityAttr.hh"
 #include "XrdVersion.hh"
 
+#include <fcntl.h>
 #include <memory>
+#include <mutex>
 
 int parse_path(const std::string &hostname, const char *path,
 			   std::string &object);
@@ -103,6 +106,17 @@ class HTTPFile : public XrdOssDF {
 	std::string m_hostname;
 	std::string m_hostUrl;
 	std::string m_object;
+	// Whether the file was opened in write mode
+	bool m_write{false};
+	// Whether the file is open
+	bool m_is_open{false};
+	// Expected size of the completed object; -1 if unknown.
+	off_t m_object_size{-1};
+	off_t m_write_offset{0};
+	std::unique_ptr<std::mutex> m_write_lk;
+	// The in-progress operation for a multi-part upload; its lifetime may be
+	// spread across multiple write calls.
+	std::unique_ptr<HTTPUpload> m_write_op;
 
 	size_t content_length;
 	time_t last_modified;
