@@ -43,6 +43,12 @@ std::string g_bucket_name;
 std::string g_access_key_file;
 std::string g_secret_key_file;
 
+// Global logger and error objects; some of the unit tests launch
+// a background thread that needs access to an XrdSysError object
+// until the test process exits.
+XrdSysLogger g_log;
+XrdSysError g_elog(&g_log, "s3_");
+
 void parseEnvFile(const std::string &fname) {
 	std::ifstream fh(fname);
 	if (!fh.is_open()) {
@@ -347,11 +353,9 @@ TEST_F(FileSystemS3Fixture, UploadMultiPartUnaligned) {
 // Ensure that uploads timeout if no action occurs.
 TEST_F(FileSystemS3Fixture, UploadStall) {
 	HTTPRequest::SetStallTimeout(std::chrono::milliseconds(200));
-	XrdSysLogger log;
-	auto eLog = new XrdSysError(&log, "s3_");
-	S3File::LaunchMonitorThread(*eLog, nullptr);
+	S3File::LaunchMonitorThread(g_elog, nullptr);
 
-	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+	S3FileSystem fs(&g_log, m_configfn.c_str(), nullptr);
 
 	std::unique_ptr<XrdOssDF> fh(fs.newFile());
 	ASSERT_TRUE(fh);

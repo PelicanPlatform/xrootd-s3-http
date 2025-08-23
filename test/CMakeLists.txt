@@ -78,7 +78,7 @@ if (MINIO_BIN AND MC_BIN)
   set_tests_properties(${s3UnitTests}
     PROPERTIES
       FIXTURES_REQUIRED S3::s3_basic
-      ENVIRONMENT "ENV_FILE=${CMAKE_BINARY_DIR}/tests/s3_basic/setup.sh"
+      ENVIRONMENT "ENV_FILE=${CMAKE_BINARY_DIR}/tests/s3_basic/setup.sh;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
   )
 endif()
 
@@ -131,7 +131,7 @@ add_test(NAME HTTP::basic::setup
 set_tests_properties(HTTP::basic::setup
   PROPERTIES
     FIXTURES_SETUP HTTP::basic
-    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin"
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;LD_LIBRARY_PATH=${XRootD_LIB_DIR}"
 )
 
 add_test(NAME HTTP::basic::teardown
@@ -166,7 +166,7 @@ if (MINIO_BIN AND MC_BIN)
   set_tests_properties(S3::s3_basic::setup
     PROPERTIES
       FIXTURES_SETUP S3::s3_basic
-      ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;MINIO_BIN=${MINIO_BIN};MC_BIN=${MC_BIN}"
+      ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;LD_LIBRARY_PATH=${XRootD_LIB_DIR};MINIO_BIN=${MINIO_BIN};MC_BIN=${MC_BIN}"
   )
 
   add_test(NAME S3::s3_basic::teardown

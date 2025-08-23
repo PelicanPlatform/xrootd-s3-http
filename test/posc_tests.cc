@@ -100,13 +100,14 @@ TEST_F(TestPosc, BasicFileVisibility) {
 	ASSERT_NE(default_oss, nullptr) << "Failed to get Posc OSS instance";
 
 	std::unique_ptr<XrdSysError> log(new XrdSysError(&logger, "posc_"));
-	PoscFileSystem *posc_fs;
+	PoscFileSystem *posc_fs_raw;
 	try {
-		posc_fs = new PoscFileSystem(default_oss, std::move(log),
-									 GetConfigFile().c_str(), &env);
+		posc_fs_raw = new PoscFileSystem(default_oss, std::move(log),
+										 GetConfigFile().c_str(), &env);
 	} catch (const std::exception &e) {
 		FAIL() << "Failed to create PoscFileSystem: " << e.what();
 	}
+	std::unique_ptr<PoscFileSystem> posc_fs(posc_fs_raw);
 
 	std::unique_ptr<XrdOssDF> fp(posc_fs->newFile());
 	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
@@ -163,14 +164,15 @@ TEST_F(TestPosc, BasicFilesystemVisibility) {
 	ASSERT_NE(default_oss, nullptr) << "Failed to get Posc OSS instance";
 
 	std::unique_ptr<XrdSysError> log(new XrdSysError(&logger, "posc_"));
-	PoscFileSystem *posc_fs;
+	PoscFileSystem *posc_fs_raw;
 	try {
-		posc_fs = new PoscFileSystem(default_oss, std::move(log),
-									 GetConfigFile().c_str(), &env);
+		posc_fs_raw = new PoscFileSystem(default_oss, std::move(log),
+										 GetConfigFile().c_str(), &env);
 	} catch (const std::exception &e) {
 		FAIL() << "Failed to create PoscFileSystem: " << e.what();
 	}
-	ASSERT_NE(posc_fs, nullptr) << "Failed to allocate filesystem object";
+	ASSERT_NE(posc_fs_raw, nullptr) << "Failed to allocate filesystem object";
+	std::unique_ptr<PoscFileSystem> posc_fs(posc_fs_raw);
 
 	// Should not be able to stat the POSC directory
 	struct stat buff;
@@ -188,7 +190,9 @@ TEST_F(TestPosc, BasicFilesystemVisibility) {
 		<< strerror(errno);
 
 	// Listing of the parent directory should not contain the POSC directory
-	auto dp = posc_fs->newDir();
+	auto dp_raw = posc_fs->newDir();
+	ASSERT_NE(dp_raw, nullptr);
+	std::unique_ptr<XrdOssDF> dp(dp_raw);
 	rv = dp->Opendir("/", env);
 	ASSERT_EQ(rv, 0) << "Failed to open root directory";
 	char fname[NAME_MAX];
@@ -211,13 +215,14 @@ TEST_F(TestPosc, TempfileUpdate) {
 	ASSERT_NE(default_oss, nullptr) << "Failed to get Posc OSS instance";
 
 	std::unique_ptr<XrdSysError> log(new XrdSysError(&logger, "posc_"));
-	PoscFileSystem *posc_fs;
+	PoscFileSystem *posc_fs_raw;
 	try {
-		posc_fs = new PoscFileSystem(default_oss, std::move(log),
-									 GetConfigFile().c_str(), &env);
+		posc_fs_raw = new PoscFileSystem(default_oss, std::move(log),
+										 GetConfigFile().c_str(), &env);
 	} catch (const std::exception &e) {
 		FAIL() << "Failed to create PoscFileSystem: " << e.what();
 	}
+	std::unique_ptr<PoscFileSystem> posc_fs(posc_fs_raw);
 
 	std::unique_ptr<XrdOssDF> fp(posc_fs->newFile());
 	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
