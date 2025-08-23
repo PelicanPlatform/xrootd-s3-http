@@ -22,9 +22,12 @@
 #include <XrdOuc/XrdOucEnv.hh>
 #include <XrdSys/XrdSysError.hh>
 #include <XrdSys/XrdSysLogger.hh>
+#include <execinfo.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <algorithm>
+#include <csignal>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
@@ -36,7 +39,14 @@ std::string g_ca_file;
 std::string g_config_file;
 std::string g_url;
 
-void parseEnvFile(const std::string &fname) {
+void parseEnvFile() {
+	const char *fname = getenv("ENV_FILE");
+	if (!fname) {
+		std::cerr << "No env file specified" << std::endl;
+		exit(1);
+	}
+	std::cout << "Using env file: " << fname << std::endl;
+
 	std::ifstream fh(fname);
 	if (!fh.is_open()) {
 		std::cerr << "Failed to open env file: " << strerror(errno);
@@ -59,6 +69,30 @@ void parseEnvFile(const std::string &fname) {
 			g_config_file = val;
 		}
 	}
+}
+
+TEST(TestHTTPFile, TestList) {
+	XrdSysLogger log;
+
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+
+	struct stat si;
+	auto rc = fs.Stat("/testdir/", &si, 0, &env);
+	ASSERT_EQ(rc, 0);
+	ASSERT_EQ(si.st_size, 4096);
+
+	auto fd = fs.newDir();
+	struct stat *statStruct = new struct stat;
+	fd->StatRet(statStruct);
+
+	rc = fd->Open("/testdir", O_RDONLY, 0700, env);
+	ASSERT_EQ(rc, -21);
+	ASSERT_EQ(fd->Opendir("/testdir", env), 0);
+
+	char buf[255];
+	auto res = fd->Readdir(buf, 255);
+	ASSERT_EQ(res, 15);
 }
 
 TEST(TestHTTPFile, TestXfer) {
@@ -230,17 +264,26 @@ TEST(TestHTTPParseProtocol, Test1) {
 	ASSERT_EQ(protocol, "http");
 }
 
+void segfaultHandler(int sig) {
+	void *array[20];
+	size_t size;
+
+	// Get void*'s for all entries on the stack
+	size = backtrace(array, 20);
+
+	// Print stack trace to stderr
+	fprintf(stderr, "Error: signal %d:\n", sig);
+	backtrace_symbols_fd(array, size, STDERR_FILENO);
+
+	exit(1);
+}
+
 int main(int argc, char **argv) {
+
 	::testing::InitGoogleTest(&argc, argv);
 
-	if (argc != 2) {
-		printf("Usage: %s test_env_file", argv[0]);
-		return 1;
-	}
 	setenv("XRDINSTANCE", "xrootd", 1);
-	std::cout << "Running HTTP test with environment file " << argv[1]
-			  << std::endl;
-	parseEnvFile(argv[1]);
+	parseEnvFile();
 
 	auto logger = new XrdSysLogger(2, 0);
 	auto log = new XrdSysError(logger, "curl_");

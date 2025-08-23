@@ -873,6 +873,18 @@ bool HTTPDownload::SendRequest(off_t offset, size_t size) {
 
 // ---------------------------------------------------------------------------
 
+HTTPList::~HTTPList() {}
+
+bool HTTPList::SendRequest() {
+	expectedResponseCode = {200};
+
+	httpVerb = "GET";
+	std::string noPayloadAllowed;
+	return SendHTTPRequest(noPayloadAllowed);
+}
+
+// ---------------------------------------------------------------------------
+
 HTTPHead::~HTTPHead() {}
 
 bool HTTPHead::SendRequest() {

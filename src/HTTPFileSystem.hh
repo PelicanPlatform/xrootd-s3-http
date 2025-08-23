@@ -104,6 +104,7 @@ class HTTPFileSystem : public XrdOss {
 	const std::string &getHTTPHostUrl() const { return http_host_url; }
 	const std::string &getHTTPUrlBase() const { return m_url_base; }
 	const std::string &getStoragePrefix() const { return m_storage_prefix; }
+	const std::string &getRemoteFlavor() const { return m_remote_flavor; }
 	const TokenFile *getToken() const { return &m_token; }
 
   protected:
@@ -118,5 +119,7 @@ class HTTPFileSystem : public XrdOss {
 	std::string http_host_url;
 	std::string m_url_base;
 	std::string m_storage_prefix;
+	std::string m_remote_flavor; // http, webdav or auto. auto is currently a
+								 // synonym for webdav
 	TokenFile m_token;
 };

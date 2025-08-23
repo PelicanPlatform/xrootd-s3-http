@@ -48,50 +48,6 @@ XrdVERSIONINFO(XrdOssGetFileSystem, HTTP);
 HTTPFile::HTTPFile(XrdSysError &log, HTTPFileSystem *oss)
 	: m_log(log), m_oss(oss), content_length(0), last_modified(0) {}
 
-// Ensures that path is of the form /storagePrefix/object and returns
-// the resulting object value.  The storagePrefix does not necessarily begin
-// with '/'
-//
-// Examples:
-// /foo/bar, /foo/bar/baz -> baz
-// storage.com/foo, /storage.com/foo/bar -> bar
-// /baz, /foo/bar -> error
-int parse_path(const std::string &storagePrefixStr, const char *pathStr,
-			   std::string &object) {
-	const std::filesystem::path storagePath(pathStr);
-	const std::filesystem::path storagePrefix(storagePrefixStr);
-
-	auto prefixComponents = storagePrefix.begin();
-	auto pathComponents = storagePath.begin();
-
-	std::filesystem::path full;
-	std::filesystem::path prefix;
-
-	pathComponents++;
-	if (!storagePrefixStr.empty() && storagePrefixStr[0] == '/') {
-		prefixComponents++;
-	}
-
-	while (prefixComponents != storagePrefix.end() &&
-		   *prefixComponents == *pathComponents) {
-		full /= *prefixComponents++;
-		prefix /= *pathComponents++;
-	}
-
-	// Check that nothing diverged before reaching end of service name
-	if (prefixComponents != storagePrefix.end()) {
-		return -ENOENT;
-	}
-
-	std::filesystem::path obj_path;
-	while (pathComponents != storagePath.end()) {
-		obj_path /= *pathComponents++;
-	}
-
-	object = obj_path.string();
-	return 0;
-}
-
 int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	if (m_is_open) {
 		m_log.Log(LogMask::Warning, "HTTPFile::Open",
@@ -163,6 +119,12 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		if (rv < 0) {
 			return rv;
 		}
+		if (S_ISDIR(buf.st_mode)) {
+			return -EISDIR;
+		} else {
+			m_is_open = true;
+			return 0;
+		}
 	}
 
 	m_is_open = true;
@@ -193,11 +155,16 @@ ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
 int HTTPFile::Fstat(struct stat *buff) {
 	if (m_stat) {
 		memset(buff, '\0', sizeof(struct stat));
-		buff->st_mode = 0600 | S_IFREG;
+		bool is_dir = m_object == "" || m_object.back() == '/';
+		if (is_dir)
+			buff->st_mode = 0600 | S_IFDIR;
+		else
+			buff->st_mode = 0600 | S_IFREG;
+
 		buff->st_nlink = 1;
 		buff->st_uid = 1;
 		buff->st_gid = 1;
-		buff->st_size = content_length;
+		buff->st_size = is_dir ? 4096 : content_length;
 		buff->st_mtime = last_modified;
 		buff->st_atime = 0;
 		buff->st_ctime = 0;
@@ -258,14 +225,23 @@ int HTTPFile::Fstat(struct stat *buff) {
 		current_newline = next_newline;
 	}
 
+	// headers are totally different for a file versus an html stream
+	// describing a directory. note that here and fill out the buffer
+	// accordingly
+
 	if (buff) {
 		memset(buff, '\0', sizeof(struct stat));
-		buff->st_mode = 0600 | S_IFREG;
+		bool is_dir = m_object == "" || m_object.back() == '/';
+		if (is_dir)
+			buff->st_mode = 0600 | S_IFDIR;
+		else
+			buff->st_mode = 0600 | S_IFREG;
+
 		buff->st_nlink = 1;
 		buff->st_uid = 1;
 		buff->st_gid = 1;
-		buff->st_size = this->content_length;
-		buff->st_mtime = this->last_modified;
+		buff->st_size = is_dir ? 4096 : content_length;
+		buff->st_mtime = last_modified;
 		buff->st_atime = 0;
 		buff->st_ctime = 0;
 		buff->st_dev = 0;

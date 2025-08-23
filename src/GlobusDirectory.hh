@@ -19,10 +19,13 @@
 #pragma once
 
 #include "GlobusFileSystem.hh"
-#include "HTTPDirectory.hh"
+
+#include <XrdOss/XrdOss.hh>
 
 #include <string>
 #include <vector>
+
+class XrdSysError;
 
 // Structure to hold Globus object information
 struct GlobusObjectInfo {
@@ -31,10 +34,10 @@ struct GlobusObjectInfo {
 	std::string m_last_modified;
 };
 
-class GlobusDirectory : public HTTPDirectory {
+class GlobusDirectory : public XrdOssDF {
   public:
 	GlobusDirectory(XrdSysError &log, const GlobusFileSystem &fs)
-		: HTTPDirectory(log), m_fs(fs) {}
+		: m_log(log), m_fs(fs) {}
 
 	virtual ~GlobusDirectory() {}
 
@@ -56,6 +59,7 @@ class GlobusDirectory : public HTTPDirectory {
 	std::vector<GlobusObjectInfo> m_directories;
 	std::string m_prefix;
 	std::string m_object;
+	XrdSysError &m_log;
 	const GlobusFileSystem &m_fs;
 	struct stat *m_stat_buf{nullptr};
 };
