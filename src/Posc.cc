@@ -166,7 +166,7 @@ bool PoscFileSystem::Config(const char *configfn) {
 				return false;
 			}
 			m_log->Emsg("Config", "Created POSC directory", m_posc_dir.c_str());
-		} else if (rv == -ENOTDIR) {
+			sb.st_mode = 0755 | S_IFDIR;
 		} else {
 			m_log->Emsg("Config",
 						"POSC directory does not exist or is not accessible",
@@ -204,6 +204,8 @@ void PoscFileSystem::ExpireFiles() {
 
 	int rv;
 	char buff[PATH_MAX];
+	struct stat sb;
+	bool supportsStatRet = dp->StatRet(&sb) == 0;
 	while ((rv = dp->Readdir(buff, PATH_MAX)) == 0) {
 		if (buff[0] == '\0') {
 			// No more entries
@@ -213,10 +215,22 @@ void PoscFileSystem::ExpireFiles() {
 			// Skip current, parent, and hidden directory entries
 			continue;
 		}
-		struct stat sb;
-		if (dp->StatRet(&sb) == 0) {
+		if (supportsStatRet) {
 			if (sb.st_mode & S_IFDIR) {
 				ExpireUserFiles(buff);
+			}
+		} else {
+			auto destPath = m_posc_dir / buff;
+			rv = wrapPI.Stat(destPath.c_str(), &sb, 0, &env);
+			if (rv == 0) {
+				if (sb.st_mode & S_IFDIR) {
+					ExpireUserFiles(buff);
+				}
+			} else if (m_log->getMsgMask() & LogMask::Warning) {
+				std::stringstream ss;
+				ss << "Failed to stat " << destPath.c_str()
+				   << " when scanning POSC directory: " << strerror(errno);
+				m_log->Log(LogMask::Warning, "ExpireFiles", ss.str().c_str());
 			}
 		}
 	}
@@ -250,6 +264,8 @@ void PoscFileSystem::ExpireThread(PoscFileSystem *fs) {
 
 void PoscFileSystem::ExpireUserFiles(const char *username) {
 	auto user_posc_dir = m_posc_dir / username;
+	m_log->Log(LogMask::Debug, "Expiring all files inside directory",
+			   user_posc_dir.c_str());
 
 	auto dp_raw = wrapPI.newDir(user_posc_dir.c_str());
 	if (!dp_raw) {
@@ -266,12 +282,13 @@ void PoscFileSystem::ExpireUserFiles(const char *username) {
 		return;
 	}
 	int rv;
-	char buff[PATH_MAX];
+	char buff[NAME_MAX];
 	auto oldest_acceptable =
-		time(NULL) -
-		std::chrono::duration_cast<std::chrono::seconds>(m_posc_file_timeout)
-			.count();
-	while ((rv = dp->Readdir(buff, PATH_MAX)) == 0) {
+		std::chrono::system_clock::now() - m_posc_file_timeout;
+	struct stat sb;
+	memset(&sb, '\0', sizeof(sb));
+	auto supportsStatRet = dp->StatRet(&sb) == 0;
+	while ((rv = dp->Readdir(buff, NAME_MAX)) == 0) {
 		if (buff[0] == '\0') {
 			// No more entries
 			break;
@@ -280,25 +297,39 @@ void PoscFileSystem::ExpireUserFiles(const char *username) {
 			// Skip current, parent, and hidden directory entries
 			continue;
 		}
-		struct stat sb;
-		if ((rv = dp->StatRet(&sb))) {
-			m_log->Emsg("ExpireUserFiles", "Failed to stat POSC file", buff,
-						strerror(-rv));
-			continue;
+		if (!supportsStatRet) {
+			auto destPath = user_posc_dir / buff;
+			rv = wrapPI.Stat(destPath.c_str(), &sb, 0, &env);
+			if (rv) {
+				m_log->Log(LogMask::Warning, "ExpireUserFiles",
+						   "Failed to stat POSC file", destPath.c_str(),
+						   strerror(-rv));
+				continue;
+			}
 		}
 
 		if (sb.st_mode & S_IFDIR) {
 			// Skip directories
 			continue;
 		}
-		if (sb.st_mtime >= oldest_acceptable) {
+#ifdef __APPLE__
+		struct timespec file_mtime = sb.st_mtimespec;
+		file_mtime.tv_sec = sb.st_mtimespec.tv_sec;
+#else
+		struct timespec file_mtime = sb.st_mtim;
+#endif
+		auto file_mtime_tp = std::chrono::system_clock::time_point(
+			std::chrono::duration_cast<std::chrono::system_clock::duration>(
+				std::chrono::seconds(file_mtime.tv_sec) +
+				std::chrono::nanoseconds(file_mtime.tv_nsec)));
+		if (file_mtime_tp >= oldest_acceptable) {
 			// File is still in use, skip it
 			continue;
 		}
 
 		// File is stale, remove it
 		auto full_path = user_posc_dir / buff;
-		if ((rv = Unlink(full_path.c_str(), 0, &env)) != 0) {
+		if ((rv = wrapPI.Unlink(full_path.c_str(), 0, &env)) != 0) {
 			m_log->Emsg("ExpireUserFiles", "Failed to remove stale POSC file",
 						full_path.c_str(), strerror(-rv));
 			continue;
@@ -362,12 +393,20 @@ const char *PoscFileSystem::Lfn2Pfn(const char *Path, char *buff, int blen,
 
 int PoscFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
 						  XrdOucEnv *envP) {
-	return VerifyPath(path, &XrdOss::Mkdir, path, mode, mkpath, envP);
+	// Returning the default -ENOENT as in other calls doesn't apply to mkdir
+	// as the ENOENT would refer to the parent directory (which may exist).
+	// Treat a mkdir inside the POSC directory as if it was an I/O error.
+	if (InPoscDir(path)) {
+		m_log->Log(LogMask::Debug, "POSC",
+				   "Path is inside POSC directory; returning EIO", path);
+		return -EIO;
+	}
+	return wrapPI.Mkdir(path, mode, mkpath, envP);
 }
 
 XrdOssDF *PoscFileSystem::newFile(char const *user) {
 	std::unique_ptr<XrdOssDF> wrapped(m_oss->newFile(user));
-	return new PoscFile(std::move(wrapped), *m_log, *this);
+	return new PoscFile(std::move(wrapped), *m_log, *m_oss, *this);
 }
 
 XrdOssDF *PoscFileSystem::newDir(char const *user) {
@@ -388,7 +427,7 @@ int PoscFileSystem::Reloc(const char *tident, const char *path,
 		return -ENOENT;
 	}
 	if (InPoscDir(cgName)) {
-		m_log->Log(LogMask::Debug, "Glob",
+		m_log->Log(LogMask::Debug, "POSC",
 				   "Failing relocation as destination path in POSC directory",
 				   cgName);
 		return -ENOENT;
@@ -485,8 +524,8 @@ int PoscFileSystem::Unlink(const char *path, int Opts, XrdOucEnv *env) {
 
 template <class Fn, class... Args>
 int PoscFileSystem::VerifyPath(std::string_view path, Fn &&fn, Args &&...args) {
-	if (!InPoscDir(path)) {
-		m_log->Log(LogMask::Debug, "Posc",
+	if (InPoscDir(path)) {
+		m_log->Log(LogMask::Debug, "POSC",
 				   "Path is inside POSC directory; returning ENOENT",
 				   path.data());
 		return -ENOENT;
@@ -512,7 +551,7 @@ int PoscDir::Opendir(const char *path, XrdOucEnv &env) {
 	if (!path) {
 		return -ENOENT;
 	}
-	if (m_oss.InPoscDir(path)) {
+	if (m_posc_fs.InPoscDir(path)) {
 		m_log.Log(LogMask::Debug, "Opendir",
 				  "Ignoring directory as it is in the POSC temporary directory",
 				  path);
@@ -541,10 +580,11 @@ int PoscDir::Readdir(char *buff, int blen) {
 			return 0;
 		}
 		auto path = m_prefix / std::string_view(buff, strnlen(buff, blen));
-		if (m_oss.InPoscDir(path)) {
+		if (m_posc_fs.InPoscDir(path)) {
 			if (m_log.getMsgMask() & LogMask::Debug) {
 				m_log.Log(LogMask::Debug, "Readdir",
-						  "Ignoring directory component as it passes no glob",
+						  "Ignoring directory component as it is in the POSC "
+						  "directory",
 						  path.string().c_str());
 			}
 		} else {
@@ -577,29 +617,31 @@ int PoscDir::Close(long long *retsz) {
 }
 
 PoscFile::~PoscFile() {
-	if (m_posc_entity->name) {
-		free(m_posc_entity->name);
-	}
-	if (m_posc_entity->host) {
-		free(m_posc_entity->host);
-	}
-	if (m_posc_entity->vorg) {
-		free(m_posc_entity->vorg);
-	}
-	if (m_posc_entity->role) {
-		free(m_posc_entity->role);
-	}
-	if (m_posc_entity->grps) {
-		free(m_posc_entity->grps);
-	}
-	if (m_posc_entity->creds) {
-		free(m_posc_entity->creds);
-	}
-	if (m_posc_entity->endorsements) {
-		free(m_posc_entity->endorsements);
-	}
-	if (m_posc_entity->moninfo) {
-		free(m_posc_entity->moninfo);
+	if (m_posc_entity) {
+		if (m_posc_entity->name) {
+			free(m_posc_entity->name);
+		}
+		if (m_posc_entity->host) {
+			free(m_posc_entity->host);
+		}
+		if (m_posc_entity->vorg) {
+			free(m_posc_entity->vorg);
+		}
+		if (m_posc_entity->role) {
+			free(m_posc_entity->role);
+		}
+		if (m_posc_entity->grps) {
+			free(m_posc_entity->grps);
+		}
+		if (m_posc_entity->creds) {
+			free(m_posc_entity->creds);
+		}
+		if (m_posc_entity->endorsements) {
+			free(m_posc_entity->endorsements);
+		}
+		if (m_posc_entity->moninfo) {
+			free(m_posc_entity->moninfo);
+		}
 	}
 
 	std::unique_lock lock(m_list_mutex);
@@ -686,7 +728,7 @@ int PoscFile::Close(long long *retsz) {
 }
 
 int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
-	if (!m_oss.InPoscDir(path)) {
+	if (m_posc_fs.InPoscDir(path)) {
 		m_log.Log(LogMask::Debug, "POSC",
 				  "Failing file open as path is in POSC directory", path);
 		return -ENOENT;
@@ -703,15 +745,18 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	auto envbuff = env.Env(envlen);
 	m_posc_env.reset(new XrdOucEnv(envbuff, envlen, m_posc_entity.get()));
 	m_posc_mode = Mode;
-	m_posc_mtime.store(time(NULL), std::memory_order_relaxed);
+	m_posc_mtime.store(
+		std::chrono::system_clock::now().time_since_epoch().count(),
+		std::memory_order_relaxed);
 	for (int idx = 0; idx < 10; ++idx) {
-		m_posc_filename = m_oss.GeneratePoscFile(path, env);
+		m_posc_filename = m_posc_fs.GeneratePoscFile(path, env);
 
 		auto rv =
-			wrapDF.Open(m_posc_filename.c_str(), Oflag & O_EXCL, 0600, env);
+			wrapDF.Open(m_posc_filename.c_str(), Oflag | O_EXCL, 0600, env);
 		if (rv >= 0) {
 			m_log.Log(LogMask::Debug, "POSC", "Opened POSC file",
 					  m_posc_filename.c_str());
+			m_orig_filename = path;
 
 			// Add this open file to the list of POSC files.
 			std::unique_lock lock(m_list_mutex);
@@ -724,11 +769,11 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 			return rv;
 		} else if (rv == -ENOENT) {
 			// The per-user POSC directory does not exist; create it.
-			m_log.Log(LogMask::Debug, "POSC",
-					  "POSC sub-directory must be created for",
-					  m_posc_filename.c_str());
 			std::filesystem::path posc_dir =
 				std::filesystem::path(m_posc_filename).parent_path();
+			m_log.Log(LogMask::Debug, "POSC",
+					  "POSC sub-directory is needed for file creation:",
+					  posc_dir.c_str());
 			if (m_oss.Mkdir(posc_dir.c_str(), 0700, 1, &env) != 0) {
 				m_log.Log(LogMask::Error, "POSC",
 						  "Failed to create POSC sub-directory",
@@ -757,14 +802,18 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 ssize_t PoscFile::pgWrite(void *buffer, off_t offset, size_t wrlen,
 						  uint32_t *csvec, uint64_t opts) {
 	if (!m_posc_filename.empty()) {
-		m_posc_mtime.store(time(NULL), std::memory_order_relaxed);
+		m_posc_mtime.store(
+			std::chrono::system_clock::now().time_since_epoch().count(),
+			std::memory_order_relaxed);
 	}
 	return wrapDF.pgWrite(buffer, offset, wrlen, csvec, opts);
 }
 
 int PoscFile::pgWrite(XrdSfsAio *aioparm, uint64_t opts) {
 	if (!m_posc_filename.empty()) {
-		m_posc_mtime.store(time(NULL), std::memory_order_relaxed);
+		m_posc_mtime.store(
+			std::chrono::system_clock::now().time_since_epoch().count(),
+			std::memory_order_relaxed);
 	}
 	return wrapDF.pgWrite(aioparm, opts);
 }
@@ -773,8 +822,8 @@ void PoscFile::UpdateOpenFiles() {
 	auto now = std::chrono::system_clock::now();
 	struct timeval now_tv[2];
 	gettimeofday(now_tv, nullptr);
-	now_tv[0].tv_sec = now_tv[1].tv_sec;
-	now_tv[0].tv_usec = now_tv[1].tv_usec;
+	now_tv[1].tv_sec = now_tv[0].tv_sec;
+	now_tv[1].tv_usec = now_tv[0].tv_usec;
 
 	std::unique_lock lock(m_list_mutex);
 	for (PoscFile *file = m_first; file; file = file->m_next) {
@@ -782,10 +831,13 @@ void PoscFile::UpdateOpenFiles() {
 			continue;
 		}
 
-		auto last_update = std::chrono::system_clock::from_time_t(
-			file->m_posc_mtime.load(std::memory_order_relaxed));
+		auto last_update = std::chrono::system_clock::time_point(
+			std::chrono::system_clock::duration(
+				file->m_posc_mtime.load(std::memory_order_relaxed)));
 		if (now - last_update > m_posc_file_update) {
-			file->m_posc_mtime.store(time(NULL), std::memory_order_relaxed);
+			file->m_posc_mtime.store(
+				std::chrono::system_clock::now().time_since_epoch().count(),
+				std::memory_order_relaxed);
 
 			if (file->wrapDF.Fctl(Fctl_utimes, sizeof(now_tv),
 								  reinterpret_cast<const char *>(now_tv),
@@ -804,7 +856,9 @@ void PoscFile::UpdateOpenFiles() {
 
 ssize_t PoscFile::Write(const void *buffer, off_t offset, size_t size) {
 	if (!m_posc_filename.empty()) {
-		m_posc_mtime.store(time(NULL), std::memory_order_relaxed);
+		m_posc_mtime.store(
+			std::chrono::system_clock::now().time_since_epoch().count(),
+			std::memory_order_relaxed);
 	}
 
 	return wrapDF.Write(buffer, offset, size);
@@ -812,7 +866,9 @@ ssize_t PoscFile::Write(const void *buffer, off_t offset, size_t size) {
 
 int PoscFile::Write(XrdSfsAio *aiop) {
 	if (!m_posc_filename.empty()) {
-		m_posc_mtime.store(time(NULL), std::memory_order_relaxed);
+		m_posc_mtime.store(
+			std::chrono::system_clock::now().time_since_epoch().count(),
+			std::memory_order_relaxed);
 	}
 
 	return wrapDF.Write(aiop);

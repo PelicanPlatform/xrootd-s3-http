@@ -57,6 +57,11 @@ class PoscFileSystem final : public XrdOssWrapper {
 	virtual int Create(const char *tid, const char *path, mode_t mode,
 					   XrdOucEnv &env, int opts = 0) override;
 
+	// Expire all old/stale files in the POSC directory.
+	//
+	// Not intended to be called directly except by unit tests.
+	void ExpireFiles();
+
 	// Generate a POSC filename for a given path.
 	// The resulting filename will be within the POSC directory and will
 	// have a high chance for being unique; unlike mkstemp however, there's
@@ -104,8 +109,6 @@ class PoscFileSystem final : public XrdOssWrapper {
 	}
 
   private:
-	void ExpireFiles();
-
 	static void ExpireThread(PoscFileSystem *fs);
 
 	void ExpireUserFiles(const char *username);
@@ -125,7 +128,7 @@ class PoscFileSystem final : public XrdOssWrapper {
 	std::filesystem::path m_posc_dir;
 
 	// The underlying storage system we are wrapping.
-	std::unique_ptr<XrdOss> m_oss;
+	XrdOss *m_oss;
 	std::unique_ptr<XrdSysError> m_log;
 
 	// How long a file can be open and idle before it is considered stale
@@ -143,14 +146,20 @@ class PoscFileSystem final : public XrdOssWrapper {
 
 class PoscFile final : public XrdOssWrapDF {
   public:
-	PoscFile(std::unique_ptr<XrdOssDF> wrapDF, XrdSysError &log,
-			 PoscFileSystem &oss)
+	PoscFile(std::unique_ptr<XrdOssDF> wrapDF, XrdSysError &log, XrdOss &oss,
+			 PoscFileSystem &posc_fs)
 		: XrdOssWrapDF(*wrapDF), m_wrapped(std::move(wrapDF)), m_log(log),
-		  m_oss(oss) {}
+		  m_oss(oss), m_posc_fs(posc_fs) {}
 
 	virtual ~PoscFile();
 
 	virtual int Close(long long *retsz = 0) override;
+
+	// Returns the name of the temporary file that will be persisted on close or
+	// the empty string if the file is not being created.
+	//
+	// Primarily this accessor is intended for unit tests.
+	const std::string &GetPoscFilename() const { return m_posc_filename; }
 
 	virtual int Open(const char *path, int Oflag, mode_t Mode,
 					 XrdOucEnv &env) override;
@@ -196,8 +205,9 @@ class PoscFile final : public XrdOssWrapDF {
 	std::unique_ptr<XrdOucEnv> m_posc_env;
 	std::unique_ptr<XrdSecEntity> m_posc_entity;
 	XrdSysError &m_log;
-	PoscFileSystem &m_oss;
-	std::atomic<time_t> m_posc_mtime{0};
+	XrdOss &m_oss;
+	PoscFileSystem &m_posc_fs;
+	std::atomic<std::chrono::system_clock::duration::rep> m_posc_mtime{0};
 	std::string m_posc_filename;
 	std::string m_orig_filename;
 
@@ -218,9 +228,9 @@ class PoscFile final : public XrdOssWrapDF {
 class PoscDir final : public XrdOssWrapDF {
   public:
 	PoscDir(std::unique_ptr<XrdOssDF> wrapDF, XrdSysError &log,
-			PoscFileSystem &oss)
+			PoscFileSystem &posc_fs)
 		: XrdOssWrapDF(*wrapDF), m_wrapped(std::move(wrapDF)), m_log(log),
-		  m_oss(oss) {}
+		  m_posc_fs(posc_fs) {}
 
 	virtual ~PoscDir();
 
@@ -234,7 +244,7 @@ class PoscDir final : public XrdOssWrapDF {
 	struct stat m_stat;
 	std::unique_ptr<XrdOssDF> m_wrapped;
 	XrdSysError &m_log;
-	PoscFileSystem &m_oss;
+	PoscFileSystem &m_posc_fs;
 	std::filesystem::path m_prefix;
 };
 
