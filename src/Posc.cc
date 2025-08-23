@@ -215,16 +215,22 @@ void PoscFileSystem::ExpireFiles() {
 			// Skip current, parent, and hidden directory entries
 			continue;
 		}
+
+		XrdSecEntity secEnt;
+		memset(&secEnt, '\0', sizeof(XrdSecEntity));
+		secEnt.name = buff;
+		XrdOucEnv userEnv(nullptr, 0, &secEnt);
+
 		if (supportsStatRet) {
 			if (sb.st_mode & S_IFDIR) {
-				ExpireUserFiles(buff);
+				ExpireUserFiles(userEnv);
 			}
 		} else {
 			auto destPath = m_posc_dir / buff;
-			rv = wrapPI.Stat(destPath.c_str(), &sb, 0, &env);
+			rv = wrapPI.Stat(destPath.c_str(), &sb, 0, &userEnv);
 			if (rv == 0) {
 				if (sb.st_mode & S_IFDIR) {
-					ExpireUserFiles(buff);
+					ExpireUserFiles(userEnv);
 				}
 			} else if (m_log->getMsgMask() & LogMask::Warning) {
 				std::stringstream ss;
@@ -262,8 +268,8 @@ void PoscFileSystem::ExpireThread(PoscFileSystem *fs) {
 	m_shutdown_complete_cv.notify_one();
 }
 
-void PoscFileSystem::ExpireUserFiles(const char *username) {
-	auto user_posc_dir = m_posc_dir / username;
+void PoscFileSystem::ExpireUserFiles(XrdOucEnv &env) {
+	auto user_posc_dir = m_posc_dir / env.secEnv()->name;
 	m_log->Log(LogMask::Debug, "Expiring all files inside directory",
 			   user_posc_dir.c_str());
 

@@ -111,7 +111,7 @@ class PoscFileSystem final : public XrdOssWrapper {
   private:
 	static void ExpireThread(PoscFileSystem *fs);
 
-	void ExpireUserFiles(const char *username);
+	void ExpireUserFiles(XrdOucEnv &env);
 
 	// Invoked on the shutdown of the library, will trigger the background
 	// threads to wrap up and have a clean exit.
