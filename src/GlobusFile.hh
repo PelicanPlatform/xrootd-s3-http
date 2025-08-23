@@ -21,33 +21,27 @@
 #include "GlobusFileSystem.hh"
 #include <XrdOss/XrdOssWrapper.hh>
 
-class GlobusFile : public XrdOssWrapDF {
+class GlobusFile final : public XrdOssWrapDF {
   public:
 	GlobusFile(std::unique_ptr<XrdOssDF> wrapped, XrdSysError &log,
 			   GlobusFileSystem *fs)
-		: XrdOssWrapDF(*wrapped), m_wrapped(std::move(wrapped)), m_log(log),
-		  m_oss(*fs) {}
+		: XrdOssWrapDF(*wrapped), m_wrapped(std::move(wrapped)) {}
 
 	virtual ~GlobusFile() {}
 
-    int Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) override {
-        return m_wrapped->Open(path, Oflag, Mode, env);
-    }
-    int Fstat(struct stat *buf) override {
-        return m_wrapped->Fstat(buf);
-    }
-    ssize_t Read(void *buffer, off_t offset, size_t size) override {
-        return m_wrapped->Read(buffer, offset, size);
-    }
-    ssize_t Write(const void *buffer, off_t offset, size_t size) override {
-        return m_wrapped->Write(buffer, offset, size);
-    }
-    int Close(long long *retsz = 0) override {
-        return m_wrapped->Close(retsz);
-    }
+	int Open(const char *path, int Oflag, mode_t Mode,
+			 XrdOucEnv &env) override {
+		return m_wrapped->Open(path, Oflag, Mode, env);
+	}
+	int Fstat(struct stat *buf) override { return m_wrapped->Fstat(buf); }
+	ssize_t Read(void *buffer, off_t offset, size_t size) override {
+		return m_wrapped->Read(buffer, offset, size);
+	}
+	ssize_t Write(const void *buffer, off_t offset, size_t size) override {
+		return m_wrapped->Write(buffer, offset, size);
+	}
+	int Close(long long *retsz = 0) override { return m_wrapped->Close(retsz); }
 
   private:
 	std::unique_ptr<XrdOssDF> m_wrapped;
-	XrdSysError &m_log;
-	GlobusFileSystem &m_oss;
 };

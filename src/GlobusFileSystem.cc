@@ -46,7 +46,7 @@ using namespace XrdHTTPServer;
 
 GlobusFileSystem::GlobusFileSystem(XrdOss *oss, XrdSysLogger *lp,
 								   const char *configfn, XrdOucEnv *envP)
-	: XrdOssWrapper(*oss), m_oss(oss), m_env(envP), m_log(lp, "globus_"),
+	: XrdOssWrapper(*oss), m_oss(oss), m_log(lp, "globus_"),
 	  m_transfer_token("", nullptr) {
 	m_log.Say("------ Initializing the Globus filesystem plugin.");
 

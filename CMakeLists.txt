@@ -57,6 +57,7 @@ if(NOT nlohmann_json_FOUND)
   FetchContent_Declare(
     nlohmann_json
     URL "${JSON_URL}"
+    URL_HASH SHA256=8c4b26bf4b422252e13f332bc5e388ec0ab5c3443d24399acb675e68278d341f
   )
   FetchContent_MakeAvailable(nlohmann_json)
 endif()
