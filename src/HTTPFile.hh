@@ -113,10 +113,10 @@ class HTTPFile : public XrdOssDF {
 	// Expected size of the completed object; -1 if unknown.
 	off_t m_object_size{-1};
 	off_t m_write_offset{0};
-	std::shared_ptr<std::mutex> m_write_lk;
+	std::unique_ptr<std::mutex> m_write_lk;
 	// The in-progress operation for a multi-part upload; its lifetime may be
 	// spread across multiple write calls.
-	std::shared_ptr<HTTPUpload> m_write_op;
+	std::unique_ptr<HTTPUpload> m_write_op;
 
 	size_t content_length;
 	time_t last_modified;
