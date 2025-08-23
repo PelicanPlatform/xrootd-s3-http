@@ -156,6 +156,7 @@ int HTTPFileSystem::Stat(const char *path, struct stat *buff, int opts,
 	int rv = httpFile.Open(path, 0, (mode_t)0, *env);
 	if (rv) {
 		m_log.Emsg("Stat", "Failed to open path:", path);
+		return rv;
 	}
 	// Assume that HTTPFile::FStat() doesn't write to buff unless it succeeds.
 	return httpFile.Fstat(buff);
@@ -169,6 +170,34 @@ int HTTPFileSystem::Create(const char *tid, const char *path, mode_t mode,
 	int rv = parse_path(hostname, path, object);
 	if (rv != 0) {
 		return rv;
+	}
+
+	return 0;
+}
+
+int HTTPFileSystem::Unlink(const char *path, int Opts, XrdOucEnv *env) {
+	m_log.Log(LogMask::Debug, "Unlink", "Unlinking path", path);
+	// make sure file exists
+	HTTPFile httpFile(m_log, this);
+	if (httpFile.Open(path, 0, (mode_t)0, *env) != 0) {
+		m_log.Emsg("Unlink", "Failed to open path:", path);
+		return -ENOENT;
+	}
+
+	std::string object;
+	if (parse_path(getStoragePrefix(), path, object) != 0) {
+		m_log.Emsg("Unlink", "Failed to parse path:", path);
+		return -EIO;
+	}
+	// delete the file
+	std::string hostUrl =
+		!getHTTPUrlBase().empty() ? getHTTPUrlBase() : getHTTPHostUrl();
+	m_log.Log(LogMask::Debug, "Unlink", "Object:", object.c_str());
+	m_log.Log(LogMask::Debug, "Unlink", "Host URL:", hostUrl.c_str());
+	HTTPDelete deleteCommand(hostUrl, object, m_log, &m_token);
+	if (!deleteCommand.SendRequest()) {
+		return HTTPRequest::HandleHTTPError(deleteCommand, m_log, "DELETE",
+											object.c_str());
 	}
 
 	return 0;
