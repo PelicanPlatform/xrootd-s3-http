@@ -74,6 +74,8 @@ bool HTTPFileSystem::handle_required_config(const std::string &name_from_config,
 }
 
 bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
+	m_remote_flavor = "auto";
+
 	XrdOucEnv myEnv;
 	XrdOucGatherConf httpserver_conf("httpserver.", &m_log);
 	int result;
@@ -147,7 +149,7 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 // Object Allocation Functions
 //
 XrdOssDF *HTTPFileSystem::newDir(const char *user) {
-	return new HTTPDirectory(m_log, this);
+	return new HTTPDirectory(m_log, *this);
 }
 
 XrdOssDF *HTTPFileSystem::newFile(const char *user) {

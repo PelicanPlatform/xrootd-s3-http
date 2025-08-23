@@ -41,38 +41,39 @@
 #include <sstream>
 #include <string>
 #include <tinyxml2.h>
-#include <vector>
 
-HTTPDirectory::HTTPDirectory(XrdSysError &log, HTTPFileSystem *oss)
-	: m_log(log), m_oss(oss), m_bytesReturned(0) {} // Initialize it to false.
+using namespace XrdHTTPServer;
 
-std::map<std::string, struct stat>
-HTTPDirectory::parseHTMLToFSSpecString(const std::string &htmlContent) {
-	using namespace tinyxml2;
-	std::map<std::string, struct stat> remoteList;
+HTTPDirectory::HTTPDirectory(XrdSysError &log, HTTPFileSystem &oss)
+	: m_log(log), m_oss(oss) {} // Initialize it to false.
 
-	XMLDocument doc;
-	XMLError error = doc.Parse(htmlContent.c_str());
-	if (error != XML_SUCCESS) {
-		std::cerr << "Failed to parse HTML!" << std::endl;
-		return remoteList;
+void HTTPDirectory::parseHTMLToListing(const std::string &htmlContent) {
+	m_remoteList.clear();
+
+	tinyxml2::XMLDocument doc;
+	tinyxml2::XMLError error = doc.Parse(htmlContent.c_str());
+	if (error != tinyxml2::XML_SUCCESS) {
+		m_log.Log(LogMask::Warning, "HTTPDirectory",
+				  "Failed to parse HTML in directory response");
+		return;
 	}
 
 	// Root of the HTML document
-	XMLNode *root = doc.FirstChild();
+	auto root = doc.FirstChild();
 	if (!root) {
-		std::cerr << "No root found in HTML!" << std::endl;
-		return remoteList;
+		m_log.Log(LogMask::Warning, "HTTPDirectory",
+				  "No root found in HTML in directory response");
+		return;
 	}
 
 	// Traverse the rows in the table
-	for (XMLElement *row = root->FirstChildElement("tr"); row != nullptr;
+	for (auto row = root->FirstChildElement("tr"); row != nullptr;
 		 row = row->NextSiblingElement("tr")) {
-		FSSpecEntry entry;
+		Entry entry;
 		int columnIndex = 0;
 
 		// Traverse each cell in the row
-		for (XMLElement *cell = row->FirstChildElement("td"); cell != nullptr;
+		for (auto cell = row->FirstChildElement("td"); cell != nullptr;
 			 cell = cell->NextSiblingElement("td")) {
 			const char *cellText = cell->GetText() ? cell->GetText() : "";
 
@@ -90,7 +91,7 @@ HTTPDirectory::parseHTMLToFSSpecString(const std::string &htmlContent) {
 				entry.modified = cellText;
 				break;
 			case 4: // Name
-				if (XMLElement *aTag = cell->FirstChildElement("a")) {
+				if (auto aTag = cell->FirstChildElement("a")) {
 					const char *nameText =
 						aTag->GetText() ? aTag->GetText() : "";
 					entry.name = nameText;
@@ -122,10 +123,8 @@ HTTPDirectory::parseHTMLToFSSpecString(const std::string &htmlContent) {
 		workingFile.st_ctime = 0;
 		workingFile.st_dev = 0;
 		workingFile.st_ino = 0;
-		remoteList[entry.name] = workingFile;
+		m_remoteList.push_back({entry.name, workingFile});
 	}
-
-	return remoteList; // Return the formatted list
 }
 
 std::string HTTPDirectory::extractHTMLTable(const std::string &htmlContent) {
@@ -164,36 +163,31 @@ int HTTPDirectory::Readdir(char *buff, int blen) {
 
 int HTTPDirectory::Opendir(const char *path, XrdOucEnv &env) {
 	m_log.Log(LogMask::Debug, "HTTPDirectory::Opendir", "Opendir called");
-	auto configured_hostname = m_oss->getHTTPHostName();
-	auto configured_hostUrl = m_oss->getHTTPHostUrl();
-	const auto &configured_url_base = m_oss->getHTTPUrlBase();
+	auto configured_hostname = m_oss.getHTTPHostName();
+	auto configured_hostUrl = m_oss.getHTTPHostUrl();
+	const auto &configured_url_base = m_oss.getHTTPUrlBase();
 	if (!configured_url_base.empty()) {
 		configured_hostUrl = configured_url_base;
-		configured_hostname = m_oss->getStoragePrefix();
+		configured_hostname = m_oss.getStoragePrefix();
 	}
 
 	//
 	// Check the path for validity.
 	//
 	std::string object;
-	int rv = parse_path(configured_hostname, path, object);
+	int rv = parse_path(m_oss.getHTTPHostName(), path, object);
 
 	if (rv != 0) {
 		return rv;
 	}
 
-	m_object = object;
-	m_hostname = configured_hostname;
-	m_hostUrl = configured_hostUrl;
-	m_remote_flavor = m_oss->getRemoteFlavor();
-
 	if (m_remoteList.empty()) {
 		m_log.Log(LogMask::Debug, "HTTPFile::Opendir", "Opendir called");
-		HTTPList list(m_hostUrl, m_object, m_log, m_oss->getToken());
+		HTTPList list(configured_hostUrl, object, m_log, m_oss.getToken());
 		m_log.Log(LogMask::Debug, "HTTPDirectory::Opendir",
 				  "About to perform download from HTTPDirectory::Opendir(): "
 				  "hostname / object:",
-				  m_hostname.c_str(), m_object.c_str());
+				  configured_hostname.c_str(), object.c_str());
 		if (!list.SendRequest()) {
 			std::stringstream ss;
 			ss << "Failed to send GetObject command: " << list.getResponseCode()
@@ -203,8 +197,7 @@ int HTTPDirectory::Opendir(const char *path, XrdOucEnv &env) {
 			return 0;
 		}
 
-		m_remoteList =
-			parseHTMLToFSSpecString(extractHTMLTable(list.getResultString()));
+		parseHTMLToListing(extractHTMLTable(list.getResultString()));
 	}
 
 	return 0;

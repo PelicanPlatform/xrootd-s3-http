@@ -18,7 +18,6 @@
 
 #pragma once
 
-#include <filesystem>
 #include <string>
 
 #ifndef CHECK_PRINTF_FORMAT

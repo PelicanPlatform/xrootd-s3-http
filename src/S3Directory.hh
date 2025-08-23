@@ -30,7 +30,7 @@ class XrdSysError;
 class S3Directory : public XrdOssDF {
   public:
 	S3Directory(XrdSysError &log, const S3FileSystem &fs)
-		: m_log(log), m_fs(fs) {} // Initialize it to false.
+		: m_log(log), m_fs(fs) {}
 
 	virtual ~S3Directory() {}
 

@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 #include <string>
 
 #include <stdarg.h>
