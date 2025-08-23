@@ -96,18 +96,21 @@ class HTTPRequest {
 		return m_timeout_duration;
 	}
 
-	// Handle HTTP request errors and convert them to appropriate POSIX error codes.
-	// This function can be used anywhere HTTP requests are made to provide
-	// consistent error handling.
+	// Handle HTTP request errors and convert them to appropriate POSIX error
+	// codes. This function can be used anywhere HTTP requests are made to
+	// provide consistent error handling.
 	//
 	// - request: The HTTPRequest object that was used for the request
 	// - log: The logger instance for error reporting
-	// - operation: A string describing the operation being performed (for logging)
+	// - operation: A string describing the operation being performed (for
+	// logging)
 	// - context: Additional context information (for logging)
 	//
-	// Returns: A POSIX error code (-ENOENT, -EIO, -EPERM, etc.) or 0 if no error
+	// Returns: A POSIX error code (-ENOENT, -EIO, -EPERM, etc.) or 0 if no
+	// error
 	static int HandleHTTPError(const HTTPRequest &request, XrdSysError &log,
-							   const char *operation, const char *context = nullptr);
+							   const char *operation,
+							   const char *context = nullptr);
 
   protected:
 	// Send the request to the HTTP server.
@@ -299,7 +302,7 @@ class HTTPRequest {
 	static std::chrono::steady_clock::duration m_timeout_duration;
 };
 
-class HTTPUpload : public HTTPRequest {
+class HTTPUpload final : public HTTPRequest {
   public:
 	HTTPUpload(const std::string &h, const std::string &o, XrdSysError &log,
 			   const TokenFile *token)
@@ -332,7 +335,7 @@ class HTTPUpload : public HTTPRequest {
 	std::string path;
 };
 
-class HTTPDownload : public HTTPRequest {
+class HTTPDownload final : public HTTPRequest {
   public:
 	HTTPDownload(const std::string &h, const std::string &o, XrdSysError &log,
 				 const TokenFile *token)
@@ -348,7 +351,7 @@ class HTTPDownload : public HTTPRequest {
 	std::string object;
 };
 
-class HTTPHead : public HTTPRequest {
+class HTTPHead final : public HTTPRequest {
   public:
 	HTTPHead(const std::string &h, const std::string &o, XrdSysError &log,
 			 const TokenFile *token)
@@ -364,10 +367,10 @@ class HTTPHead : public HTTPRequest {
 	std::string object;
 };
 
-class HTTPDelete : public HTTPRequest {
+class HTTPDelete final : public HTTPRequest {
   public:
 	HTTPDelete(const std::string &h, const std::string &o, XrdSysError &log,
-			 const TokenFile *token)
+			   const TokenFile *token)
 		: HTTPRequest(h, log, token), object(o) {
 		hostUrl = hostUrl + "/" + object;
 	}

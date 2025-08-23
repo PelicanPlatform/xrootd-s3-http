@@ -23,8 +23,7 @@
 
 class GlobusFile final : public XrdOssWrapDF {
   public:
-	GlobusFile(std::unique_ptr<XrdOssDF> wrapped, XrdSysError &log,
-			   GlobusFileSystem *fs)
+	GlobusFile(std::unique_ptr<XrdOssDF> wrapped, XrdSysError &log)
 		: XrdOssWrapDF(*wrapped), m_wrapped(std::move(wrapped)) {}
 
 	virtual ~GlobusFile() {}

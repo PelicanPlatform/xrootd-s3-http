@@ -145,7 +145,7 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 	m_log.Log(LogMask::Debug, "HTTPRequest::SendHTTPRequest",
 			  "Sending request");
 
-	return sendPreparedRequest(hostUrl, payload, payload.size(), final);
+	return sendPreparedRequest(hostUrl, payload, payload.size(), true);
 }
 
 static void dump(XrdSysError *log, const char *text, unsigned char *ptr,

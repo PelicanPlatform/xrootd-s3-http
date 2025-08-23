@@ -137,12 +137,12 @@ bool GlobusFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 }
 
 XrdOssDF *GlobusFileSystem::newDir(const char *user) {
-	return new GlobusDirectory(m_log, this);
+	return new GlobusDirectory(m_log, *this);
 }
 
 XrdOssDF *GlobusFileSystem::newFile(const char *user) {
 	std::unique_ptr<XrdOssDF> wrapped(wrapPI.newFile(user));
-	return new GlobusFile(std::move(wrapped), m_log, this);
+	return new GlobusFile(std::move(wrapped), m_log);
 }
 
 int GlobusFileSystem::Stat(const char *path, struct stat *buff, int opts,

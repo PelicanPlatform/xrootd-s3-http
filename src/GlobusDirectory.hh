@@ -33,7 +33,7 @@ struct GlobusObjectInfo {
 
 class GlobusDirectory : public HTTPDirectory {
   public:
-	GlobusDirectory(XrdSysError &log, const GlobusFileSystem *fs)
+	GlobusDirectory(XrdSysError &log, const GlobusFileSystem &fs)
 		: HTTPDirectory(log), m_fs(fs) {}
 
 	virtual ~GlobusDirectory() {}
@@ -56,6 +56,6 @@ class GlobusDirectory : public HTTPDirectory {
 	std::vector<GlobusObjectInfo> m_directories;
 	std::string m_prefix;
 	std::string m_object;
-	const GlobusFileSystem *m_fs;
+	const GlobusFileSystem &m_fs;
 	struct stat *m_stat_buf{nullptr};
 };

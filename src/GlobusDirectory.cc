@@ -54,8 +54,8 @@ void GlobusDirectory::Reset() {
 int GlobusDirectory::ListGlobusDir() {
 	m_log.Log(XrdHTTPServer::Debug, "GlobusDirectory::ListGlobusDir",
 			  "Listing directory:", m_object.c_str());
-	HTTPDownload listCommand(m_fs->getLsUrl(), m_object, m_log,
-							 m_fs->getTransferToken());
+	HTTPDownload listCommand(m_fs.getLsUrl(), m_object, m_log,
+							 m_fs.getTransferToken());
 
 	if (!listCommand.SendRequest(0, 0)) {
 		return HTTPRequest::HandleHTTPError(
@@ -118,7 +118,7 @@ int GlobusDirectory::Opendir(const char *path, XrdOucEnv &env) {
 		realPath = realPath + "/";
 	}
 
-	std::string storagePrefix = m_fs->getStoragePrefix();
+	std::string storagePrefix = m_fs.getStoragePrefix();
 	std::string object;
 
 	if (realPath.find(storagePrefix) == 0) {

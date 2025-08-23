@@ -39,7 +39,9 @@
 extern "C" {
 
 /*
-	This function is called when we are wrapping something.
+	The GlobusFileSystem adds Globus-specific functionality on top of the
+	HTTPFileSystem.  Rather than re-implement or re-compile things, for now,
+	we simply assume we wrap on top.
 */
 XrdOss *XrdOssAddStorageSystem2(XrdOss *curr_oss, XrdSysLogger *logger,
 								const char *config_fn, const char *parms,
