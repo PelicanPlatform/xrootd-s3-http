@@ -876,7 +876,7 @@ bool HTTPDownload::SendRequest(off_t offset, size_t size) {
 HTTPList::~HTTPList() {}
 
 bool HTTPList::SendRequest() {
-	this->expectedResponseCode = 200;
+	expectedResponseCode = {200};
 
 	httpVerb = "GET";
 	std::string noPayloadAllowed;

@@ -122,12 +122,9 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		if (S_ISDIR(buf.st_mode)) {
 			return -EISDIR;
 		} else {
+			m_is_open = true;
 			return 0;
 		}
-		// XXX May need to return an error here to show that the request is
-		// against a directory instead of file could be:
-		// https://man7.org/linux/man-pages/man2/open.2.html return may be
-		// -EISDIR
 	}
 
 	m_is_open = true;
@@ -158,7 +155,8 @@ ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
 int HTTPFile::Fstat(struct stat *buff) {
 	if (m_stat) {
 		memset(buff, '\0', sizeof(struct stat));
-		if (m_object == "")
+		bool is_dir = m_object == "" || m_object.back() == '/';
+		if (is_dir)
 			buff->st_mode = 0600 | S_IFDIR;
 		else
 			buff->st_mode = 0600 | S_IFREG;
@@ -166,7 +164,7 @@ int HTTPFile::Fstat(struct stat *buff) {
 		buff->st_nlink = 1;
 		buff->st_uid = 1;
 		buff->st_gid = 1;
-		buff->st_size = content_length;
+		buff->st_size = is_dir ? 4096 : content_length;
 		buff->st_mtime = last_modified;
 		buff->st_atime = 0;
 		buff->st_ctime = 0;
@@ -231,10 +229,10 @@ int HTTPFile::Fstat(struct stat *buff) {
 	// describing a directory. note that here and fill out the buffer
 	// accordingly
 
-	buff->st_mode = 0600 | S_IFDIR;
 	if (buff) {
 		memset(buff, '\0', sizeof(struct stat));
-		if (m_object == "" || m_object.back() == '/')
+		bool is_dir = m_object == "" || m_object.back() == '/';
+		if (is_dir)
 			buff->st_mode = 0600 | S_IFDIR;
 		else
 			buff->st_mode = 0600 | S_IFREG;
@@ -242,8 +240,8 @@ int HTTPFile::Fstat(struct stat *buff) {
 		buff->st_nlink = 1;
 		buff->st_uid = 1;
 		buff->st_gid = 1;
-		buff->st_size = this->content_length;
-		buff->st_mtime = this->last_modified;
+		buff->st_size = is_dir ? 4096 : content_length;
+		buff->st_mtime = last_modified;
 		buff->st_atime = 0;
 		buff->st_ctime = 0;
 		buff->st_dev = 0;

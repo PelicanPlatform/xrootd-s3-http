@@ -207,6 +207,7 @@ xrd.trace    all
 xrootd.trace all
 scitokens.trace all
 
+httpserver.trace all
 httpserver.url_base $XROOTD_URL
 httpserver.storage_prefix /
 httpserver.remote_flavor http

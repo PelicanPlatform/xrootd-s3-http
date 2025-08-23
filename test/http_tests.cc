@@ -39,7 +39,14 @@ std::string g_ca_file;
 std::string g_config_file;
 std::string g_url;
 
-void parseEnvFile(const std::string &fname) {
+void parseEnvFile() {
+	const char *fname = getenv("ENV_FILE");
+	if (!fname) {
+		std::cerr << "No env file specified" << std::endl;
+		exit(1);
+	}
+	std::cout << "Using env file: " << fname << std::endl;
+
 	std::ifstream fh(fname);
 	if (!fh.is_open()) {
 		std::cerr << "Failed to open env file: " << strerror(errno);
@@ -67,17 +74,18 @@ void parseEnvFile(const std::string &fname) {
 TEST(TestHTTPFile, TestList) {
 	XrdSysLogger log;
 
-	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
 
 	struct stat si;
-	auto rc = fs.Stat("/testdir", &si);
+	auto rc = fs.Stat("/testdir/", &si, 0, &env);
 	ASSERT_EQ(rc, 0);
 	ASSERT_EQ(si.st_size, 4096);
 
 	auto fd = fs.newDir();
 	struct stat *statStruct = new struct stat;
 	fd->StatRet(statStruct);
-	XrdOucEnv env;
+
 	rc = fd->Open("/testdir", O_RDONLY, 0700, env);
 	ASSERT_EQ(rc, -21);
 	ASSERT_EQ(fd->Opendir("/testdir", env), 0);
@@ -271,18 +279,11 @@ void segfaultHandler(int sig) {
 }
 
 int main(int argc, char **argv) {
-	signal(SIGSEGV, segfaultHandler);
 
 	::testing::InitGoogleTest(&argc, argv);
 
-	if (argc != 2) {
-		printf("Usage: %s test_env_file", argv[0]);
-		return 1;
-	}
 	setenv("XRDINSTANCE", "xrootd", 1);
-	std::cout << "Running HTTP test with environment file " << argv[1]
-			  << std::endl;
-	parseEnvFile(argv[1]);
+	parseEnvFile();
 
 	auto logger = new XrdSysLogger(2, 0);
 	auto log = new XrdSysError(logger, "curl_");

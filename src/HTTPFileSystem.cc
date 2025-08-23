@@ -162,7 +162,7 @@ int HTTPFileSystem::Stat(const char *path, struct stat *buff, int opts,
 
 	HTTPFile httpFile(m_log, this);
 	int rv = httpFile.Open(path, 0, (mode_t)0, *env);
-	if (rv && rv != EISDIR) {
+	if (rv && rv != -EISDIR) {
 		m_log.Emsg("Stat", "Failed to open path:", path);
 		return rv;
 	}
