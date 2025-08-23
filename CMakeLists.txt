@@ -178,7 +178,7 @@ endif()
 include(GNUInstallDirs)
 
 install(
-  TARGETS XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus
+  TARGETS XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus XrdOssPosc
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
@@ -199,7 +199,7 @@ if( ENABLE_TESTS )
   add_library(XrdOssGlobusTesting SHARED "$<TARGET_OBJECTS:XrdOssGlobusObj>")
   target_link_libraries(XrdOssGlobusTesting XrdOssGlobusObj)
   target_include_directories(XrdOssGlobusTesting INTERFACE ${XRootD_INCLUDE_DIRS})
-  
+
   add_library( XrdOssPoscTesting SHARED "$<TARGET_OBJECTS:XrdOssPoscObj>" )
   target_link_libraries( XrdOssPoscTesting XrdOssPoscObj )
   target_include_directories( XrdOssPoscTesting INTERFACE ${XRootD_INCLUDE_DIRS} )

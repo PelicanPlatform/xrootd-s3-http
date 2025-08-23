@@ -1,6 +1,17 @@
+# Pelican filesystem plugins for XRootD
+This repository contains various plugins for [XRootD](https://github.com/xrootd/xrootd)'s "Open Storage System" (OSS) layer,
+which affects how XRootD serves objects from storage.
 
-# S3/HTTP filesystem plugins for XRootD
-These filesystem plugins for [XRootD](https://github.com/xrootd/xrootd) allow you to serve objects from S3 and HTTP backends through an XRootD server.
+The plugins in the repository include:
+- `XrdOssHttp`: Exposes a backend HTTP(S) server as a backend storage.
+- `XrdOssS3`: Exposes a backend S3-compatible interface as a backend storage.
+- `XrdOssFilter`: A "stacking" plugin (meant to be loaded on top of another OSS plugin)
+  that exports only files/directories matching a given list of Unix globs.
+- `XrdOssPosc`: A "stacking" plugin that causes in-progress files being written from being
+  visible to the filesystem and to be deleted if not successfully closed.  Here, "POSC"
+  stands for "Persist on Successful Close" and is similar in spirit to the POSC functionality
+  in the core XRootD (with the addition of making in-progress files not-visible in the namespace).
+
 
 ## Building and Installing
 Assuming XRootD, CMake>=3.13 and gcc>=8 are already installed, run:
@@ -18,6 +29,9 @@ make
 If building XRootD from source instead, add `-DXROOTD_DIR` to the CMake command line
 to point it at the installed directory.
 
+Dependency packages (tinyxml, gtest, and minio/mc for tests) are automatically downloaded
+if they are not present in the build environment.
+
 ### Building with Tests
 
 Unit tests for this repository require `gtest`, which is included as a submodule of this repo. The tests can be compiled with a slight modification to your build command:
@@ -25,21 +39,15 @@ Unit tests for this repository require `gtest`, which is included as a submodule
 ```
 mkdir build
 cd build
-cmake -DXROOTD_PLUGINS_BUILD_UNITTESTS=ON ..
+cmake -DBUILD_TESTING=ON ..
 make
 ```
 
-This creates the directory `build/test` with two unit test executables that can be run:
-- `build/test/s3-gtest`
-- `build/test/http-gtest`
+To run the test framework, execute `ctest` from the build directory:
 
-Alternatively, `gtest` can be installed externally. For example, on RHEL-based linux distributions:
-
-```bash
-dnf install gtest
 ```
-
-Add `-DXROOTD_PLUGINS_EXTERNAL_GTEST=ON` to your `cmake` command if you're using an external installation.
+ctest
+```
 
 ## Configuration
 
@@ -48,7 +56,7 @@ Add `-DXROOTD_PLUGINS_EXTERNAL_GTEST=ON` to your `cmake` command if you're using
 To configure the HTTP server plugin, add the following line to the Xrootd configuration file:
 
 ```
-ofs.osslib </path/to/libXrdHTTPServer.so>
+ofs.osslib libXrdOssHttp.so
 ```
 
 Here's a minimal config file
@@ -64,9 +72,9 @@ xrd.protocol http:1094 libXrdHttp.so
 all.export  </exported/server/prefix>
 
 # Setting up HTTP plugin
-ofs.osslib libXrdHTTPServer.so
-# Use this if libXrdHTTPServer.so is in a development directory
-# ofs.osslib /path/to/libXrdHTTPServer.so
+ofs.osslib libXrdOssHttp.so
+# Use this if libXrdOssHttp.so is in a development directory
+# ofs.osslib /path/to/libXrdOssHttp.so
 
 # Upon last testing, the plugin did not yet work in async mode
 xrootd.async off
@@ -81,7 +89,7 @@ httpserver.host_url <host url>
 To configure the S3 plugin, add the following line to the Xrootd configuration file:
 
 ```
-ofs.osslib </path/to/libXrdS3.so>
+ofs.osslib libXrdOssS3.so
 ```
 
 Here's a minimal config file
@@ -96,11 +104,11 @@ xrd.protocol http:1094 libXrdHttp.so
 all.export  </exported/server/prefix>
 
 # Setting up S3 plugin
-ofs.osslib libXrdS3.so
-# Use this if libXrdS3.so is in a development directory
-# ofs.osslib /path/to/libXrdS3.so
+ofs.osslib libXrdOssS3.so
+# Use this if libXrdOssS3.so is in a development directory
+# ofs.osslib /path/to/libXrdOssS3.so
 
-# Upon last testing, the plugin did not yet work in async mode
+# The plugin does not support plugin mode
 xrootd.async off
 
 #example url
@@ -148,10 +156,136 @@ s3.trace debug
 
 ```
 
+### Configure the filter plugin
+
+The filter plugin allows you to provide multiple globs to export specific
+files and directories inside a filesystem (allowing some to be made inaccessible).
+
+Note this only affects the namespace seen by XRootD.  A user that can create symlinks
+on the filesystem outside XRootD can expose hidden parts of the namespace via a specially
+crafted symlink.
+
+To load, invoke `ofs.osslib` in "stacking" mode:
+
+```
+ofs.osslib ++ libXrdOssFilter.so
+```
+
+(an absolute path may be given if `libXrdOssFilter-5.so` does not reside in a system directory)
+
+There are three configuration commands for the filter module:
+
+```
+filter.trace [all|error|warning|info|debug|none]
+filter.glob [-a] glob1 [glob2] [...]
+filter.prefix prefix1 [prefix2] [...]
+```
+
+ - `filter.trace`: Controls the logging verbosity of the module.  Can be specified multiple times
+   (values are additive) and multiple values can be given per line.  Example:
+
+   ```
+   filter.trace info
+   ```
+
+   The default level is `warning`.
+ - `filter.glob`: Controls the visibility of files in the storage; only files matching one of the
+   configured globs or prefixes can be accessed.  Can be specified multiple times (values are additive)
+   and multiple globs can be given per line.
+
+   The `-a` flag indicates that a wildcard should match all filenames, including those prefixed with a
+   `.` character.  Otherwise, such "dotfiles" are not visible.
+
+   The glob language supported by the platform's `fnmatch` C runtime function is used; additionally, the
+   globstar operator (`**`) matches any names in zero-or-more directory hierarchies
+
+   Example:
+
+   ```
+   filter.glob /foo/*/*.txt /bar/**/*.csv
+   ```
+
+   With the above configuration, the files `/foo/1/test.txt` and `/bar/2/3/data.csv` would be visible
+   but the files `/foo/4/5/test.txt` and `/bar/test.txt` would not.
+ - `filter.prefix`: Controls the prefixes exported.  Every file or directory under the provided prefix
+   will be visible.  Can be specified multiple times (values are additive) and multiple globs can be
+   given per line.
+
+   Example:
+
+   ```
+   filter.prefix /foo /bar
+   ```
+
+   The above example would be equivalent to setting:
+
+   ```
+   filter.glob -a /foo/** /bar/**
+   ```
+
+### Configure the POSC (Persist on Successful Close) plugin
+
+The POSC plugin allows you to make files being uploaded into the storage invisible
+from readers until they have been successfully closed.  If the writer never calls
+`close()` or the server crashes mid-transfer, the files will be deleted.
+
+Note the visibility only affects the namespace seen by XRootD.  A user that can create symlinks
+on the filesystem outside XRootD can expose the in-progress files if desired (but may not be
+able to read them, depending on the filesystem permissions set).
+
+To load, invoke `ofs.osslib` in "stacking" mode:
+
+```
+ofs.osslib ++ libXrdOssPosc.so
+```
+
+(an absolute path may be given if `libXrdOssPosc-5.so` does not reside in a system directory)
+
+There are three configuration commands for the POSC module:
+
+```
+posc.trace [all|error|warning|info|debug|none]
+posc.prefix posc_directory
+```
+
+ - `posc.trace`: Controls the logging verbosity of the module.  Can be specified multiple times
+   (values are additive) and multiple values can be given per line.  Example:
+
+   ```
+   filter.trace info
+   ```
+
+   The default level is `warning`.
+
+ - `posc.prefix`: Controls the directory where in-progress files will be written.  Once completed,
+   they will be renamed into the final location.  If this is not specified, the module will fail
+   to start; if specified multiple times, the last value wins.  Example:
+
+   ```
+   posc.prefix /in-progress
+   ```
+
+   The `posc.prefix` directory is not exported into the namespace; users will not be able to list
+   its contents.
+
+Files in the `posc.prefix` directory will have the following structure:
+
+```
+/$(posc.prefix)/$(username)/in-progress.$(timestamp).$(random)
+```
+
+where `$(username)` is the username as determined by the security framework (`anonymous` if unset).
+The user directory and files will be created with the user's credential as possible.  If using
+the multi-user plugin, this the `posc.prefix` directory should be world writable with the "sticky bit"
+set to allow any user to create a subdirectory (but not allow users to delete other directories).
+
+XRootD will never perform filesystem operations as root; it will not create as root and "chown" to the
+user.
+
+World-writable directories are difficult to manage.  Another option would be for the filesystem owner
+to pre-create all the potential user temporary directories.
 
 ## Startup and Testing
-
-### HTTP Server Backend
 
 Assuming you named the config file `xrootd-http.cfg`, as a non-rootly user run:
 
@@ -163,19 +297,4 @@ In a separate terminal, run
 
 ```
 curl -v http://localhost:1094/<host name>/<URL path to object>
-```
-
-### S3 Server Backend
-Startup and Testing
-
-Assuming you named the config file `xrootd-s3.cfg`, as a non-rootly user run:
-
-```
-xrootd -d -c xrootd-s3.cfg
-```
-
-In a separate terminal, run
-
-```
-curl -v http://localhost:1094/<path name>/<object name>
 ```
