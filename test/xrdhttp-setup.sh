@@ -171,7 +171,7 @@ mkdir "$XROOTD_EXPORTDIR/testdir"
 echo "Hello, World" > "$XROOTD_EXPORTDIR/testdir/hello_world.txt"
 
 # Launch XRootD daemon.
-"$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- >>"$BINARY_DIR/tests/$TEST_NAME/server.log" 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
+ASAN_OPTIONS=detect_odr_violation=0 "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- >>"$BINARY_DIR/tests/$TEST_NAME/server.log" 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
 XROOTD_PID=$!
 echo "xrootd daemon PID: $XROOTD_PID"
 

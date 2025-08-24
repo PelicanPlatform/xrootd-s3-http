@@ -45,6 +45,7 @@ cmake --build redhat-linux-build --verbose
 %{_libdir}/libXrdOssGlobus-5.so
 %{_libdir}/libXrdOssS3-5.so
 %{_libdir}/libXrdOssFilter-5.so
+%{_libdir}/libXrdOssPosc-5.so
 %doc README.md
 %license LICENSE
 

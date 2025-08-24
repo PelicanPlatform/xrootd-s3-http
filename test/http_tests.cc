@@ -82,9 +82,11 @@ TEST(TestHTTPFile, TestList) {
 	ASSERT_EQ(rc, 0);
 	ASSERT_EQ(si.st_size, 4096);
 
-	auto fd = fs.newDir();
-	struct stat *statStruct = new struct stat;
-	fd->StatRet(statStruct);
+	auto fd_raw = fs.newDir();
+	ASSERT_NE(fd_raw, nullptr);
+	std::unique_ptr<XrdOssDF> fd(fd_raw);
+	struct stat statStruct;
+	fd->StatRet(&statStruct);
 
 	rc = fd->Open("/testdir", O_RDONLY, 0700, env);
 	ASSERT_EQ(rc, -21);

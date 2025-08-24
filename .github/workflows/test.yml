@@ -33,14 +33,21 @@ jobs:
       with:
         go-version: '1.23.5'
     - name: install deps
+      working-directory: ${{runner.workspace}}
       run: |
-        sudo curl -L https://xrootd.web.cern.ch/repo/RPM-GPG-KEY.txt -o /etc/apt/trusted.gpg.d/xrootd.asc
-        sudo /bin/sh -c 'echo "deb https://xrootd.web.cern.ch/ubuntu noble stable" >> /etc/apt/sources.list.d/xrootd.list'
-        sudo apt update && sudo apt-get install -y cmake libcurl4-openssl-dev libcurl4 pkg-config libssl-dev xrootd-server libxrootd-dev libxrootd-server-dev libgtest-dev
-        sudo curl -L https://dl.min.io/server/minio/release/linux-amd64/minio -o /usr/local/bin/minio
-        sudo chmod +x /usr/local/bin/minio
-        sudo curl -L https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
-        sudo chmod +x /usr/local/bin/mc
+        # Build deps
+        sudo apt update && sudo apt-get install -y cmake libz-dev uuid-dev libcurl4-openssl-dev libcurl4 pkg-config libssl-dev g++ libscitokens-dev libgtest-dev
+
+        # Build our preferred set of patches on xrootd
+        git clone https://github.com/xrootd/xrootd.git
+        cd xrootd
+        git remote add github_pelican https://github.com/PelicanPlatform/xrootd.git
+        git fetch github_pelican
+        git checkout -b v5.8.4-pelican -t github_pelican/v5.8.4-pelican
+        mkdir -p build/release_dir
+        cd build
+        cmake .. -DCMAKE_INSTALL_PREFIX=$PWD/release_dir -DENABLE_ASAN=TRUE
+        make -j $(($(nproc) + 2)) install
 
     - name: Create Build Environment
       # Some projects don't allow in-source building, so create a separate build directory
@@ -48,14 +55,9 @@ jobs:
       run: cmake -E make_directory ${{runner.workspace}}/build
 
     - name: Configure CMake
-      # Use a bash shell so we can use the same syntax for environment variable
-      # access regardless of the host operating system
       shell: bash
       working-directory: ${{runner.workspace}}/build
-      # Note the current convention is to use the -S and -B options here to specify source
-      # and build directories, but this is only available with CMake 3.13 and higher.
-      # The CMake binaries on the Github Actions machines are (as of this writing) 3.12
-      run: cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DBUILD_TESTING=yes -DXROOTD_PLUGINS_EXTERNAL_GTEST=${{ matrix.external-gtest }}
+      run: CMAKE_PREFIX_PATH=$PWD/../xrootd/build/release_dir/lib/cmake/XRootD cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_TESTS=yes -DENABLE_ASAN=true -DXROOTD_PLUGINS_EXTERNAL_GTEST=${{ matrix.external-gtest }}
 
     - name: Build
       working-directory: ${{runner.workspace}}/build
@@ -73,7 +75,7 @@ jobs:
     - name: Start xrootd
       working-directory: ${{runner.workspace}}/build
       shell: bash
-      run: xrootd -c ${{runner.workspace}}/xrootd-s3-http/test/s3-xrootd-test.cfg &
+      run: ASAN_OPTIONS=detect_odr_violation=0 LD_LIBRARY_PATH=$PWD/../xrootd/build/release_dir/lib $PWD/../xrootd/build/release_dir/bin/xrootd -c ${{runner.workspace}}/xrootd-s3-http/test/s3-xrootd-test.cfg &
 
     - name: Get a file
       working-directory: ${{runner.workspace}}/build

@@ -294,7 +294,7 @@ export X509_CERT_FILE=$MINIO_CERTSDIR/CAs/tlsca.pem
 if [ "$VALGRIND" -eq 1 ]; then
   valgrind --leak-check=full --track-origins=yes "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" >>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
 else
-  "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" >>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
+  ASAN_OPTIONS=detect_odr_violation=0 LSAN_OPTIONS=suppressions=${SOURCE_DIR}/lsan-suppressions.txt "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" >>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
 fi
 XROOTD_PID=$!
 echo "xrootd daemon PID: $XROOTD_PID"
@@ -307,6 +307,8 @@ while [ -z "$XROOTD_URL" ]; do
   IDX=$(($IDX+1))
   if ! kill -0 "$XROOTD_PID" 2>/dev/null; then
     echo "xrootd process (PID $XROOTD_PID) failed to start" >&2
+    echo "Echoing server logs" >&2
+    cat "$BINARY_DIR/tests/$TEST_NAME/server.log" >&2
     exit 1
   fi
   if [ $IDX -gt 1 ]; then

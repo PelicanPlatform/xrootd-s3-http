@@ -58,22 +58,36 @@ add_executable( s3-gtest s3_tests.cc )
 add_executable( s3-unit-test s3_unit_tests.cc )
 add_executable( http-gtest http_tests.cc )
 add_executable( filter-gtest filter_tests.cc ../src/shortfile.cc )
+add_executable( posc-gtest posc_tests.cc ../src/shortfile.cc )
 
 target_link_libraries(s3-gtest XrdS3Testing GTest::gtest_main Threads::Threads)
 target_link_libraries(s3-unit-test XrdS3Testing GTest::gtest_main Threads::Threads)
 target_link_libraries(http-gtest XrdHTTPServerTesting GTest::gtest_main Threads::Threads)
 target_link_libraries(filter-gtest XrdOssFilterTesting GTest::gtest_main Threads::Threads)
+target_link_libraries(posc-gtest XrdOssPoscTesting GTest::gtest_main Threads::Threads)
 
-gtest_add_tests(TARGET filter-gtest)
+gtest_add_tests(TARGET filter-gtest TEST_LIST filterUnitTests)
+
+set_tests_properties(${filterUnitTests}
+  PROPERTIES
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
+)
 
 if (MINIO_BIN AND MC_BIN)
   gtest_add_tests(TARGET s3-unit-test TEST_LIST s3UnitTests)
   set_tests_properties(${s3UnitTests}
     PROPERTIES
       FIXTURES_REQUIRED S3::s3_basic
-      ENVIRONMENT "ENV_FILE=${CMAKE_BINARY_DIR}/tests/s3_basic/setup.sh"
+      ENVIRONMENT "ENV_FILE=${CMAKE_BINARY_DIR}/tests/s3_basic/setup.sh;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
   )
 endif()
+
+gtest_add_tests(TARGET posc-gtest TEST_LIST poscUnitTests)
+
+set_tests_properties(${poscUnitTests}
+  PROPERTIES
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
+)
 
 add_test(
   NAME
@@ -81,12 +95,16 @@ add_test(
   COMMAND
     ${CMAKE_CURRENT_BINARY_DIR}/s3-gtest
 )
+set_tests_properties(s3-unit
+  PROPERTIES
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
+)
 
 gtest_add_tests(TARGET http-gtest TEST_LIST httpUnitTests)
 
 set_tests_properties( ${httpUnitTests}
   PROPERTIES
-    ENVIRONMENT "ENV_FILE=${CMAKE_CURRENT_BINARY_DIR}/../tests/basic/setup.sh"
+    ENVIRONMENT "ENV_FILE=${CMAKE_CURRENT_BINARY_DIR}/../tests/basic/setup.sh;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
     FIXTURES_REQUIRED HTTP::basic
 )
 
@@ -113,7 +131,7 @@ add_test(NAME HTTP::basic::setup
 set_tests_properties(HTTP::basic::setup
   PROPERTIES
     FIXTURES_SETUP HTTP::basic
-    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin"
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;LD_LIBRARY_PATH=${XRootD_LIB_DIR}"
 )
 
 add_test(NAME HTTP::basic::teardown
@@ -148,7 +166,7 @@ if (MINIO_BIN AND MC_BIN)
   set_tests_properties(S3::s3_basic::setup
     PROPERTIES
       FIXTURES_SETUP S3::s3_basic
-      ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;MINIO_BIN=${MINIO_BIN};MC_BIN=${MC_BIN}"
+      ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;LD_LIBRARY_PATH=${XRootD_LIB_DIR};MINIO_BIN=${MINIO_BIN};MC_BIN=${MC_BIN}"
   )
 
   add_test(NAME S3::s3_basic::teardown

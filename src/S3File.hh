@@ -147,6 +147,10 @@ class S3File : public XrdOssDF {
 	std::tuple<off_t, size_t, bool> DownloadBypass(off_t offset, size_t size,
 												   char *buffer);
 
+	// Invoked on the shutdown of the library, will trigger the background
+	// threads to wrap up and have a clean exit.
+	static void Shutdown() __attribute__((destructor));
+
 	XrdSysError &m_log;
 	S3FileSystem *m_oss;
 
@@ -322,4 +326,17 @@ class S3File : public XrdOssDF {
 		~S3Cache();
 	};
 	S3Cache m_cache{*this};
+
+	// Mutex for managing the shutdown of the background thread
+	static std::mutex m_shutdown_lock;
+	// Condition variable managing the requested shutdown of the background
+	// thread.
+	static std::condition_variable m_shutdown_requested_cv;
+	// Flag indicating that a shutdown was requested.
+	static bool m_shutdown_requested;
+	// Condition variable for the background thread to indicate it has
+	// completed.
+	static std::condition_variable m_shutdown_complete_cv;
+	// Flag indicating that the shutdown has completed.
+	static bool m_shutdown_complete;
 };
