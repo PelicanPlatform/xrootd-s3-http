@@ -743,6 +743,27 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		return wrapDF.Open(path, Oflag, Mode, env);
 	}
 
+	// Ensure the parent directory exists and is a directory; this is needed
+	// because the underlying open() takes care of it in the non-POSC case.
+	std::filesystem::path path_fs(path);
+	auto parent_path = path_fs.parent_path();
+	if (!parent_path.empty()) {
+		struct stat sb;
+		auto rv = m_oss.Stat(parent_path.c_str(), &sb, 0, &env);
+		if (rv != 0) {
+			m_log.Log(LogMask::Debug, "POSC",
+					  "Failing file open as parent path does not exist",
+					  parent_path.c_str());
+			return -ENOENT;
+		}
+		if (!S_ISDIR(sb.st_mode)) {
+			m_log.Log(LogMask::Debug, "POSC",
+					  "Failing file open as parent path is not a directory",
+					  parent_path.c_str());
+			return -ENOENT;
+		}
+	}
+
 	if (env.secEnv()) {
 		CopySecEntity(*env.secEnv());
 	}

@@ -294,3 +294,41 @@ TEST_F(TestPosc, TempfileUpdate) {
 	ASSERT_EQ(rv, -ENOENT) << "Unexpected error when stating POSC file: "
 						   << strerror(errno);
 }
+
+TEST_F(TestPosc, CreateENOENT) {
+	XrdSysLogger logger(2, 0);
+	XrdOucEnv env;
+
+	XrdVERSIONINFODEF(XrdOssDefault, Oss, XrdVNUMBER, XrdVERSION);
+
+	XrdOss *default_oss =
+		XrdOssDefaultSS(&logger, GetConfigFile().c_str(), XrdOssDefault);
+
+	ASSERT_NE(default_oss, nullptr) << "Failed to get Posc OSS instance";
+
+	std::unique_ptr<XrdSysError> log(new XrdSysError(&logger, "posc_"));
+	PoscFileSystem *posc_fs_raw;
+	try {
+		posc_fs_raw = new PoscFileSystem(default_oss, std::move(log),
+										 GetConfigFile().c_str(), &env);
+	} catch (const std::exception &e) {
+		FAIL() << "Failed to create PoscFileSystem: " << e.what();
+	}
+	std::unique_ptr<PoscFileSystem> posc_fs(posc_fs_raw);
+
+	std::unique_ptr<XrdOssDF> fp(posc_fs->newFile());
+	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
+
+	auto rv = fp->Open("/subdir/testfile.txt", O_CREAT | O_RDWR, 0644, env);
+	ASSERT_NE(rv, 0) << "Open should have failed";
+	ASSERT_EQ(rv, -ENOENT)
+		<< "Open on non-existent path should have resulted in ENOENT: "
+		<< strerror(-rv);
+
+	posc_fs->Mkdir("/subdir", 0755, 1, &env);
+
+	rv = fp->Open("/subdir/testfile.txt", O_CREAT | O_RDWR, 0644, env);
+	ASSERT_EQ(rv, 0) << "Open on newly created directory failed: "
+					 << strerror(-rv);
+	ASSERT_EQ(fp->Close(), 0) << "Failed to close file";
+}
