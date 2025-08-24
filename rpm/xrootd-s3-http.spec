@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.5.0
+Version:        0.5.1
 Release:        1%{?dist}
 Summary:        S3/HTTP filesystem plugins for xrootd
 
@@ -50,9 +50,17 @@ cmake --build redhat-linux-build --verbose
 %license LICENSE
 
 %changelog
+* Wed Aug 27 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.5.1-1
+- Minor build fixes for a wider set of platforms.
+- Ensure unit tests can succeed even when running without network connectivity
+- Bump user agent version (forgotten in 0.5.0).
+
 * Wed Jul 30 2025 William Jiang <whjiang@wisc.edu> - 0.5.0-1
 - Add support for Globus endpoints (reads, writes, listings)
-- Add support for HTTP writes 
+- Add support for HTTP writes
+- Add new "Persist on Successful Close" (POSC) plugin to prevent files being
+  uploaded from being visible in the namespace.
+- The HTTP OSS plugin can do file listings based on generated directories.
 
 * Fri May 30 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.4.1-1
 - Fix stall timeouts which would never fire.
