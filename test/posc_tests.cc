@@ -254,7 +254,7 @@ TEST_F(TestPosc, TempfileUpdate) {
 
 	PoscFile::SetFileUpdateDuration(std::chrono::nanoseconds(100));
 
-	std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	std::this_thread::sleep_for(std::chrono::milliseconds(1500));
 
 	PoscFile::UpdateOpenFiles();
 
