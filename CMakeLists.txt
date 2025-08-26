@@ -151,7 +151,7 @@ target_link_libraries(XrdOssGlobus XrdOssGlobusObj)
 #######################
 add_library( XrdOssPoscObj OBJECT src/Posc.cc )
 set_target_properties( XrdOssPoscObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
-target_link_libraries( XrdOssPoscObj XRootD::XrdServer XRootD::XrdUtils )
+target_link_libraries( XrdOssPoscObj XRootD::XrdServer XRootD::XrdUtils Threads::Threads std::atomic )
 
 add_library( XrdOssPosc MODULE "$<TARGET_OBJECTS:XrdOssPoscObj>" )
 target_link_libraries( XrdOssPosc XrdOssPoscObj )
