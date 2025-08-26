@@ -62,7 +62,7 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		m_log.Log(LogMask::Info, "HTTPFile::Open",
 				  "File opened for append:", path);
 	}
-	if (Oflag & (O_RDWR | O_WRONLY)) {
+	if ((Oflag & O_ACCMODE) != O_RDONLY) {
 		m_write = true;
 		m_log.Log(LogMask::Debug, "HTTPFile::Open",
 				  "File opened for writing:", path);
@@ -113,7 +113,7 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	m_hostname = configured_hostname;
 	m_hostUrl = configured_hostUrl;
 
-	if (!Oflag) {
+	if ((Oflag & O_ACCMODE) == O_RDONLY) {
 		struct stat buf;
 		auto rv = Fstat(&buf);
 		if (rv < 0) {
