@@ -24,6 +24,7 @@
 #include <XrdSec/XrdSecEntity.hh>
 #include <XrdSec/XrdSecEntityAttr.hh>
 #include <XrdSys/XrdSysError.hh>
+#include <XrdSys/XrdSysPlatform.hh>
 #include <XrdVersion.hh>
 
 #include <fcntl.h>
@@ -204,10 +205,10 @@ void PoscFileSystem::ExpireFiles() {
 	}
 
 	int rv;
-	char buff[PATH_MAX];
+	char buff[MAXPATHLEN];
 	struct stat sb;
 	bool supportsStatRet = dp->StatRet(&sb) == 0;
-	while ((rv = dp->Readdir(buff, PATH_MAX)) == 0) {
+	while ((rv = dp->Readdir(buff, sizeof(buff))) == 0) {
 		if (buff[0] == '\0') {
 			// No more entries
 			break;
