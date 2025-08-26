@@ -89,7 +89,7 @@ TEST(TestHTTPFile, TestList) {
 	fd->StatRet(&statStruct);
 
 	rc = fd->Open("/testdir", O_RDONLY, 0700, env);
-	ASSERT_EQ(rc, -21);
+	ASSERT_EQ(rc, -EISDIR);
 	ASSERT_EQ(fd->Opendir("/testdir", env), 0);
 
 	char buf[255];
