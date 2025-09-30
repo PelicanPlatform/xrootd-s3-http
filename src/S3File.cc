@@ -687,12 +687,12 @@ OverlapCopy(off_t req_off, size_t req_size, char *req_buf, off_t cache_off,
 			auto cache_buf_off = static_cast<size_t>(req_off - cache_off);
 			auto cache_copy_bytes =
 				std::min(static_cast<size_t>(cache_end - req_off), req_size);
-
+			
 			// DEBUG: Print values before memcpy
 			std::cout << "DEBUG memcpy: cache_buf_off=" << cache_buf_off 
 					  << ", cache_copy_bytes=" << cache_copy_bytes 
 					  << ", cache_size=" << cache_size << std::endl;
-
+			
 			memcpy(req_buf, cache_buf + cache_buf_off, cache_copy_bytes);
 			used += cache_copy_bytes;
 			return std::make_tuple(req_off + cache_copy_bytes,
@@ -729,7 +729,7 @@ S3File::S3Cache::Entry::OverlapCopy(off_t req_off, size_t req_size,
 			  << ", m_off=" << m_off << ", m_cache_entry_size=" << m_cache_entry_size 
 			  << ", m_data.size()=" << m_data.size() << std::endl;
 
-	auto results =a
+	auto results =
 		::OverlapCopy(req_off, req_size, req_buf, m_off, m_cache_entry_size,
 					  m_data.data(), bytes_copied);
 	if (is_hit) {
