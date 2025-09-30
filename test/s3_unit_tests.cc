@@ -633,6 +633,71 @@ TEST_F(FileSystemS3Fixture, Etag) {
 	ASSERT_TRUE(complete_upload_request.SendRequest(eTags, 2, uploadId));
 }
 
+// Test case to ensure m_b.off is not set to a value greater than file.content_length in the prefetch logic.
+TEST_F(FileSystemS3Fixture, S3CachePrefetchBoundsBug) {
+	// - After filling both caches: m_a.m_off = 0, m_b.m_off = cache_entry_size
+	// - next_offset = max(0, cache_entry_size) + cache_entry_size = 2 * cache_entry_size
+	// - Initial check: if (2 * cache_entry_size < content_length) - should PASS
+	// - After cache A prefetch: next_offset = 2 * cache_entry_size + cache_entry_size = 3 * cache_entry_size  
+	// - Cache B prefetch: m_b.m_off = 3 * cache_entry_size - BUG: exceeds content_length!
+	const size_t cache_entry_size = 2'097'152; // 2MB cache entry (default)
+	const off_t file_size = 2 * cache_entry_size + cache_entry_size / 2; // 5MB file
+
+	WritePattern("/test/cache_bounds_test.txt", file_size, 'a', 32 * 1024, true);
+
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	ASSERT_TRUE(fh);
+
+	XrdOucEnv env;
+	auto rv = fh->Open("/test/cache_bounds_test.txt", O_RDONLY, 0, env);
+	ASSERT_EQ(rv, 0);
+
+	auto s3file = static_cast<S3File*>(fh.get());
+	ASSERT_NE(s3file, nullptr);
+
+	s3file->SetCacheEntrySize(cache_entry_size);
+
+	std::vector<char> read_buffer(cache_entry_size);
+
+	// 1. Fill cache A completely (first 2MB)
+	rv = fh->Read(read_buffer.data(), 0, cache_entry_size);
+	ASSERT_EQ(rv, static_cast<ssize_t>(cache_entry_size));
+
+	// 2. Fill cache B with remaining data (1MB)
+	rv = fh->Read(read_buffer.data(), cache_entry_size, file_size - cache_entry_size);
+	ASSERT_EQ(rv, static_cast<ssize_t>(file_size - cache_entry_size));
+
+	// At this point: m_a.m_off = 0, m_b.m_off = cache_entry_size (2097152), both fully used
+	// Now we need to trigger the prefetch logic at lines where:
+	// 1. req3_size == 0 && req4_size == 0 && req5_size == 0 && req6_size == 0
+	// 2. Both caches are fully used (m_used >= cache_entry_size)
+	// 3. The prefetch logic calculates next_offset = max(0, cache_entry_size) + cache_entry_size = 2 * cache_entry_size
+	// 4. Initial bounds check: if (2 * cache_entry_size < content_length) - PASSES (4194304 < 5242880)
+	// 5. Cache A prefetch: m_a.m_off = 2 * cache_entry_size, next_offset += cache_entry_size = 3 * cache_entry_size
+	//
+
+	// Try to trigger the prefetch logic by making a read that's completely satisfied from cache
+	std::vector<char> small_buffer(1024);
+	
+	// Make a read from cache A that should be completely satisfied from existing cache data
+	// This should trigger the condition: req3_size == 0 && req4_size == 0 && req5_size == 0 && req6_size == 0
+	rv = fh->Read(small_buffer.data(), 1024, 1024);
+	ASSERT_EQ(rv, static_cast<ssize_t>(1024));
+
+	// Read from beyond what's currently in cache B to force a new download
+	std::vector<char> beyond_buffer(1024);
+	rv = fh->Read(beyond_buffer.data(), 2 * cache_entry_size + 1024, 1024);
+	
+	ASSERT_EQ(rv, static_cast<ssize_t>(1024)) 
+		<< "Read should succeed. If this fails, it indicates the cache bounds bug where m_b.m_off > content_length.";
+
+	rv = fh->Close();
+	ASSERT_EQ(rv, 0);
+}
+
 int main(int argc, char **argv) {
 	::testing::InitGoogleTest(&argc, argv);
 	return RUN_ALL_TESTS();
