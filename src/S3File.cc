@@ -911,11 +911,12 @@ ssize_t S3File::S3Cache::Read(char *buffer, off_t offset, size_t size) {
 					download_a = true;
 					next_offset += m_cache_entry_size;
 				}
-			if (next_offset < m_parent.content_length) {
-				if (!m_b.m_inprogress && m_b.m_used >= m_cache_entry_size) {
-					m_b.m_inprogress = true;
-					m_b.m_off = next_offset;
-					download_b = true;
+				if (next_offset < m_parent.content_length) {
+					if (!m_b.m_inprogress && m_b.m_used >= m_cache_entry_size) {
+						m_b.m_inprogress = true;
+						m_b.m_off = next_offset;
+						download_b = true;
+					}
 				}
 			}
 		}
