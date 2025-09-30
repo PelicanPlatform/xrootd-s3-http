@@ -639,7 +639,7 @@ TEST_F(FileSystemS3Fixture, S3CachePrefetchBoundsBug) {
 	// - next_offset = max(0, cache_entry_size) + cache_entry_size = 2 * cache_entry_size
 	// - Initial check: if (2 * cache_entry_size < content_length) - should PASS
 	// - After cache A prefetch: next_offset = 2 * cache_entry_size + cache_entry_size = 3 * cache_entry_size  
-	// - Cache B prefetch: m_b.m_off = 3 * cache_entry_size - BUG: exceeds content_length!
+	// - Cache B prefetch: m_b.m_off = 3 * cache_entry_size
 	const size_t cache_entry_size = 2'097'152; // 2MB cache entry (default)
 	const off_t file_size = 2 * cache_entry_size + cache_entry_size / 2; // 5MB file
 
