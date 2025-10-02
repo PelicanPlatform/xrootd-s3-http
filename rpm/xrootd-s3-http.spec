@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.5.1
+Version:        0.5.2
 Release:        1%{?dist}
 Summary:        S3/HTTP filesystem plugins for xrootd
 
@@ -50,6 +50,9 @@ cmake --build redhat-linux-build --verbose
 %license LICENSE
 
 %changelog
+* Thu Oct 2 2025 Justin Hiemstra <jhiemstra@wisc.edu> - 0.5.2-1
+- Fix download buffers that could try reading past the end of the file
+
 * Wed Aug 27 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.5.1-1
 - Minor build fixes for a wider set of platforms.
 - Ensure unit tests can succeed even when running without network connectivity
