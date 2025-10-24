@@ -241,7 +241,9 @@ class PoscDir final : public XrdOssWrapDF {
 	virtual int Close(long long *retsz = 0) override;
 
   private:
-	bool m_stat_avail{false};
+	// The stat object provided by the caller which must be filled during
+	// the Readdir on success.
+	struct stat *m_stat_external{nullptr};
 	struct stat m_stat;
 	std::unique_ptr<XrdOssDF> m_wrapped;
 	XrdSysError &m_log;

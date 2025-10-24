@@ -568,11 +568,21 @@ int PoscDir::Opendir(const char *path, XrdOucEnv &env) {
 }
 
 int PoscDir::Readdir(char *buff, int blen) {
-	m_stat_avail = false;
 	while (true) {
 		auto rc = wrapDF.Readdir(buff, blen);
 		if (rc) {
+			if (m_stat_external) {
+				memset(m_stat_external, '\0', sizeof(*m_stat_external));
+			}
 			return rc;
+		}
+		// If the auto-stat protocol is supported, then the Readdir will have
+		// populated the stat buffer.  Copy it over to the user-provided one.
+		// Note that we have our internal `struct stat` to prevent potential
+		// bugs where ignored / invisible directory entries are leaked out
+		// to the caller.
+		if (m_stat_external) {
+			memcpy(m_stat_external, &m_stat, sizeof(*m_stat_external));
 		}
 		if (*buff == '\0') {
 			return 0;
@@ -593,27 +603,21 @@ int PoscDir::Readdir(char *buff, int blen) {
 						  "directory",
 						  path.string().c_str());
 			}
+			if (m_stat_external) {
+				memset(m_stat_external, '\0', sizeof(*m_stat_external));
+			}
 		} else {
 			return 0;
 		}
 	}
 }
 
-// Returns the struct stat corresponding to the current
-// directory entry name.
+// Saves the provided pointer to internal memory if the
+// wrapped directory supports the "auto stat" protocol.
 //
-// If `Readdir` required a stat of the path to determine
-// if its visible, the cached copy may be served here.
 int PoscDir::StatRet(struct stat *buff) {
-	if (m_stat_avail) {
-		memcpy(buff, &m_stat, sizeof(m_stat));
-		return 0;
-	}
 	auto rc = wrapDF.StatRet(&m_stat);
-	if (!rc) {
-		m_stat_avail = true;
-		memcpy(buff, &m_stat, sizeof(m_stat));
-	}
+	m_stat_external = rc ? nullptr : buff;
 	return rc;
 }
 
