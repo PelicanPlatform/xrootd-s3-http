@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.5.2
+Version:        0.5.3
 Release:        1%{?dist}
 Summary:        S3/HTTP filesystem plugins for xrootd
 
@@ -50,6 +50,9 @@ cmake --build redhat-linux-build --verbose
 %license LICENSE
 
 %changelog
+* Fri Oct 24 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.5.3-1
+- Fix directory listings for the POSC filtering plugin.
+
 * Thu Oct 2 2025 Justin Hiemstra <jhiemstra@wisc.edu> - 0.5.2-1
 - Fix download buffers that could try reading past the end of the file
 
