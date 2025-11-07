@@ -91,38 +91,51 @@ endif()
 #
 add_definitions( -D_FILE_OFFSET_BITS=64 )
 
+set(PelicanHttpCoreSources
+  src/CurlUtil.cc
+  src/HTTPCommands.cc
+  src/TokenFile.cc
+  src/stl_string_utils.cc
+  src/shortfile.cc
+  src/logging.cc)
+
+add_library(XrdPelicanHttpCore SHARED ${PelicanHttpCoreSources})
+set_target_properties(XrdPelicanHttpCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(XrdPelicanHttpCore PRIVATE ${XRootD_INCLUDE_DIRS})
+target_link_libraries(XrdPelicanHttpCore ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem std::atomic)
+
 ######################
 ##  libXrdOssS3     ##
 ######################
 # On Linux, we hide all the symbols for the final libraries, exposing only what's needed for the XRootD
 # runtime loader.  So here we create the object library and will create a separate one for testing with
 # the symbols exposed.
-add_library(XrdS3Obj OBJECT src/CurlUtil.cc src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
+add_library(XrdS3Obj OBJECT src/S3File.cc src/S3Directory.cc src/S3AccessInfo.cc src/S3FileSystem.cc src/AWSv4-impl.cc src/S3Commands.cc)
 set_target_properties(XrdS3Obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdS3Obj PRIVATE ${XRootD_INCLUDE_DIRS})
 target_link_libraries( XrdS3Obj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem std::atomic )
 
 # Compatability library, doesn't match upstream's naming convention
 add_library(XrdS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
-target_link_libraries(XrdS3 XrdS3Obj)
+target_link_libraries(XrdS3 XrdS3Obj XrdPelicanHttpCore)
 # New library name, matches upstream's naming convention
 add_library(XrdOssS3 MODULE "$<TARGET_OBJECTS:XrdS3Obj>")
-target_link_libraries(XrdOssS3 XrdS3Obj)
+target_link_libraries(XrdOssS3 XrdS3Obj XrdPelicanHttpCore)
 
 ######################
 ##  libXrdOssHTTP   ##
 ######################
-add_library(XrdHTTPServerObj OBJECT src/CurlUtil.cc src/HTTPFile.cc src/HTTPDirectory.cc src/HTTPFileSystem.cc src/HTTPCommands.cc src/TokenFile.cc src/stl_string_utils.cc src/shortfile.cc src/logging.cc)
+add_library(XrdHTTPServerObj OBJECT src/HTTPFile.cc src/HTTPDirectory.cc src/HTTPFileSystem.cc)
 set_target_properties(XrdHTTPServerObj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdHTTPServerObj PRIVATE ${XRootD_INCLUDE_DIRS})
 target_link_libraries(XrdHTTPServerObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl  tinyxml2::tinyxml2 OpenSSL::Crypto Threads::Threads std::filesystem)
 
 # Compatability library, doesn't match upstream's naming convention
 add_library(XrdHTTPServer MODULE "$<TARGET_OBJECTS:XrdHTTPServerObj>")
-target_link_libraries(XrdHTTPServer XrdHTTPServerObj)
+target_link_libraries(XrdHTTPServer XrdHTTPServerObj XrdPelicanHttpCore)
 # New library name, matches upstream's naming convention
 add_library(XrdOssHttp MODULE "$<TARGET_OBJECTS:XrdHTTPServerObj>")
-target_link_libraries(XrdOssHttp XrdHTTPServerObj)
+target_link_libraries(XrdOssHttp XrdHTTPServerObj XrdPelicanHttpCore)
 
 ######################
 ## libXrdOssFilter  ##
@@ -138,13 +151,13 @@ target_link_libraries( XrdOssFilter XrdOssFilterObj )
 ######################
 ## libXrdOssGlobus  ##
 ######################
-add_library(XrdOssGlobusObj OBJECT src/HTTPCommands.cc src/GlobusFile.cc src/GlobusFileSystem.cc src/GlobusDirectory.cc src/logging.cc src/stl_string_utils.cc src/shortfile.cc src/TokenFile.cc src/CurlUtil.cc)
+add_library(XrdOssGlobusObj OBJECT src/GlobusFile.cc src/GlobusFileSystem.cc src/GlobusDirectory.cc)
 set_target_properties(XrdOssGlobusObj PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdOssGlobusObj PRIVATE ${XRootD_INCLUDE_DIRS})
 target_link_libraries(XrdOssGlobusObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} nlohmann_json::nlohmann_json CURL::libcurl OpenSSL::Crypto Threads::Threads std::filesystem)
 
 add_library(XrdOssGlobus MODULE "$<TARGET_OBJECTS:XrdOssGlobusObj>")
-target_link_libraries(XrdOssGlobus XrdOssGlobusObj)
+target_link_libraries(XrdOssGlobus XrdOssGlobusObj XrdPelicanHttpCore)
 
 #######################
 ## libXrdOssPosc     ##
@@ -158,6 +171,7 @@ target_link_libraries( XrdOssPosc XrdOssPoscObj )
 
 # Customize module's suffix and, on Linux, hide unnecessary symbols
 if( APPLE )
+  set_target_properties( XrdPelicanHttpCore PROPERTIES OUTPUT_NAME "XrdPelicanHttpCore-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssS3 PROPERTIES OUTPUT_NAME "XrdOssS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
@@ -166,6 +180,7 @@ if( APPLE )
   set_target_properties( XrdOssGlobus PROPERTIES OUTPUT_NAME "XrdOssGlobus-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssPosc PROPERTIES OUTPUT_NAME "XrdOssPosc-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
 else()
+  set_target_properties( XrdPelicanHttpCore PROPERTIES OUTPUT_NAME "XrdPelicanHttpCore-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssS3 PROPERTIES OUTPUT_NAME "XrdOssS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
@@ -178,18 +193,18 @@ endif()
 include(GNUInstallDirs)
 
 install(
-  TARGETS XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus XrdOssPosc
+  TARGETS XrdPelicanHttpCore XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus XrdOssPosc
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
 if( ENABLE_TESTS )
   # Create shared libraries for testing from the existing objects
   add_library(XrdS3Testing SHARED "$<TARGET_OBJECTS:XrdS3Obj>")
-  target_link_libraries(XrdS3Testing XrdS3Obj)
+  target_link_libraries(XrdS3Testing XrdS3Obj XrdPelicanHttpCore)
   target_include_directories(XrdS3Testing INTERFACE ${XRootD_INCLUDE_DIRS})
 
   add_library(XrdHTTPServerTesting SHARED "$<TARGET_OBJECTS:XrdHTTPServerObj>")
-  target_link_libraries(XrdHTTPServerTesting XrdHTTPServerObj)
+  target_link_libraries(XrdHTTPServerTesting XrdHTTPServerObj XrdPelicanHttpCore)
   target_include_directories(XrdHTTPServerTesting INTERFACE ${XRootD_INCLUDE_DIRS})
 
   add_library( XrdOssFilterTesting SHARED "$<TARGET_OBJECTS:XrdOssFilterObj>" )
@@ -197,7 +212,7 @@ if( ENABLE_TESTS )
   target_include_directories( XrdOssFilterTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
 
   add_library(XrdOssGlobusTesting SHARED "$<TARGET_OBJECTS:XrdOssGlobusObj>")
-  target_link_libraries(XrdOssGlobusTesting XrdOssGlobusObj)
+  target_link_libraries(XrdOssGlobusTesting XrdOssGlobusObj XrdPelicanHttpCore)
   target_include_directories(XrdOssGlobusTesting INTERFACE ${XRootD_INCLUDE_DIRS})
 
   add_library( XrdOssPoscTesting SHARED "$<TARGET_OBJECTS:XrdOssPoscObj>" )

@@ -100,7 +100,7 @@ class GlobusFileSystem : public XrdOssWrapper {
 	// Extract the relative path by removing the storage prefix
 	std::string extractRelativePath(const std::string &path) const;
 
-	std::unique_ptr<XrdOss> m_oss;
+	XrdOss *m_oss;
 	XrdSysError m_log;
 
 	// Globus-specific configuration
