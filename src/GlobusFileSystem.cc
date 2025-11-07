@@ -153,8 +153,13 @@ int GlobusFileSystem::Stat(const char *path, struct stat *buff, int opts,
 	m_log.Log(LogMask::Debug, "GlobusFileSystem::Stat", "Stat'ing path",
 			  relative_path.c_str());
 
-	HTTPDownload statCommand(getStatUrl(relative_path), "", m_log,
-							 &m_transfer_token);
+	auto token = getTransferToken();
+	if (!token) {
+		m_log.Emsg("Stat", "Failed to get transfer token");
+		return -ENOENT;
+	}
+
+	HTTPDownload statCommand(getStatUrl(relative_path), "", m_log, token);
 	if (!statCommand.SendRequest(0, 0)) {
 		return HTTPRequest::HandleHTTPError(statCommand, m_log, "GET", "");
 	}
