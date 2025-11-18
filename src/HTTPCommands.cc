@@ -39,6 +39,7 @@
 
 using namespace XrdHTTPServer;
 
+std::once_flag HTTPRequest::m_init_flag;
 std::shared_ptr<HandlerQueue> HTTPRequest::m_queue =
 	std::make_unique<HandlerQueue>();
 std::vector<CurlWorker *> HTTPRequest::m_workers;
@@ -835,8 +836,7 @@ bool HTTPUpload::ContinueStreamingRequest(const std::string_view payload,
 }
 
 void HTTPRequest::Init(XrdSysError &log) {
-	static std::once_flag init_flag;
-	std::call_once(init_flag, [&]() {
+	std::call_once(m_init_flag, [&]() {
 		log.Log(LogMask::Debug, "HTTPRequest::Init", "called");
 		CURLcode rv = curl_global_init(CURL_GLOBAL_ALL);
 		if (rv != 0) {
