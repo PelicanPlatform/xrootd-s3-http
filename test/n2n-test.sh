@@ -150,6 +150,16 @@ if [ $FAILED -ne 0 ]; then
   echo "========================================="
   echo "SOME TESTS FAILED - see above for details"
   echo "========================================="
+  echo ""
+  echo "========================================="
+  echo "SERVER LOG (last 300 lines):"
+  echo "========================================="
+  tail -300 "$BINARY_DIR/tests/$TEST_NAME/server.log"
+  echo ""
+  echo "========================================="
+  echo "CLIENT LOG:"
+  echo "========================================="
+  cat "$BINARY_DIR/tests/$TEST_NAME/client.log"
   exit 1
 else
   echo ""
