@@ -41,7 +41,7 @@ Unit tests for this repository require `gtest`, which is included as a submodule
 ```
 mkdir build
 cd build
-cmake -DBUILD_TESTING=ON ..
+cmake -DENABLE_TESTS=ON ..
 make
 ```
 
