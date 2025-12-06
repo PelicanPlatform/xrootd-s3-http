@@ -59,16 +59,25 @@ add_executable( s3-unit-test s3_unit_tests.cc )
 add_executable( http-gtest http_tests.cc )
 add_executable( filter-gtest filter_tests.cc ../src/shortfile.cc )
 add_executable( posc-gtest posc_tests.cc ../src/shortfile.cc )
+add_executable( n2n-prefix-gtest n2n_prefix_tests.cc ../src/shortfile.cc )
 
 target_link_libraries(s3-gtest XrdS3Testing GTest::gtest_main Threads::Threads)
 target_link_libraries(s3-unit-test XrdS3Testing GTest::gtest_main Threads::Threads)
 target_link_libraries(http-gtest XrdHTTPServerTesting GTest::gtest_main Threads::Threads)
 target_link_libraries(filter-gtest XrdOssFilterTesting GTest::gtest_main Threads::Threads)
 target_link_libraries(posc-gtest XrdOssPoscTesting GTest::gtest_main Threads::Threads)
+target_link_libraries(n2n-prefix-gtest XrdN2NPrefixTesting GTest::gtest_main Threads::Threads)
 
 gtest_add_tests(TARGET filter-gtest TEST_LIST filterUnitTests)
 
 set_tests_properties(${filterUnitTests}
+  PROPERTIES
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
+)
+
+gtest_add_tests(TARGET n2n-prefix-gtest TEST_LIST n2nPrefixUnitTests)
+
+set_tests_properties(${n2nPrefixUnitTests}
   PROPERTIES
     ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
 )
@@ -154,6 +163,40 @@ set_tests_properties(HTTP::basic::test
     FIXTURES_REQUIRED HTTP::basic
     ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
     ATTACHED_FILES_ON_FAIL "${BASIC_TEST_LOGS}"
+)
+
+######################################
+# N2N (Name-to-Name) Integration Tests
+######################################
+add_test(NAME N2N::basic::setup
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/n2n-setup.sh" n2n_basic)
+
+set_tests_properties(N2N::basic::setup
+  PROPERTIES
+    FIXTURES_SETUP N2N::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;LD_LIBRARY_PATH=${XRootD_LIB_DIR}:${CMAKE_BINARY_DIR}/lib"
+)
+
+add_test(NAME N2N::basic::teardown
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/n2n-teardown.sh" n2n_basic)
+
+set_tests_properties(N2N::basic::teardown
+  PROPERTIES
+    FIXTURES_CLEANUP N2N::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+)
+
+add_test(NAME N2N::basic::test
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/n2n-test.sh" n2n_basic)
+
+list(APPEND N2N_BASIC_TEST_LOGS ${CMAKE_BINARY_DIR}/tests/n2n_basic/server.log)
+list(APPEND N2N_BASIC_TEST_LOGS ${CMAKE_BINARY_DIR}/tests/n2n_basic/client.log)
+
+set_tests_properties(N2N::basic::test
+  PROPERTIES
+    FIXTURES_REQUIRED N2N::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+    ATTACHED_FILES_ON_FAIL "${N2N_BASIC_TEST_LOGS}"
 )
 
 ####
