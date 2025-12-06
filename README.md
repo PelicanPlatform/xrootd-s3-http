@@ -11,6 +11,8 @@ The plugins in the repository include:
   visible to the filesystem and to be deleted if not successfully closed.  Here, "POSC"
   stands for "Persist on Successful Close" and is similar in spirit to the POSC functionality
   in the core XRootD (with the addition of making in-progress files not-visible in the namespace).
+- `XrdN2NPrefix`: A Name2Name (N2N) plugin that performs path prefix substitution,
+  allowing logical paths to be mapped to different physical paths on disk.
 
 
 ## Building and Installing
@@ -284,6 +286,73 @@ user.
 
 World-writable directories are difficult to manage.  Another option would be for the filesystem owner
 to pre-create all the potential user temporary directories.
+
+### Configure the N2N Prefix plugin
+
+The N2N (Name2Name) prefix plugin provides path prefix substitution, allowing logical paths
+to be mapped to different physical paths. This is useful when you want to expose files under
+a different namespace than where they physically reside.
+
+For example, if files are stored under `/data/physics/` but should be accessed via `/store/`,
+the N2N plugin can translate `/store/file.txt` to `/data/physics/file.txt`.
+
+To load the plugin, use the `oss.namelib` directive:
+
+```
+oss.namelib libXrdN2NPrefix.so
+```
+
+(an absolute path may be given if `libXrdN2NPrefix-5.so` does not reside in a system directory)
+
+There is one configuration directive for the N2N prefix module:
+
+```
+prefixn2n.rule [-strict] <match_prefix> <substitute_prefix>
+```
+
+ - `prefixn2n.rule`: Defines a prefix substitution rule. The `<match_prefix>` is the logical
+   path prefix that will be matched, and `<substitute_prefix>` is what it will be replaced with.
+   Rules are evaluated in order; the first matching rule is applied.
+
+   Path matching is done at path boundaries, not as string prefixes. This means `/foo` will
+   match `/foo` and `/foo/bar` but NOT `/foobar`.
+
+   The optional `-strict` flag preserves consecutive slashes (`//`) exactly as they appear.
+   Without this flag (the default), consecutive slashes are normalized to single slashes.
+
+   Examples:
+
+   ```
+   # Map /store/* to /data/cms/*
+   prefixn2n.rule /store /data/cms
+
+   # Map /cache/* to /tmp/cache/* with strict slash handling
+   prefixn2n.rule -strict /cache /tmp/cache
+   ```
+
+   For paths containing spaces, use JSON-style quoted strings:
+
+   ```
+   prefixn2n.rule "/path with spaces" "/destination with spaces"
+   ```
+
+   Multiple rules can be specified:
+
+   ```
+   prefixn2n.rule /store/mc /data/monte-carlo
+   prefixn2n.rule /store/data /data/physics
+   prefixn2n.rule /store /data/cms
+   ```
+
+   In the above example, `/store/mc/file.txt` maps to `/data/monte-carlo/file.txt`,
+   `/store/data/file.txt` maps to `/data/physics/file.txt`, and `/store/other/file.txt`
+   maps to `/data/cms/other/file.txt`.
+
+The plugin supports bidirectional mapping: `lfn2pfn` (logical to physical) applies rules
+forward, while `pfn2lfn` (physical to logical) applies them in reverse.
+
+**Note**: When used with `oss.localroot`, the N2N plugin automatically prepends the localroot
+to physical paths returned by `lfn2pfn()`.
 
 ## Startup and Testing
 
