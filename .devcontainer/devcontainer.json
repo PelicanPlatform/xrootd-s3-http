@@ -1,0 +1,42 @@
+{
+	"name": "XRootD S3/HTTP Plugin Development",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/git:1": {},
+		"ghcr.io/devcontainers/features/github-cli:1": {}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-vscode.cpptools",
+				"ms-vscode.cmake-tools",
+				"twxs.cmake",
+				"ms-vscode.cpptools-extension-pack",
+				"GitHub.copilot",
+				"GitHub.copilot-chat"
+			],
+			"settings": {
+				"cmake.configureOnOpen": true,
+				"cmake.buildDirectory": "${workspaceFolder}/build",
+				"cmake.configureSettings": {
+					"BUILD_TESTING": "ON",
+					"CMAKE_BUILD_TYPE": "Debug"
+				},
+				"C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+			}
+		}
+	},
+	"postCreateCommand": "/workspaces/xrootd-s3-http/.devcontainer/post-create.sh",
+	"remoteUser": "vscode",
+	"mounts": [
+		"source=xrootd-s3-http-build,target=/workspaces/xrootd-s3-http/build,type=volume"
+	],
+	"remoteEnv": {
+		"CMAKE_PREFIX_PATH": "/opt/xrootd/lib/cmake/XRootD",
+		"LD_LIBRARY_PATH": "/opt/xrootd/lib:${containerEnv:LD_LIBRARY_PATH}",
+		"PATH": "/opt/xrootd/bin:${containerEnv:PATH}"
+	}
+}

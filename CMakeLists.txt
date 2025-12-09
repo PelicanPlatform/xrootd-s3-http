@@ -169,6 +169,17 @@ target_link_libraries( XrdOssPoscObj XRootD::XrdServer XRootD::XrdUtils Threads:
 add_library( XrdOssPosc MODULE "$<TARGET_OBJECTS:XrdOssPoscObj>" )
 target_link_libraries( XrdOssPosc XrdOssPoscObj )
 
+#######################
+## libXrdN2NPrefix   ##
+#######################
+add_library( XrdN2NPrefixObj OBJECT src/PrefixN2N.cc )
+set_target_properties( XrdN2NPrefixObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
+target_include_directories( XrdN2NPrefixObj PRIVATE ${XRootD_INCLUDE_DIRS} )
+target_link_libraries( XrdN2NPrefixObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} nlohmann_json::nlohmann_json )
+
+add_library( XrdN2NPrefix MODULE "$<TARGET_OBJECTS:XrdN2NPrefixObj>" )
+target_link_libraries( XrdN2NPrefix XrdN2NPrefixObj )
+
 # Customize module's suffix and, on Linux, hide unnecessary symbols
 if( APPLE )
   set_target_properties( XrdPelicanHttpCore PROPERTIES OUTPUT_NAME "XrdPelicanHttpCore-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
@@ -179,6 +190,7 @@ if( APPLE )
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssGlobus PROPERTIES OUTPUT_NAME "XrdOssGlobus-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssPosc PROPERTIES OUTPUT_NAME "XrdOssPosc-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  set_target_properties( XrdN2NPrefix PROPERTIES OUTPUT_NAME "XrdN2NPrefix-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
 else()
   set_target_properties( XrdPelicanHttpCore PROPERTIES OUTPUT_NAME "XrdPelicanHttpCore-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
@@ -188,12 +200,14 @@ else()
   set_target_properties( XrdOssFilter PROPERTIES OUTPUT_NAME "XrdOssFilter-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssGlobus PROPERTIES OUTPUT_NAME "XrdOssGlobus-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssPosc PROPERTIES OUTPUT_NAME "XrdOssPosc-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  set_target_properties( XrdN2NPrefix PROPERTIES OUTPUT_NAME "XrdN2NPrefix-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  #set_target_properties( XrdOfsRedirect PROPERTIES OUTPUT_NAME "XrdOfsRedirect-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-ofs-lib-symbols" )
 endif()
 
 include(GNUInstallDirs)
 
 install(
-  TARGETS XrdPelicanHttpCore XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus XrdOssPosc
+  TARGETS XrdPelicanHttpCore XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus XrdOssPosc XrdN2NPrefix
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
@@ -218,6 +232,10 @@ if( ENABLE_TESTS )
   add_library( XrdOssPoscTesting SHARED "$<TARGET_OBJECTS:XrdOssPoscObj>" )
   target_link_libraries( XrdOssPoscTesting XrdOssPoscObj )
   target_include_directories( XrdOssPoscTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
+
+  add_library( XrdN2NPrefixTesting SHARED "$<TARGET_OBJECTS:XrdN2NPrefixObj>" )
+  target_link_libraries( XrdN2NPrefixTesting XrdN2NPrefixObj )
+  target_include_directories( XrdN2NPrefixTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
 
   find_program(GoWrk go-wrk HINTS "$ENV{HOME}/go/bin")
   if( NOT GoWrk )
