@@ -208,6 +208,40 @@ set_tests_properties(N2N::basic::test
     ATTACHED_FILES_ON_FAIL "${N2N_BASIC_TEST_LOGS}"
 )
 
+######################################
+# Deadlock detection integration tests
+######################################
+add_test(NAME Deadlock::basic::setup
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/deadlock-setup.sh" deadlock_basic)
+
+set_tests_properties(Deadlock::basic::setup
+  PROPERTIES
+    FIXTURES_SETUP Deadlock::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;LD_LIBRARY_PATH=${XRootD_LIB_DIR}:${CMAKE_BINARY_DIR}"
+)
+
+add_test(NAME Deadlock::basic::teardown
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/deadlock-teardown.sh" deadlock_basic)
+
+set_tests_properties(Deadlock::basic::teardown
+  PROPERTIES
+    FIXTURES_CLEANUP Deadlock::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+)
+
+add_test(NAME Deadlock::basic::test
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/deadlock-test.sh" deadlock_basic)
+
+list(APPEND DEADLOCK_BASIC_TEST_LOGS ${CMAKE_BINARY_DIR}/tests/deadlock_basic/server.log)
+list(APPEND DEADLOCK_BASIC_TEST_LOGS ${CMAKE_BINARY_DIR}/tests/deadlock_basic/deadlocks.log)
+
+set_tests_properties(Deadlock::basic::test
+  PROPERTIES
+    FIXTURES_REQUIRED Deadlock::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+    ATTACHED_FILES_ON_FAIL "${DEADLOCK_BASIC_TEST_LOGS}"
+)
+
 ####
 #   Start of S3 tests, which require minio and mc
 ####

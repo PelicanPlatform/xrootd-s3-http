@@ -256,6 +256,16 @@ if( ENABLE_TESTS )
   target_link_libraries( XrdAccDeadlockTesting XrdAccDeadlockObj )
   target_include_directories( XrdAccDeadlockTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
 
+  # Dummy stall OSS for integration tests
+  add_library( XrdOssDummyStall MODULE src/DummyStallOss.cc )
+  target_include_directories( XrdOssDummyStall PRIVATE ${XRootD_INCLUDE_DIRS} )
+  target_link_libraries( XrdOssDummyStall ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} Threads::Threads )
+  if( APPLE )
+    set_target_properties( XrdOssDummyStall PROPERTIES OUTPUT_NAME "XrdOssDummyStall-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  else()
+    set_target_properties( XrdOssDummyStall PROPERTIES OUTPUT_NAME "XrdOssDummyStall-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
+  endif()
+
   find_program(GoWrk go-wrk HINTS "$ENV{HOME}/go/bin")
   if( NOT GoWrk )
     # Try installing the go-wrk variable to generate a reasonable stress test
