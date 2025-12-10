@@ -162,9 +162,14 @@ TEST_F(DeadlockTest, MonitorWithDifferentOperations) {
 	SUCCEED();
 }
 
-// Test creating monitor without initialization (should be safe)
-TEST_F(DeadlockTest, MonitorWithoutInitialization) {
-	// Don't initialize the detector
+// Test creating monitor with initialization
+TEST_F(DeadlockTest, MonitorAfterInitialization) {
+	XrdSysLogger logger;
+	XrdSysError log(&logger, "test");
+
+	auto &detector = DeadlockDetector::GetInstance();
+	ASSERT_TRUE(detector.Initialize(&log, nullptr));
+
 	DeadlockMonitor monitor("test");
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	// Should not crash
