@@ -115,6 +115,7 @@ class DeadlockDetector {
 	static std::condition_variable m_shutdown_cv;
 	static std::atomic<bool> m_shutdown_requested;
 	static std::atomic<bool> m_initialized;
+	static std::thread m_monitor_thread;
 
 	friend class DeadlockMonitor;
 };

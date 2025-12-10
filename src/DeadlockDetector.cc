@@ -42,6 +42,7 @@ std::mutex DeadlockDetector::m_shutdown_mutex;
 std::condition_variable DeadlockDetector::m_shutdown_cv;
 std::atomic<bool> DeadlockDetector::m_shutdown_requested{false};
 std::atomic<bool> DeadlockDetector::m_initialized{false};
+std::thread DeadlockDetector::m_monitor_thread;
 
 DeadlockDetector::DeadlockDetector() {}
 
@@ -119,8 +120,7 @@ bool DeadlockDetector::Initialize(XrdSysError *log, const char *configfn) {
 	// Start the monitor thread
 	std::call_once(m_init_flag, [this] {
 		m_initialized.store(true, std::memory_order_release);
-		std::thread t(MonitorThread, this);
-		t.detach();
+		m_monitor_thread = std::thread(MonitorThread, this);
 	});
 
 	return true;
@@ -210,19 +210,15 @@ void DeadlockDetector::Shutdown() {
 	m_shutdown_requested.store(true, std::memory_order_release);
 	m_shutdown_cv.notify_one();
 
-	// Give the thread a moment to exit
-	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	// Join the monitor thread
+	if (m_monitor_thread.joinable()) {
+		m_monitor_thread.join();
+	}
 }
 
 // DeadlockMonitor implementation
 
 DeadlockMonitor::DeadlockMonitor(const char *operation) {
-	// Don't create monitors if not initialized
-	if (!DeadlockDetector::m_initialized.load(std::memory_order_acquire)) {
-		m_list_id = -1;
-		return;
-	}
-
 	m_node.m_start_time = std::chrono::steady_clock::now();
 	m_node.m_operation = operation;
 
@@ -231,29 +227,26 @@ DeadlockMonitor::DeadlockMonitor(const char *operation) {
 
 	// Add to the list
 	auto &detector = DeadlockDetector::GetInstance();
-	std::unique_lock<std::mutex> lock(detector.m_lists[m_list_id].m_mutex);
+	auto &list_head = detector.m_lists[m_list_id];
+	std::unique_lock<std::mutex> lock(list_head.m_mutex);
 
-	m_node.m_next = detector.m_lists[m_list_id].m_first;
+	m_node.m_next = list_head.m_first;
 	if (m_node.m_next) {
 		m_node.m_next->m_prev = &m_node;
 	}
-	detector.m_lists[m_list_id].m_first = &m_node;
+	list_head.m_first = &m_node;
 }
 
 DeadlockMonitor::~DeadlockMonitor() {
-	// Skip if not initialized
-	if (m_list_id < 0) {
-		return;
-	}
-
 	// Remove from the list
 	auto &detector = DeadlockDetector::GetInstance();
-	std::unique_lock<std::mutex> lock(detector.m_lists[m_list_id].m_mutex);
+	auto &list_head = detector.m_lists[m_list_id];
+	std::unique_lock<std::mutex> lock(list_head.m_mutex);
 
 	if (m_node.m_prev) {
 		m_node.m_prev->m_next = m_node.m_next;
 	} else {
-		detector.m_lists[m_list_id].m_first = m_node.m_next;
+		list_head.m_first = m_node.m_next;
 	}
 
 	if (m_node.m_next) {

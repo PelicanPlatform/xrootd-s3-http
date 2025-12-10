@@ -377,14 +377,18 @@ ofs.osslib ++ libXrdOssDeadlock.so
 
 #### Authorization Wrapper
 
-To load the authorization wrapper, use the `acc.authlib` directive:
+To load the authorization wrapper, use the `acc.authlib` directive with the wrapped
+authorization plugin specified as a parameter:
 
 ```
-acc.authlib libXrdAccDeadlock.so
+acc.authlib libXrdAccDeadlock.so <wrapped_auth_plugin>
 ```
 
-**Note**: The authorization wrapper currently requires additional configuration to specify
-the wrapped authorization plugin. This will be implemented in a future update.
+For example, to wrap the default XRootD authorization:
+
+```
+acc.authlib libXrdAccDeadlock.so libXrdAcc.so
+```
 
 #### Configuration Directives
 
@@ -410,23 +414,6 @@ deadlock.logfile <path>
    ```
    deadlock.logfile /var/log/xrootd/deadlocks.log
    ```
-
-#### How It Works
-
-The deadlock detector uses a RAII (Resource Acquisition Is Initialization) pattern to track
-operations:
-
-1. When an operation starts, a `DeadlockMonitor` object is created on the stack, which adds
-   itself to a doubly-linked list.
-2. A background thread periodically scans all active monitors to check if any have exceeded
-   the timeout threshold.
-3. When the operation completes, the `DeadlockMonitor` destructor automatically removes the
-   monitor from the list.
-4. If an operation exceeds the timeout, the background thread logs an error and kills the
-   process with `SIGKILL`.
-
-On Linux systems, the plugin uses 15 cache-line-aligned lists (selected by CPU ID modulo 15)
-to reduce lock contention. On other platforms, a single list is used.
 
 #### Example Configuration
 

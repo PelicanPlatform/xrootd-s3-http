@@ -37,13 +37,11 @@ DeadlockOss::DeadlockOss(XrdOss *oss, std::unique_ptr<XrdSysError> log,
 DeadlockOss::~DeadlockOss() {}
 
 XrdOssDF *DeadlockOss::newDir(const char *user) {
-	DeadlockMonitor monitor("newDir");
 	std::unique_ptr<XrdOssDF> wrapped(m_oss->newDir(user));
 	return new DeadlockOssDir(std::move(wrapped));
 }
 
 XrdOssDF *DeadlockOss::newFile(const char *user) {
-	DeadlockMonitor monitor("newFile");
 	std::unique_ptr<XrdOssDF> wrapped(m_oss->newFile(user));
 	return new DeadlockOssFile(std::move(wrapped));
 }
