@@ -60,6 +60,7 @@ add_executable( http-gtest http_tests.cc )
 add_executable( filter-gtest filter_tests.cc ../src/shortfile.cc )
 add_executable( posc-gtest posc_tests.cc ../src/shortfile.cc )
 add_executable( n2n-prefix-gtest n2n_prefix_tests.cc ../src/shortfile.cc )
+add_executable( deadlock-gtest deadlock_tests.cc )
 
 target_link_libraries(s3-gtest XrdS3Testing GTest::gtest_main Threads::Threads)
 target_link_libraries(s3-unit-test XrdS3Testing GTest::gtest_main Threads::Threads)
@@ -67,6 +68,7 @@ target_link_libraries(http-gtest XrdHTTPServerTesting GTest::gtest_main Threads:
 target_link_libraries(filter-gtest XrdOssFilterTesting GTest::gtest_main Threads::Threads)
 target_link_libraries(posc-gtest XrdOssPoscTesting GTest::gtest_main Threads::Threads)
 target_link_libraries(n2n-prefix-gtest XrdN2NPrefixTesting GTest::gtest_main Threads::Threads)
+target_link_libraries(deadlock-gtest XrdOssDeadlockTesting GTest::gtest_main Threads::Threads)
 
 gtest_add_tests(TARGET filter-gtest TEST_LIST filterUnitTests)
 
@@ -94,6 +96,13 @@ endif()
 gtest_add_tests(TARGET posc-gtest TEST_LIST poscUnitTests)
 
 set_tests_properties(${poscUnitTests}
+  PROPERTIES
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
+)
+
+gtest_add_tests(TARGET deadlock-gtest TEST_LIST deadlockUnitTests)
+
+set_tests_properties(${deadlockUnitTests}
   PROPERTIES
     ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
 )
@@ -197,6 +206,40 @@ set_tests_properties(N2N::basic::test
     FIXTURES_REQUIRED N2N::basic
     ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
     ATTACHED_FILES_ON_FAIL "${N2N_BASIC_TEST_LOGS}"
+)
+
+######################################
+# Deadlock detection integration tests
+######################################
+add_test(NAME Deadlock::basic::setup
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/deadlock-setup.sh" deadlock_basic)
+
+set_tests_properties(Deadlock::basic::setup
+  PROPERTIES
+    FIXTURES_SETUP Deadlock::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR};SOURCE_DIR=${CMAKE_SOURCE_DIR};XROOTD_BINDIR=${XRootD_DATA_DIR}/../bin;LD_LIBRARY_PATH=${XRootD_LIB_DIR}:${CMAKE_BINARY_DIR}"
+)
+
+add_test(NAME Deadlock::basic::teardown
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/deadlock-teardown.sh" deadlock_basic)
+
+set_tests_properties(Deadlock::basic::teardown
+  PROPERTIES
+    FIXTURES_CLEANUP Deadlock::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+)
+
+add_test(NAME Deadlock::basic::test
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/deadlock-test.sh" deadlock_basic)
+
+list(APPEND DEADLOCK_BASIC_TEST_LOGS ${CMAKE_BINARY_DIR}/tests/deadlock_basic/server.log)
+list(APPEND DEADLOCK_BASIC_TEST_LOGS ${CMAKE_BINARY_DIR}/tests/deadlock_basic/deadlocks.log)
+
+set_tests_properties(Deadlock::basic::test
+  PROPERTIES
+    FIXTURES_REQUIRED Deadlock::basic
+    ENVIRONMENT "BINARY_DIR=${CMAKE_BINARY_DIR}"
+    ATTACHED_FILES_ON_FAIL "${DEADLOCK_BASIC_TEST_LOGS}"
 )
 
 ####

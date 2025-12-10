@@ -13,6 +13,10 @@ The plugins in the repository include:
   in the core XRootD (with the addition of making in-progress files not-visible in the namespace).
 - `XrdN2NPrefix`: A Name2Name (N2N) plugin that performs path prefix substitution,
   allowing logical paths to be mapped to different physical paths on disk.
+- `XrdOssDeadlock`: A "stacking" plugin that monitors all OSS operations for deadlocks,
+  killing the process if any operation exceeds a configurable timeout threshold.
+- `XrdAccDeadlock`: An authorization plugin wrapper that monitors all authorization
+  operations for deadlocks.
 
 
 ## Building and Installing
@@ -353,6 +357,94 @@ forward, while `pfn2lfn` (physical to logical) applies them in reverse.
 
 **Note**: When used with `oss.localroot`, the N2N plugin automatically prepends the localroot
 to physical paths returned by `lfn2pfn()`.
+
+### Configure the Deadlock Detection plugin
+
+The deadlock detection plugin monitors all filesystem or authorization operations and kills the
+XRootD process with `SIGKILL` if any operation blocks for longer than a configurable timeout.
+This is useful for detecting and preventing server hangs caused by deadlocks in storage backends
+or authorization systems.
+
+#### OSS Wrapper
+
+To load the OSS wrapper, invoke `ofs.osslib` in "stacking" mode:
+
+```
+ofs.osslib ++ libXrdOssDeadlock.so
+```
+
+(an absolute path may be given if `libXrdOssDeadlock-5.so` does not reside in a system directory)
+
+#### Authorization Wrapper
+
+To load the authorization wrapper, use the `acc.authlib` directive with the wrapped
+authorization plugin specified as a parameter:
+
+```
+acc.authlib libXrdAccDeadlock.so <wrapped_auth_plugin>
+```
+
+For example, to wrap the default XRootD authorization:
+
+```
+acc.authlib libXrdAccDeadlock.so libXrdAcc.so
+```
+
+#### Configuration Directives
+
+There are two configuration commands for the deadlock detection module:
+
+```
+deadlock.timeout <seconds>
+deadlock.logfile <path>
+```
+
+ - `deadlock.timeout`: Sets the timeout threshold in seconds. If any operation takes longer
+   than this threshold, it is considered a deadlock and the process is killed. Default is
+   300 seconds (5 minutes). Example:
+
+   ```
+   deadlock.timeout 180
+   ```
+
+ - `deadlock.logfile`: Optional path to a log file where deadlock events are recorded before
+   the process is killed. The log file is written atomically using `open()` with `O_APPEND`
+   and contains timestamps and operation names. Example:
+
+   ```
+   deadlock.logfile /var/log/xrootd/deadlocks.log
+   ```
+
+#### Example Configuration
+
+Here's a complete example that combines deadlock detection with S3 storage:
+
+```
+# Enable HTTP protocol
+xrd.protocol http:1094 libXrdHttp.so
+
+# Export path
+all.export /data
+
+# Stack deadlock detection on top of S3 storage
+ofs.osslib ++ libXrdOssDeadlock.so
+ofs.osslib libXrdOssS3.so
+
+# Configure deadlock detection
+deadlock.timeout 120
+deadlock.logfile /var/log/xrootd/deadlocks.log
+
+# S3 configuration
+s3.begin
+s3.path_name data
+s3.bucket_name my-bucket
+s3.service_url https://s3.amazonaws.com
+s3.region us-east-1
+s3.end
+```
+
+In this configuration, any S3 operation that takes longer than 2 minutes will be logged and
+the process will be killed, preventing indefinite hangs.
 
 ## Startup and Testing
 
