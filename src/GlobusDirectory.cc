@@ -54,16 +54,20 @@ void GlobusDirectory::Reset() {
 int GlobusDirectory::ListGlobusDir() {
 	m_log.Log(XrdHTTPServer::Debug, "GlobusDirectory::ListGlobusDir",
 			  "Listing directory:", m_object.c_str());
-	HTTPDownload listCommand(m_fs.getLsUrl(), m_object, m_log,
-							 m_fs.getTransferToken());
 
+	auto token = m_fs.getTransferToken();
+	if (!token) {
+		m_log.Emsg("Listing", "Failed to get transfer token");
+		return -ENOENT;
+	}
+
+	HTTPDownload listCommand(m_fs.getLsUrl(), m_object, m_log, token);
 	if (!listCommand.SendRequest(0, 0)) {
 		return HTTPRequest::HandleHTTPError(
 			listCommand, m_log, "Globus directory listing", m_object.c_str());
 	}
 
 	std::string response = listCommand.getResultString();
-
 	try {
 		auto json = json::parse(response);
 

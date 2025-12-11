@@ -246,8 +246,8 @@ class HTTPRequest {
 	const TokenFile *m_token{nullptr};
 
 	// The following members manage the work queue and workers.
-	static bool
-		m_workers_initialized; // The global state of the worker initialization.
+	static std::once_flag 
+		m_init_flag; // Flag to ensure we only initialize workers once.
 	static std::shared_ptr<HandlerQueue>
 		m_queue; // Global queue for all HTTP requests to be processed.
 	std::shared_ptr<HandlerQueue> m_unpause_queue{

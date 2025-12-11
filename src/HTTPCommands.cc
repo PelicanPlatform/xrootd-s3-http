@@ -39,9 +39,9 @@
 
 using namespace XrdHTTPServer;
 
+std::once_flag HTTPRequest::m_init_flag;
 std::shared_ptr<HandlerQueue> HTTPRequest::m_queue =
 	std::make_unique<HandlerQueue>();
-bool HTTPRequest::m_workers_initialized = false;
 std::vector<CurlWorker *> HTTPRequest::m_workers;
 std::chrono::steady_clock::duration HTTPRequest::m_timeout_duration =
 	std::chrono::seconds(10);
@@ -836,20 +836,18 @@ bool HTTPUpload::ContinueStreamingRequest(const std::string_view payload,
 }
 
 void HTTPRequest::Init(XrdSysError &log) {
-	log.Log(LogMask::Debug, "HTTPRequest::Init", "called");
-	if (!m_workers_initialized) {
+	std::call_once(m_init_flag, [&]() {
+		log.Log(LogMask::Debug, "HTTPRequest::Init", "called");
+		CURLcode rv = curl_global_init(CURL_GLOBAL_ALL);
+		if (rv != 0) {
+			throw std::runtime_error("libcurl failed to initialize");
+		}
 		for (unsigned idx = 0; idx < CurlWorker::GetPollThreads(); idx++) {
 			m_workers.push_back(new CurlWorker(m_queue, log));
 			std::thread t(CurlWorker::RunStatic, m_workers.back());
 			t.detach();
 		}
-		m_workers_initialized = true;
-	}
-
-	CURLcode rv = curl_global_init(CURL_GLOBAL_ALL);
-	if (rv != 0) {
-		throw std::runtime_error("libcurl failed to initialize");
-	}
+	});
 }
 
 // ---------------------------------------------------------------------------
