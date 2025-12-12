@@ -1,7 +1,7 @@
 Name:		xrootd-s3-http
 Version:        0.6.0
 Release:        1%{?dist}
-Summary:        S3/HTTP filesystem plugins for xrootd
+Summary:        S3/HTTP/Globus filesystem plugins for xrootd
 
 License:        Apache-2.0
 URL:            https://github.com/PelicanPlatform/%{name}
@@ -53,7 +53,8 @@ cmake --build redhat-linux-build --verbose
 
 %changelog
 * Fri Dec 12 2025 William Jiang <whjiang@wisc.edu> - 0.6.0-1
-- Package the libXrdPelicanHttpCore shared library introduced in v0.6.0.
+- Fix some race conditions with the Globus plugin.
+- Package the new libXrdPelicanHttpCore shared object which addresses the above.
 
 * Fri Oct 24 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.5.3-1
 - Fix directory listings for the POSC filtering plugin.
