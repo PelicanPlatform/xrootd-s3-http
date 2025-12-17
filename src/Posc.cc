@@ -748,7 +748,7 @@ int PoscFile::Close(long long *retsz) {
 	rv = m_oss.Stat(m_posc_filename.c_str(), &sb, 0, m_posc_env.get());
 	if (rv) {
 		m_log.Log(LogMask::Error, "POSC", "Failed to stat POSC file",
-					m_posc_filename.c_str(), strerror(-rv));
+				  m_posc_filename.c_str(), strerror(-rv));
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
 		m_posc_filename.clear();
 		return -EIO;
@@ -756,9 +756,9 @@ int PoscFile::Close(long long *retsz) {
 	if (sb.st_size != m_expected_size) {
 		std::stringstream ss;
 		ss << "Incomplete upload: expected " << m_expected_size
-			<< " bytes but got " << sb.st_size << " bytes";
+		   << " bytes but got " << sb.st_size << " bytes";
 		m_log.Log(LogMask::Error, "POSC", ss.str().c_str(),
-					m_posc_filename.c_str());
+				  m_posc_filename.c_str());
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
 		m_posc_filename.clear();
 		return -EIO;
