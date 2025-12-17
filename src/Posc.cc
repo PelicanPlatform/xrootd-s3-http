@@ -744,7 +744,7 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		return -ENOENT;
 	}
 
-	if ((Oflag & O_CREAT) == 0) {
+	if ((Oflag & (O_CREAT | O_TRUNC)) == 0) {
 		return wrapDF.Open(path, Oflag, Mode, env);
 	}
 
@@ -783,7 +783,7 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		m_posc_filename = m_posc_fs.GeneratePoscFile(path, env);
 
 		auto rv =
-			wrapDF.Open(m_posc_filename.c_str(), Oflag | O_EXCL, 0600, env);
+			wrapDF.Open(m_posc_filename.c_str(), Oflag | O_EXCL | O_CREAT, 0600, env);
 		if (rv >= 0) {
 			m_log.Log(LogMask::Debug, "POSC", "Opened POSC file",
 					  m_posc_filename.c_str());
@@ -805,10 +805,11 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 			m_log.Log(LogMask::Debug, "POSC",
 					  "POSC sub-directory is needed for file creation:",
 					  posc_dir.c_str());
-			if (m_oss.Mkdir(posc_dir.c_str(), 0700, 1, &env) != 0) {
+			auto mkdir_rv = m_oss.Mkdir(posc_dir.c_str(), 0700, 1, &env);
+			if (mkdir_rv != 0) {
 				m_log.Log(LogMask::Error, "POSC",
 						  "Failed to create POSC sub-directory",
-						  posc_dir.c_str(), strerror(errno));
+						  posc_dir.c_str(), strerror(-mkdir_rv));
 				return -EIO;
 			}
 		} else if (rv == -EINTR) {
