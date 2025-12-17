@@ -719,6 +719,7 @@ int PoscFile::Close(long long *retsz) {
 	auto close_rv = wrapDF.Close(retsz);
 	if (close_rv) {
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+		m_posc_filename.clear();
 		return close_rv;
 	}
 
@@ -729,6 +730,7 @@ int PoscFile::Close(long long *retsz) {
 				  m_posc_filename.c_str(), strerror(-rv));
 
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+		m_posc_filename.clear();
 		return -EIO;
 	}
 
@@ -736,6 +738,8 @@ int PoscFile::Close(long long *retsz) {
 	if (m_expected_size < 0) {
 		m_log.Log(LogMask::Error, "POSC", "Expected file size is not known",
 				  m_posc_filename.c_str());
+		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+		m_posc_filename.clear();
 		return -EIO;
 	}
 
@@ -746,6 +750,7 @@ int PoscFile::Close(long long *retsz) {
 		m_log.Log(LogMask::Error, "POSC", "Failed to stat POSC file",
 					m_posc_filename.c_str(), strerror(-rv));
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+		m_posc_filename.clear();
 		return -EIO;
 	}
 	if (sb.st_size != m_expected_size) {
@@ -755,6 +760,7 @@ int PoscFile::Close(long long *retsz) {
 		m_log.Log(LogMask::Error, "POSC", ss.str().c_str(),
 					m_posc_filename.c_str());
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+		m_posc_filename.clear();
 		return -EIO;
 	}
 
@@ -767,9 +773,10 @@ int PoscFile::Close(long long *retsz) {
 		m_log.Log(LogMask::Error, "POSC", ss.str().c_str());
 
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
-
+		m_posc_filename.clear();
 		return -EIO;
 	}
+	m_posc_filename.clear();
 	return 0;
 }
 
