@@ -186,7 +186,7 @@ bool PoscFileSystem::Config(const char *configfn) {
 
 int PoscFileSystem::Create(const char *tid, const char *path, mode_t mode,
 						   XrdOucEnv &env, int opts) {
-	// The open flags are passed in opts >> 8 (see XrdOss/XrdOssCreate.cc:Create). If O_CREAT or O_TRUNC are set,
+	// The open flags are passed in opts >> 8. If O_CREAT or O_TRUNC are set,
 	// POSC will handle the file creation in Open(), so we should NOT create
 	// the file here at the final destination. This prevents an empty file
 	// from appearing in the exported directory during upload.
@@ -732,27 +732,30 @@ int PoscFile::Close(long long *retsz) {
 		return -EIO;
 	}
 
-	// If we know the expected file size, verify it matches before persisting
-	if (m_expected_size >= 0) {
-		struct stat sb;
-		rv = m_oss.Stat(m_posc_filename.c_str(), &sb, 0, m_posc_env.get());
-		if (rv) {
-			m_log.Log(LogMask::Error, "POSC", "Failed to stat POSC file",
-					  m_posc_filename.c_str(), strerror(-rv));
-			m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
-			return -EIO;
-		}
-		if (sb.st_size != m_expected_size) {
-			std::stringstream ss;
-			ss << "Incomplete upload: expected " << m_expected_size
-			   << " bytes but got " << sb.st_size << " bytes";
-			m_log.Log(LogMask::Error, "POSC", ss.str().c_str(),
-					  m_posc_filename.c_str());
-			m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
-			return -EIO;
-		}
-		m_log.Log(LogMask::Debug, "POSC", "File size verified:",
-				  std::to_string(sb.st_size).c_str());
+	// If we don't know the expected file size, we can't verify it.
+	if (m_expected_size < 0) {
+		m_log.Log(LogMask::Error, "POSC", "Expected file size is not known",
+				  m_posc_filename.c_str());
+		return -EIO;
+	}
+
+	// We know the expected file size, verify it matches before persisting
+	struct stat sb;
+	rv = m_oss.Stat(m_posc_filename.c_str(), &sb, 0, m_posc_env.get());
+	if (rv) {
+		m_log.Log(LogMask::Error, "POSC", "Failed to stat POSC file",
+					m_posc_filename.c_str(), strerror(-rv));
+		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+		return -EIO;
+	}
+	if (sb.st_size != m_expected_size) {
+		std::stringstream ss;
+		ss << "Incomplete upload: expected " << m_expected_size
+			<< " bytes but got " << sb.st_size << " bytes";
+		m_log.Log(LogMask::Error, "POSC", ss.str().c_str(),
+					m_posc_filename.c_str());
+		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+		return -EIO;
 	}
 
 	rv = m_oss.Rename(m_posc_filename.c_str(), m_orig_filename.c_str(),

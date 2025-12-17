@@ -112,6 +112,7 @@ TEST_F(TestPosc, BasicFileVisibility) {
 	std::unique_ptr<XrdOssDF> fp(posc_fs->newFile());
 	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
 
+	env.Put("oss.asize", "0");
 	fp->Open("/testfile.txt", O_CREAT | O_RDWR, 0644, env);
 
 	auto rv = posc_fs->Stat("/testfile.txt", nullptr, 0, &env);
@@ -130,8 +131,9 @@ TEST_F(TestPosc, BasicFileVisibility) {
 		<< "Stat on created file did not return regular file";
 	ASSERT_EQ(sb.st_size, 0) << "Stat on created file did not return size 0";
 
-	fp->Open("/testfile2.txt", O_CREAT | O_RDWR, 0644, env);
 	auto write_size = strlen("Hello, POSC!");
+	env.Put("oss.asize", std::to_string(write_size).c_str());
+	fp->Open("/testfile2.txt", O_CREAT | O_RDWR, 0644, env);
 	ASSERT_EQ(fp->Write("Hello, POSC!", 0, write_size), write_size);
 
 	rv = posc_fs->Stat("/testfile2.txt", nullptr, 0, &env);
@@ -327,6 +329,7 @@ TEST_F(TestPosc, CreateENOENT) {
 
 	posc_fs->Mkdir("/subdir", 0755, 1, &env);
 
+	env.Put("oss.asize", "0");
 	rv = fp->Open("/subdir/testfile.txt", O_CREAT | O_RDWR, 0644, env);
 	ASSERT_EQ(rv, 0) << "Open on newly created directory failed: "
 					 << strerror(-rv);
