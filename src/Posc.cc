@@ -186,6 +186,16 @@ bool PoscFileSystem::Config(const char *configfn) {
 
 int PoscFileSystem::Create(const char *tid, const char *path, mode_t mode,
 						   XrdOucEnv &env, int opts) {
+	// The open flags are passed in opts >> 8 (see XrdOss/XrdOssCreate.cc:Create). If O_CREAT or O_TRUNC are set,
+	// POSC will handle the file creation in Open(), so we should NOT create
+	// the file here at the final destination. This prevents an empty file
+	// from appearing in the exported directory during upload.
+	int open_flags = opts >> 8;
+	if (open_flags & (O_CREAT | O_TRUNC)) {
+		m_log->Log(LogMask::Debug, "POSC",
+				   "Skipping Create for POSC-handled file:", path);
+		return 0;
+	}
 	return VerifyPath(path, &XrdOss::Create, tid, path, mode, env, opts);
 }
 
@@ -722,6 +732,29 @@ int PoscFile::Close(long long *retsz) {
 		return -EIO;
 	}
 
+	// If we know the expected file size, verify it matches before persisting
+	if (m_expected_size >= 0) {
+		struct stat sb;
+		rv = m_oss.Stat(m_posc_filename.c_str(), &sb, 0, m_posc_env.get());
+		if (rv) {
+			m_log.Log(LogMask::Error, "POSC", "Failed to stat POSC file",
+					  m_posc_filename.c_str(), strerror(-rv));
+			m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+			return -EIO;
+		}
+		if (sb.st_size != m_expected_size) {
+			std::stringstream ss;
+			ss << "Incomplete upload: expected " << m_expected_size
+			   << " bytes but got " << sb.st_size << " bytes";
+			m_log.Log(LogMask::Error, "POSC", ss.str().c_str(),
+					  m_posc_filename.c_str());
+			m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
+			return -EIO;
+		}
+		m_log.Log(LogMask::Debug, "POSC", "File size verified:",
+				  std::to_string(sb.st_size).c_str());
+	}
+
 	rv = m_oss.Rename(m_posc_filename.c_str(), m_orig_filename.c_str(),
 					  m_posc_env.get(), m_posc_env.get());
 	if (rv) {
@@ -776,6 +809,19 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	auto envbuff = env.Env(envlen);
 	m_posc_env.reset(new XrdOucEnv(envbuff, envlen, m_posc_entity.get()));
 	m_posc_mode = Mode;
+
+	// Extract expected file size from oss.asize if available
+	char *asize_char = env.Get("oss.asize");
+	if (asize_char) {
+		char *endptr;
+		long long asize = strtoll(asize_char, &endptr, 10);
+		if (endptr != asize_char && *endptr == '\0' && asize >= 0) {
+			m_expected_size = static_cast<off_t>(asize);
+			m_log.Log(LogMask::Debug, "POSC", "Expected file size:",
+					  std::to_string(m_expected_size).c_str());
+		}
+	}
+
 	m_posc_mtime.store(
 		std::chrono::system_clock::now().time_since_epoch().count(),
 		std::memory_order_relaxed);
