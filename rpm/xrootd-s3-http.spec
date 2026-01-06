@@ -48,13 +48,16 @@ cmake --build redhat-linux-build --verbose
 %{_libdir}/libXrdOssS3-5.so
 %{_libdir}/libXrdOssFilter-5.so
 %{_libdir}/libXrdOssPosc-5.so
+%{_libdir}/libXrdN2NPrefix-5.so
 %doc README.md
 %license LICENSE
 
 %changelog
-* Fri Dec 12 2025 William Jiang <whjiang@wisc.edu> - 0.6.0-1
+* Mon Jan 05 2026 Patrick Brophy <patrick.brophy2@gmail.com> - 0.6.0-1
 - Fix some race conditions with the Globus plugin.
 - Package the new libXrdPelicanHttpCore shared object which addresses the above.
+- Add file size verification to POSC plugin to prevent incomplete uploads
+- New XRootD Name2Name plugin to perform path prefix substitution
 
 * Fri Oct 24 2025 Brian Bockelman <bbockelman@morgridge.org> - 0.5.3-1
 - Fix directory listings for the POSC filtering plugin.
