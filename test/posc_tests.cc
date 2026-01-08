@@ -297,7 +297,9 @@ TEST_F(TestPosc, TempfileUpdate) {
 						   << strerror(errno);
 }
 
-TEST_F(TestPosc, CreateENOENT) {
+// Test that POSC defers parent directory creation to Close()
+// Both the directory and file should appear atomically after successful close
+TEST_F(TestPosc, DeferredParentCreation) {
 	XrdSysLogger logger(2, 0);
 	XrdOucEnv env;
 
@@ -321,17 +323,28 @@ TEST_F(TestPosc, CreateENOENT) {
 	std::unique_ptr<XrdOssDF> fp(posc_fs->newFile());
 	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
 
-	auto rv = fp->Open("/subdir/testfile.txt", O_CREAT | O_RDWR, 0644, env);
-	ASSERT_NE(rv, 0) << "Open should have failed";
-	ASSERT_EQ(rv, -ENOENT)
-		<< "Open on non-existent path should have resulted in ENOENT: "
-		<< strerror(-rv);
-
-	posc_fs->Mkdir("/subdir", 0755, 1, &env);
-
+	// Open should succeed even if parent directory doesn't exist
+	// (parent creation is deferred to Close)
 	env.Put("oss.asize", "0");
-	rv = fp->Open("/subdir/testfile.txt", O_CREAT | O_RDWR, 0644, env);
-	ASSERT_EQ(rv, 0) << "Open on newly created directory failed: "
+	auto rv = fp->Open("/subdir/testfile.txt", O_CREAT | O_RDWR, 0644, env);
+	ASSERT_EQ(rv, 0) << "Open should succeed with deferred parent creation: "
 					 << strerror(-rv);
+
+	// Parent directory should not exist yet (deferred to close)
+	struct stat sb;
+	rv = posc_fs->Stat("/subdir", &sb, 0, &env);
+	ASSERT_EQ(rv, -ENOENT) << "Parent directory should not exist before close";
+
+	// Close should succeed and create the parent directory
 	ASSERT_EQ(fp->Close(), 0) << "Failed to close file";
+
+	// Now the parent directory and file should both exist
+	rv = posc_fs->Stat("/subdir", &sb, 0, &env);
+	ASSERT_EQ(rv, 0) << "Parent directory should exist after close: "
+					 << strerror(-rv);
+	ASSERT_TRUE(S_ISDIR(sb.st_mode)) << "Parent path should be a directory";
+
+	rv = posc_fs->Stat("/subdir/testfile.txt", &sb, 0, &env);
+	ASSERT_EQ(rv, 0) << "File should exist after close: " << strerror(-rv);
+	ASSERT_TRUE(S_ISREG(sb.st_mode)) << "Path should be a regular file";
 }
