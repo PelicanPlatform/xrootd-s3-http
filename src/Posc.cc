@@ -280,6 +280,11 @@ void PoscFileSystem::ExpireThread(PoscFileSystem *fs) {
 }
 
 void PoscFileSystem::ExpireUserFiles(XrdOucEnv &env) {
+	if (!env.secEnv() || !env.secEnv()->name || (*env.secEnv()->name) == '\0') {
+		m_log->Log(LogMask::Debug, "ExpireUserFiles",
+				   "Skipping expiry for anonymous or invalid user");
+		return;
+	}
 	auto user_posc_dir = m_posc_dir / env.secEnv()->name;
 	m_log->Log(LogMask::Debug, "Expiring all files inside directory",
 			   user_posc_dir.c_str());
