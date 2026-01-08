@@ -27,6 +27,7 @@
 
 #include <curl/curl.h>
 
+#include <cctype>
 #include <cstring>
 #include <errno.h>
 #include <iomanip>
@@ -160,8 +161,8 @@ XrdAccPrivs AccHttpCallout::Access(const XrdSecEntity *Entity,
 	if (token.empty()) {
 		eInfo = "No bearer token provided";
 		m_eDest->Say("AccHttpCallout: No bearer token for path: ", path);
-		return m_passthrough ? XrdAccPrivs(XrdAccPriv_None)
-							 : XrdAccPrivs(XrdAccPriv_None);
+		// Return no privileges to allow next plugin in chain (if any) to decide
+		return XrdAccPrivs(XrdAccPriv_None);
 	}
 
 	// Convert operation to verb
@@ -205,11 +206,11 @@ XrdAccPrivs AccHttpCallout::Access(const XrdSecEntity *Entity,
 		privileges = XrdAccPrivs(XrdAccPriv_None);
 		ttl = m_cache_ttl_negative;
 	} else {
-		// Error
+		// Error - authorization service is not responding correctly
 		eInfo = "Authorization service error: " + std::to_string(statusCode);
 		m_eDest->Say("AccHttpCallout: HTTP error ", std::to_string(statusCode).c_str(), " for path: ", path);
-		return m_passthrough ? XrdAccPrivs(XrdAccPriv_None)
-							 : XrdAccPrivs(XrdAccPriv_None);
+		// Return no privileges - framework will deny or try next plugin based on configuration
+		return XrdAccPrivs(XrdAccPriv_None);
 	}
 
 	// Store in cache

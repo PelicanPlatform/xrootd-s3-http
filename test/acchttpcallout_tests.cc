@@ -23,6 +23,7 @@
 #include <XrdSys/XrdSysLogger.hh>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <memory>
