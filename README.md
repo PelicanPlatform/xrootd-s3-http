@@ -13,6 +13,8 @@ The plugins in the repository include:
   in the core XRootD (with the addition of making in-progress files not-visible in the namespace).
 - `XrdN2NPrefix`: A Name2Name (N2N) plugin that performs path prefix substitution,
   allowing logical paths to be mapped to different physical paths on disk.
+- `XrdAccHttpCallout`: An authorization plugin that makes HTTP callouts to an external service
+  to determine access permissions.
 
 
 ## Building and Installing
@@ -353,6 +355,159 @@ forward, while `pfn2lfn` (physical to logical) applies them in reverse.
 
 **Note**: When used with `oss.localroot`, the N2N plugin automatically prepends the localroot
 to physical paths returned by `lfn2pfn()`.
+
+### Configure the AccHttpCallout Authorization Plugin
+
+The AccHttpCallout plugin provides HTTP-based authorization callouts to an external service.
+This allows for flexible, centralized authorization logic implemented in any language that
+can serve HTTP requests.
+
+To load the plugin, use the `acc.authlib` directive:
+
+```
+acc.authlib libXrdAccHttpCallout.so
+```
+
+(an absolute path may be given if `libXrdAccHttpCallout-5.so` does not reside in a system directory)
+
+There are several configuration directives for the AccHttpCallout module:
+
+```
+acchttpcallout.endpoint <url>
+acchttpcallout.cache_ttl_positive <seconds>
+acchttpcallout.cache_ttl_negative <seconds>
+acchttpcallout.passthrough [true|false]
+acchttpcallout.trace [all|error|warning|info|debug|none]
+```
+
+ - `acchttpcallout.endpoint`: **(Required)** The HTTP(S) endpoint URL that will be called for
+   authorization decisions. The plugin will make HTTP GET requests to this endpoint with query
+   parameters for the path and operation (verb).
+
+   Example:
+   ```
+   acchttpcallout.endpoint https://auth.example.com/authorize
+   ```
+
+ - `acchttpcallout.cache_ttl_positive`: Cache time-to-live in seconds for positive (authorized)
+   responses. Default is 60 seconds. This reduces load on the authorization service by caching
+   successful authorization decisions.
+
+   Example:
+   ```
+   acchttpcallout.cache_ttl_positive 120
+   ```
+
+ - `acchttpcallout.cache_ttl_negative`: Cache time-to-live in seconds for negative (denied)
+   responses. Default is 30 seconds. This prevents repeated unauthorized requests from
+   overwhelming the authorization service.
+
+   Example:
+   ```
+   acchttpcallout.cache_ttl_negative 60
+   ```
+
+ - `acchttpcallout.passthrough`: Controls behavior when authorization fails. If `true`, the
+   plugin will pass the request to the next configured authorization plugin (if any). If `false`
+   (default), authorization failures result in immediate denial.
+
+   Example:
+   ```
+   acchttpcallout.passthrough false
+   ```
+
+ - `acchttpcallout.trace`: Controls logging verbosity. Can be specified multiple times (values
+   are additive) and multiple values can be given per line.
+
+   Example:
+   ```
+   acchttpcallout.trace info
+   ```
+
+#### HTTP Callout Protocol
+
+When a client attempts to access a resource, the plugin makes an HTTP GET request to the
+configured endpoint with the following query parameters:
+
+- `path`: The URL-encoded path being accessed (e.g., `/store/data/file.txt`)
+- `verb`: The HTTP/WebDAV verb corresponding to the operation (e.g., `GET`, `PUT`, `DELETE`)
+
+The bearer token from the client is passed in the `Authorization` header:
+
+```
+Authorization: Bearer <token>
+```
+
+The authorization service should respond with:
+
+- **200 OK**: Access is granted
+- **401 Unauthorized** or **403 Forbidden**: Access is denied
+- **5xx Server Error**: Error executing authorization (treated as failure)
+
+#### Response Format
+
+The response body may optionally contain JSON data with additional information:
+
+```json
+{
+  "authorizations": [
+    {
+      "verb": "GET",
+      "prefixes": ["/store/data", "/store/mc"]
+    }
+  ],
+  "user": "jdoe",
+  "group": "physicists"
+}
+```
+
+- `authorizations`: An array of additional path prefixes that are authorized for the token.
+  These are cached to avoid redundant callouts for related paths.
+  - `verb`: The HTTP/WebDAV verb (e.g., `GET`, `PUT`)
+  - `prefixes`: Array of path prefixes authorized for this verb
+
+- `user`: Username to add to the security context (optional)
+- `group`: Group name to add to the security context (optional)
+
+#### Operation to Verb Mapping
+
+The plugin maps XRootD operations to HTTP/WebDAV verbs as follows:
+
+| XRootD Operation | HTTP/WebDAV Verb |
+|-----------------|------------------|
+| Read            | GET              |
+| Readdir         | PROPFIND         |
+| Stat            | HEAD             |
+| Update/Create   | PUT              |
+| Delete          | DELETE           |
+| Mkdir           | MKCOL            |
+| Rename/Insert   | MOVE             |
+
+#### Complete Example Configuration
+
+```
+# Enable the HTTP protocol
+xrd.protocol http:1094 libXrdHttp.so
+
+# Load the authorization plugin
+acc.authlib libXrdAccHttpCallout.so
+
+# Configure the authorization endpoint
+acchttpcallout.endpoint https://pelican-auth.example.com/api/v1/authorize
+
+# Configure caching (2 minutes for positive, 1 minute for negative)
+acchttpcallout.cache_ttl_positive 120
+acchttpcallout.cache_ttl_negative 60
+
+# Don't pass through to other auth plugins on failure
+acchttpcallout.passthrough false
+
+# Enable info-level logging
+acchttpcallout.trace info
+
+# Export paths
+all.export /store
+```
 
 ## Startup and Testing
 
