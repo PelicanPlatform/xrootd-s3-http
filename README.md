@@ -407,9 +407,16 @@ acchttpcallout.trace [all|error|warning|info|debug|none]
    acchttpcallout.cache_ttl_negative 60
    ```
 
- - `acchttpcallout.passthrough`: Controls behavior when authorization fails. If `true`, the
-   plugin will pass the request to the next configured authorization plugin (if any). If `false`
-   (default), authorization failures result in immediate denial.
+ - `acchttpcallout.passthrough`: A deployment configuration hint that indicates how this plugin
+   is intended to be used in the authorization chain. When set to `true`, indicates that another
+   authorization plugin should be configured as a fallback. When set to `false` (default),
+   indicates this should be the only authorization plugin.
+
+   Note: Due to limitations in the XRootD authorization interface, the plugin always returns
+   the same value (`XrdAccPriv_None`) when it cannot make a positive authorization decision.
+   The XRootD framework will automatically try the next configured plugin (if any) or deny
+   access if this is the last/only plugin in the chain. This setting primarily serves as
+   documentation of the intended deployment configuration.
 
    Example:
    ```

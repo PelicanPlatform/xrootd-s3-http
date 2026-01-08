@@ -161,7 +161,9 @@ XrdAccPrivs AccHttpCallout::Access(const XrdSecEntity *Entity,
 	if (token.empty()) {
 		eInfo = "No bearer token provided";
 		m_eDest->Say("AccHttpCallout: No bearer token for path: ", path);
-		// Return no privileges to allow next plugin in chain (if any) to decide
+		// Note: The passthrough configuration is a deployment hint.
+		// We return XrdAccPriv_None here, and XRootD's framework will
+		// try the next plugin in the chain if one is configured.
 		return XrdAccPrivs(XrdAccPriv_None);
 	}
 
@@ -209,7 +211,11 @@ XrdAccPrivs AccHttpCallout::Access(const XrdSecEntity *Entity,
 		// Error - authorization service is not responding correctly
 		eInfo = "Authorization service error: " + std::to_string(statusCode);
 		m_eDest->Say("AccHttpCallout: HTTP error ", std::to_string(statusCode).c_str(), " for path: ", path);
-		// Return no privileges - framework will deny or try next plugin based on configuration
+		// Note: The passthrough configuration is a deployment hint about
+		// how this plugin is used in the authorization chain. When the
+		// authorization service fails, we return XrdAccPriv_None. XRootD's
+		// framework will try the next plugin if one is configured, or deny
+		// access if this is the only/last plugin in the chain.
 		return XrdAccPrivs(XrdAccPriv_None);
 	}
 
