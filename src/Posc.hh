@@ -211,8 +211,6 @@ class PoscFile final : public XrdOssWrapDF {
 	std::atomic<std::chrono::system_clock::duration::rep> m_posc_mtime{0};
 	std::string m_posc_filename;
 	std::string m_orig_filename;
-	std::string m_parent_to_create; // Parent directory to create on close
-									// (empty if exists)
 	off_t m_expected_size{
 		-1}; // Expected file size from oss.asize, -1 if unknown
 

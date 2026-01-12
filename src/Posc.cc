@@ -765,24 +765,6 @@ int PoscFile::Close(long long *retsz) {
 	// At this point, we either don't know the expected file size, or the file
 	// size matches the expected size. So we can persist the file.
 
-	// If the parent directory didn't exist at open time, create it now so that
-	// both the directory and file appear atomically after successful upload.
-	if (!m_parent_to_create.empty()) {
-		m_log.Log(LogMask::Debug, "POSC", "Creating parent directory on close",
-				  m_parent_to_create.c_str());
-		auto mkdir_rv = m_oss.Mkdir(m_parent_to_create.c_str(), 0755,
-									/*mkpath=*/1, m_posc_env.get());
-		if (mkdir_rv != 0) {
-			m_log.Log(LogMask::Error, "POSC",
-					  "Failed to create parent directory",
-					  m_parent_to_create.c_str(), strerror(-mkdir_rv));
-			m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
-			m_posc_filename.clear();
-			m_parent_to_create.clear();
-			return -EIO;
-		}
-	}
-
 	rv = m_oss.Rename(m_posc_filename.c_str(), m_orig_filename.c_str(),
 					  m_posc_env.get(), m_posc_env.get());
 	if (rv) {
@@ -793,11 +775,9 @@ int PoscFile::Close(long long *retsz) {
 
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
 		m_posc_filename.clear();
-		m_parent_to_create.clear();
 		return -EIO;
 	}
 	m_posc_filename.clear();
-	m_parent_to_create.clear();
 	return 0;
 }
 
@@ -812,9 +792,7 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		return wrapDF.Open(path, Oflag, Mode, env);
 	}
 
-	// Check if the parent directory exists; if not, we'll create it on close
-	// so that both the directory and file appear atomically after successful
-	// upload.
+	// Ensure the parent directory exists; create it if needed.
 	std::filesystem::path path_fs(path);
 	auto parent_path = path_fs.parent_path();
 	if (!parent_path.empty()) {
@@ -822,11 +800,18 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		auto rv = m_oss.Stat(parent_path.c_str(), &sb, 0, &env);
 		if (rv != 0) {
 			if (rv == -ENOENT) {
-				// Parent directory does not exist: defer creation to Close()
+				// Parent directory does not exist: create it (recursively)
 				m_log.Log(LogMask::Debug, "POSC",
-						  "Parent path does not exist; will create on close",
+						  "Parent path does not exist; creating it",
 						  parent_path.c_str());
-				m_parent_to_create = parent_path.string();
+				auto mkdir_rv =
+					m_oss.Mkdir(parent_path.c_str(), 0755, /*mkpath=*/1, &env);
+				if (mkdir_rv != 0) {
+					m_log.Log(LogMask::Error, "POSC",
+							  "Failed to create parent path",
+							  parent_path.c_str(), strerror(-mkdir_rv));
+					return mkdir_rv;
+				}
 			} else {
 				m_log.Log(LogMask::Debug, "POSC",
 						  "Failing file open as parent path is not accessible",

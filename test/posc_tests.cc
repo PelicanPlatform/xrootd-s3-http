@@ -297,9 +297,8 @@ TEST_F(TestPosc, TempfileUpdate) {
 						   << strerror(errno);
 }
 
-// Test that POSC defers parent directory creation to Close()
-// Both the directory and file should appear atomically after successful close
-TEST_F(TestPosc, DeferredParentCreation) {
+// Test that POSC creates parent directory on Open() if it doesn't exist
+TEST_F(TestPosc, AutoCreateParentDir) {
 	XrdSysLogger logger(2, 0);
 	XrdOucEnv env;
 
@@ -323,27 +322,31 @@ TEST_F(TestPosc, DeferredParentCreation) {
 	std::unique_ptr<XrdOssDF> fp(posc_fs->newFile());
 	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
 
-	// Open should succeed even if parent directory doesn't exist
-	// (parent creation is deferred to Close)
+	// Parent directory should not exist initially
+	struct stat sb;
+	auto rv = posc_fs->Stat("/subdir", &sb, 0, &env);
+	ASSERT_EQ(rv, -ENOENT) << "Parent directory should not exist initially";
+
+	// Open should succeed and create the parent directory
 	env.Put("oss.asize", "0");
-	auto rv = fp->Open("/subdir/testfile.txt", O_CREAT | O_RDWR, 0644, env);
-	ASSERT_EQ(rv, 0) << "Open should succeed with deferred parent creation: "
+	rv = fp->Open("/subdir/testfile.txt", O_CREAT | O_RDWR, 0644, env);
+	ASSERT_EQ(rv, 0) << "Open should succeed and create parent: "
 					 << strerror(-rv);
 
-	// Parent directory should not exist yet (deferred to close)
-	struct stat sb;
+	// Parent directory should exist now (created on open)
 	rv = posc_fs->Stat("/subdir", &sb, 0, &env);
-	ASSERT_EQ(rv, -ENOENT) << "Parent directory should not exist before close";
-
-	// Close should succeed and create the parent directory
-	ASSERT_EQ(fp->Close(), 0) << "Failed to close file";
-
-	// Now the parent directory and file should both exist
-	rv = posc_fs->Stat("/subdir", &sb, 0, &env);
-	ASSERT_EQ(rv, 0) << "Parent directory should exist after close: "
+	ASSERT_EQ(rv, 0) << "Parent directory should exist after open: "
 					 << strerror(-rv);
 	ASSERT_TRUE(S_ISDIR(sb.st_mode)) << "Parent path should be a directory";
 
+	// File should NOT exist yet (still in POSC temp location)
+	rv = posc_fs->Stat("/subdir/testfile.txt", &sb, 0, &env);
+	ASSERT_EQ(rv, -ENOENT) << "File should not exist before close";
+
+	// Close should succeed and move file to final location
+	ASSERT_EQ(fp->Close(), 0) << "Failed to close file";
+
+	// Now the file should exist
 	rv = posc_fs->Stat("/subdir/testfile.txt", &sb, 0, &env);
 	ASSERT_EQ(rv, 0) << "File should exist after close: " << strerror(-rv);
 	ASSERT_TRUE(S_ISREG(sb.st_mode)) << "Path should be a regular file";
