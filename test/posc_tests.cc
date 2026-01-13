@@ -45,19 +45,17 @@ class TestPosc : public testing::Test {
 	void SetUp() override {
 		setenv("XRDINSTANCE", "xrootd", 1);
 		char tmp_configfn[] = "/tmp/xrootd-gtest.cfg.XXXXXX";
-		auto result = mkstemp(tmp_configfn);
+		int result = mkstemp(tmp_configfn);
 		ASSERT_NE(result, -1) << "Failed to create temp file ("
 							  << strerror(errno) << ", errno=" << errno << ")";
 		m_configfn = std::string(tmp_configfn);
+		close(result);
 
-		auto temp_dir = std::filesystem::temp_directory_path() /
-						"gtest_temp_xrootd_localroot"; // Generate a unique name
-		std::error_code ec;
-		if (!std::filesystem::create_directory(temp_dir, ec)) {
-			ASSERT_FALSE(ec)
-				<< "Failed to create temp directory: " << ec.message();
-		}
-		m_temp_dir = temp_dir.string();
+		char temp_dir[] = "/tmp/gtest_temp_xrootd_localroot.XXXXXX";
+		char *res2 = mkdtemp(temp_dir);
+		ASSERT_TRUE(res2) << "Failed to create temp directory ("
+						  << strerror(errno) << ", errno=" << errno << ")";
+		m_temp_dir = std::string(temp_dir);
 
 		auto contents = GetConfig();
 		ASSERT_FALSE(contents.empty());
