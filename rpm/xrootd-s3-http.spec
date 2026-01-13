@@ -38,9 +38,10 @@ cmake --build redhat-linux-build --verbose
 
 %install
 %cmake_install
+rm %{buildroot}%{_libdir}/libXrdPelicanHttpCore.so
 
 %files
-%{_libdir}/libXrdPelicanHttpCore-5.so
+%{_libdir}/libXrdPelicanHttpCore.so.*
 %{_libdir}/libXrdHTTPServer-5.so
 %{_libdir}/libXrdS3-5.so
 %{_libdir}/libXrdOssHttp-5.so
