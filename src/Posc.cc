@@ -280,6 +280,11 @@ void PoscFileSystem::ExpireThread(PoscFileSystem *fs) {
 }
 
 void PoscFileSystem::ExpireUserFiles(XrdOucEnv &env) {
+	if (!env.secEnv() || !env.secEnv()->name || (*env.secEnv()->name) == '\0') {
+		m_log->Log(LogMask::Debug, "ExpireUserFiles",
+				   "Skipping expiry for anonymous or invalid user");
+		return;
+	}
 	auto user_posc_dir = m_posc_dir / env.secEnv()->name;
 	m_log->Log(LogMask::Debug, "Expiring all files inside directory",
 			   user_posc_dir.c_str());
@@ -787,20 +792,33 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		return wrapDF.Open(path, Oflag, Mode, env);
 	}
 
-	// Ensure the parent directory exists and is a directory; this is needed
-	// because the underlying open() takes care of it in the non-POSC case.
+	// Ensure the parent directory exists; create it if needed.
 	std::filesystem::path path_fs(path);
 	auto parent_path = path_fs.parent_path();
 	if (!parent_path.empty()) {
 		struct stat sb;
 		auto rv = m_oss.Stat(parent_path.c_str(), &sb, 0, &env);
 		if (rv != 0) {
-			m_log.Log(LogMask::Debug, "POSC",
-					  "Failing file open as parent path does not exist",
-					  parent_path.c_str());
-			return -ENOENT;
-		}
-		if (!S_ISDIR(sb.st_mode)) {
+			if (rv == -ENOENT) {
+				// Parent directory does not exist: create it (recursively)
+				m_log.Log(LogMask::Debug, "POSC",
+						  "Parent path does not exist; creating it",
+						  parent_path.c_str());
+				auto mkdir_rv =
+					m_oss.Mkdir(parent_path.c_str(), 0755, /*mkpath=*/1, &env);
+				if (mkdir_rv != 0) {
+					m_log.Log(LogMask::Error, "POSC",
+							  "Failed to create parent path",
+							  parent_path.c_str(), strerror(-mkdir_rv));
+					return mkdir_rv;
+				}
+			} else {
+				m_log.Log(LogMask::Debug, "POSC",
+						  "Failing file open as parent path is not accessible",
+						  parent_path.c_str());
+				return rv;
+			}
+		} else if (!S_ISDIR(sb.st_mode)) {
 			m_log.Log(LogMask::Debug, "POSC",
 					  "Failing file open as parent path is not a directory",
 					  parent_path.c_str());
