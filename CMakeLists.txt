@@ -100,6 +100,7 @@ set(PelicanHttpCoreSources
   src/logging.cc)
 
 add_library(XrdPelicanHttpCore SHARED ${PelicanHttpCoreSources})
+set_target_properties(XrdPelicanHttpCore PROPERTIES VERSION 0.0.0 SOVERSION 0)
 set_target_properties(XrdPelicanHttpCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(XrdPelicanHttpCore PRIVATE ${XRootD_INCLUDE_DIRS})
 target_link_libraries(XrdPelicanHttpCore ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} CURL::libcurl OpenSSL::Crypto tinyxml2::tinyxml2 Threads::Threads std::filesystem std::atomic)
@@ -182,7 +183,6 @@ target_link_libraries( XrdN2NPrefix XrdN2NPrefixObj )
 
 # Customize module's suffix and, on Linux, hide unnecessary symbols
 if( APPLE )
-  set_target_properties( XrdPelicanHttpCore PROPERTIES OUTPUT_NAME "XrdPelicanHttpCore-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssS3 PROPERTIES OUTPUT_NAME "XrdOssS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
@@ -192,7 +192,6 @@ if( APPLE )
   set_target_properties( XrdOssPosc PROPERTIES OUTPUT_NAME "XrdOssPosc-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdN2NPrefix PROPERTIES OUTPUT_NAME "XrdN2NPrefix-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
 else()
-  set_target_properties( XrdPelicanHttpCore PROPERTIES OUTPUT_NAME "XrdPelicanHttpCore-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssS3 PROPERTIES OUTPUT_NAME "XrdOssS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
