@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.6.0
+Version:        0.6.1
 Release:        1%{?dist}
 Summary:        S3/HTTP/Globus filesystem plugins for xrootd
 
@@ -53,6 +53,9 @@ cmake --build redhat-linux-build --verbose
 %license LICENSE
 
 %changelog
+* Wed Jan 14 2026 Patrick Brophy <patrick.brophy2@gmail.com> - 0.6.1-1
+- POSC plugin now creates parent directory when missing
+
 * Mon Jan 05 2026 Patrick Brophy <patrick.brophy2@gmail.com> - 0.6.0-1
 - Fix some race conditions with the Globus plugin.
 - Package the new libXrdPelicanHttpCore shared object which addresses the above.
