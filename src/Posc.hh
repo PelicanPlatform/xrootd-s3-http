@@ -192,7 +192,9 @@ class PoscFile final : public XrdOssWrapDF {
 
 		virtual XrdSecEntityAttrCB::Action Attr(const char *key,
 												const char *val) override {
-			m_dest.Add(key, val);
+			if (key && val && *key && *val) {
+				m_dest.Add(std::string(key), std::string(val));
+			}
 			return XrdSecEntityAttrCB::Action::Next;
 		}
 
