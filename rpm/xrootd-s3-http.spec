@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.6.1
+Version:        0.6.3
 Release:        1%{?dist}
 Summary:        S3/HTTP/Globus filesystem plugins for xrootd
 
@@ -54,6 +54,11 @@ rm %{buildroot}%{_libdir}/libXrdPelicanHttpCore.so
 %license LICENSE
 
 %changelog
+* Mon Jan 26 2026 Patrick Brophy <patrick.brophy2@gmail.com> - 0.6.3-1
+- Fixed crash when copying XrdSecEntity in POSC plugin
+- Fixed parallel runs of POSC tests
+- Fixed definition of libXrdPelicanHttpCore
+
 * Wed Jan 14 2026 Patrick Brophy <patrick.brophy2@gmail.com> - 0.6.1-1
 - POSC plugin now creates parent directory when missing
 
