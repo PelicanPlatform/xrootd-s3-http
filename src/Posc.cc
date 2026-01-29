@@ -775,7 +775,9 @@ int PoscFile::Close(long long *retsz) {
 
 		m_oss.Unlink(m_posc_filename.c_str(), 0, m_posc_env.get());
 		m_posc_filename.clear();
-		return -EIO;
+		// Preserve the actual error (e.g. EISDIR when destination is a directory)
+		// so XRootD can map it to the correct HTTP status (e.g. 409 Conflict).
+		return rv;
 	}
 	m_posc_filename.clear();
 	return 0;
