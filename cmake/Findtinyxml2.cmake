@@ -13,7 +13,22 @@ endif()
 # Check if the non-namespaced target exists (older versions like 6.0.0)
 # If it does, create an alias to the namespaced version
 if(TARGET tinyxml2)
-  add_library(tinyxml2::tinyxml2 ALIAS tinyxml2)
+  # Check if we can create an alias (only works for non-IMPORTED targets)
+  get_target_property(_tinyxml2_type tinyxml2 TYPE)
+  if(_tinyxml2_type STREQUAL "INTERFACE_LIBRARY" OR _tinyxml2_type STREQUAL "STATIC_LIBRARY" OR _tinyxml2_type STREQUAL "SHARED_LIBRARY")
+    # For non-IMPORTED targets, we can create an ALIAS
+    get_target_property(_tinyxml2_imported tinyxml2 IMPORTED)
+    if(NOT _tinyxml2_imported)
+      add_library(tinyxml2::tinyxml2 ALIAS tinyxml2)
+      set(tinyxml2_FOUND TRUE)
+      return()
+    endif()
+  endif()
+  # For IMPORTED targets, create an INTERFACE wrapper
+  add_library(tinyxml2::tinyxml2 INTERFACE IMPORTED)
+  set_target_properties(tinyxml2::tinyxml2 PROPERTIES
+    INTERFACE_LINK_LIBRARIES tinyxml2
+  )
   set(tinyxml2_FOUND TRUE)
   return()
 endif()
