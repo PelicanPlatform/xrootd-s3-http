@@ -36,10 +36,16 @@ find_library(tinyxml2_LIBRARY
 
 # Handle the QUIETLY and REQUIRED arguments
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(tinyxml2
-	REQUIRED_VARS tinyxml2_LIBRARY tinyxml2_INCLUDE_DIR
-	VERSION_VAR PC_TINYXML2_VERSION
-)
+if(PC_TINYXML2_VERSION)
+	find_package_handle_standard_args(tinyxml2
+		REQUIRED_VARS tinyxml2_LIBRARY tinyxml2_INCLUDE_DIR
+		VERSION_VAR PC_TINYXML2_VERSION
+	)
+else()
+	find_package_handle_standard_args(tinyxml2
+		REQUIRED_VARS tinyxml2_LIBRARY tinyxml2_INCLUDE_DIR
+	)
+endif()
 
 if(tinyxml2_FOUND)
 	set(tinyxml2_LIBRARIES ${tinyxml2_LIBRARY})
