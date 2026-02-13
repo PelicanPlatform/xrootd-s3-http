@@ -153,7 +153,7 @@ target_link_libraries(XrdOssHttp XrdHTTPServerObj XrdPelicanHttpCore)
 add_library( XrdOssFilterObj OBJECT src/Filter.cc src/logging.cc )
 set_target_properties( XrdOssFilterObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
 target_include_directories( XrdOssFilterObj PRIVATE ${XRootD_INCLUDE_DIRS} )
-target_link_libraries( XrdOssFilterObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} )
+target_link_libraries( XrdOssFilterObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} std::filesystem)
 
 add_library( XrdOssFilter MODULE "$<TARGET_OBJECTS:XrdOssFilterObj>" )
 target_link_libraries( XrdOssFilter XrdOssFilterObj )
@@ -174,7 +174,7 @@ target_link_libraries(XrdOssGlobus XrdOssGlobusObj XrdPelicanHttpCore)
 #######################
 add_library( XrdOssPoscObj OBJECT src/Posc.cc )
 set_target_properties( XrdOssPoscObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
-target_link_libraries( XrdOssPoscObj XRootD::XrdServer XRootD::XrdUtils Threads::Threads std::atomic )
+target_link_libraries( XrdOssPoscObj XRootD::XrdServer XRootD::XrdUtils Threads::Threads std::atomic std::filesystem)
 
 add_library( XrdOssPosc MODULE "$<TARGET_OBJECTS:XrdOssPoscObj>" )
 target_link_libraries( XrdOssPosc XrdOssPoscObj )
