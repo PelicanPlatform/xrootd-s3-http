@@ -9,6 +9,12 @@
 # This module defines the following imported targets:
 #   tinyxml2::tinyxml2 - The tinyxml2 library
 
+# Check if the target already exists (e.g., from a config package)
+if(TARGET tinyxml2::tinyxml2)
+	set(tinyxml2_FOUND TRUE)
+	return()
+endif()
+
 # First, try to find tinyxml2 using pkg-config
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
