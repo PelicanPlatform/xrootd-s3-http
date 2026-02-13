@@ -1,27 +1,24 @@
 # Findtinyxml2.cmake
 # Find the tinyxml2 library
 #
-# This module defines the following variables:
-#   tinyxml2_FOUND - True if tinyxml2 was found
-#   tinyxml2_INCLUDE_DIRS - Include directories for tinyxml2
-#   tinyxml2_LIBRARIES - Libraries to link against
-#
 # This module defines the following imported targets:
 #   tinyxml2::tinyxml2 - The tinyxml2 library
 
-# Check if the target already exists (e.g., from a config package)
+# Check if the namespaced target already exists (newer versions)
 if(TARGET tinyxml2::tinyxml2)
   set(tinyxml2_FOUND TRUE)
-  # Extract properties from the existing target if available
-  get_target_property(tinyxml2_LOCATION tinyxml2::tinyxml2 LOCATION)
-  get_target_property(tinyxml2_INCLUDE_DIRS tinyxml2::tinyxml2 INTERFACE_INCLUDE_DIRECTORIES)
-  if(tinyxml2_LOCATION)
-    set(tinyxml2_LIBRARIES ${tinyxml2_LOCATION})
-  endif()
   return()
 endif()
 
-# First, try to find tinyxml2 using pkg-config
+# Check if the non-namespaced target exists (older versions like 6.0.0)
+# If it does, create an alias to the namespaced version
+if(TARGET tinyxml2)
+  add_library(tinyxml2::tinyxml2 ALIAS tinyxml2)
+  set(tinyxml2_FOUND TRUE)
+  return()
+endif()
+
+# If neither target exists, find the library manually
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
   pkg_check_modules(PC_TINYXML2 QUIET tinyxml2)
@@ -57,7 +54,7 @@ if(tinyxml2_FOUND)
   set(tinyxml2_LIBRARIES ${tinyxml2_LIBRARY})
   set(tinyxml2_INCLUDE_DIRS ${tinyxml2_INCLUDE_DIR})
 
-  # Create the imported target if it doesn't exist
+  # Create the imported target
   if(NOT TARGET tinyxml2::tinyxml2)
     add_library(tinyxml2::tinyxml2 UNKNOWN IMPORTED)
     set_target_properties(tinyxml2::tinyxml2 PROPERTIES
