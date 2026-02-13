@@ -80,6 +80,15 @@ if( NOT XROOTD_EXTERNAL_TINYXML2 )
   FetchContent_MakeAvailable( tinyxml2 )
 else()
   find_package( tinyxml2 REQUIRED )
+  # tinyxml2 6.0.0 (EL8) provides the 'tinyxml2' target instead of the
+  # 'tinyxml2::tinyxml2' target.  If the former is found, define the latter.
+  if( TARGET tinyxml2 )
+    # Create an INTERFACE wrapper that links to the existing target
+    add_library(tinyxml2::tinyxml2 INTERFACE IMPORTED)
+    set_target_properties(tinyxml2::tinyxml2 PROPERTIES
+      INTERFACE_LINK_LIBRARIES tinyxml2
+    )
+  endif()
 endif()
 
 ##
