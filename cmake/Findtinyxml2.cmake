@@ -11,54 +11,60 @@
 
 # Check if the target already exists (e.g., from a config package)
 if(TARGET tinyxml2::tinyxml2)
-	set(tinyxml2_FOUND TRUE)
-	return()
+  set(tinyxml2_FOUND TRUE)
+  # Extract properties from the existing target if available
+  get_target_property(tinyxml2_LOCATION tinyxml2::tinyxml2 LOCATION)
+  get_target_property(tinyxml2_INCLUDE_DIRS tinyxml2::tinyxml2 INTERFACE_INCLUDE_DIRECTORIES)
+  if(tinyxml2_LOCATION)
+    set(tinyxml2_LIBRARIES ${tinyxml2_LOCATION})
+  endif()
+  return()
 endif()
 
 # First, try to find tinyxml2 using pkg-config
 find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
-	pkg_check_modules(PC_TINYXML2 QUIET tinyxml2)
+  pkg_check_modules(PC_TINYXML2 QUIET tinyxml2)
 endif()
 
 # Find the include directory
 find_path(tinyxml2_INCLUDE_DIR
-	NAMES tinyxml2.h
-	HINTS ${PC_TINYXML2_INCLUDE_DIRS}
-	PATH_SUFFIXES tinyxml2
+  NAMES tinyxml2.h
+  HINTS ${PC_TINYXML2_INCLUDE_DIRS}
+  PATH_SUFFIXES tinyxml2
 )
 
 # Find the library
 find_library(tinyxml2_LIBRARY
-	NAMES tinyxml2
-	HINTS ${PC_TINYXML2_LIBRARY_DIRS}
+  NAMES tinyxml2
+  HINTS ${PC_TINYXML2_LIBRARY_DIRS}
 )
 
 # Handle the QUIETLY and REQUIRED arguments
 include(FindPackageHandleStandardArgs)
 if(PC_TINYXML2_VERSION)
-	find_package_handle_standard_args(tinyxml2
-		REQUIRED_VARS tinyxml2_LIBRARY tinyxml2_INCLUDE_DIR
-		VERSION_VAR PC_TINYXML2_VERSION
-	)
+  find_package_handle_standard_args(tinyxml2
+    REQUIRED_VARS tinyxml2_LIBRARY tinyxml2_INCLUDE_DIR
+    VERSION_VAR PC_TINYXML2_VERSION
+  )
 else()
-	find_package_handle_standard_args(tinyxml2
-		REQUIRED_VARS tinyxml2_LIBRARY tinyxml2_INCLUDE_DIR
-	)
+  find_package_handle_standard_args(tinyxml2
+    REQUIRED_VARS tinyxml2_LIBRARY tinyxml2_INCLUDE_DIR
+  )
 endif()
 
 if(tinyxml2_FOUND)
-	set(tinyxml2_LIBRARIES ${tinyxml2_LIBRARY})
-	set(tinyxml2_INCLUDE_DIRS ${tinyxml2_INCLUDE_DIR})
+  set(tinyxml2_LIBRARIES ${tinyxml2_LIBRARY})
+  set(tinyxml2_INCLUDE_DIRS ${tinyxml2_INCLUDE_DIR})
 
-	# Create the imported target if it doesn't exist
-	if(NOT TARGET tinyxml2::tinyxml2)
-		add_library(tinyxml2::tinyxml2 UNKNOWN IMPORTED)
-		set_target_properties(tinyxml2::tinyxml2 PROPERTIES
-			IMPORTED_LOCATION "${tinyxml2_LIBRARY}"
-			INTERFACE_INCLUDE_DIRECTORIES "${tinyxml2_INCLUDE_DIR}"
-		)
-	endif()
+  # Create the imported target if it doesn't exist
+  if(NOT TARGET tinyxml2::tinyxml2)
+    add_library(tinyxml2::tinyxml2 UNKNOWN IMPORTED)
+    set_target_properties(tinyxml2::tinyxml2 PROPERTIES
+      IMPORTED_LOCATION "${tinyxml2_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${tinyxml2_INCLUDE_DIR}"
+    )
+  endif()
 endif()
 
 mark_as_advanced(tinyxml2_INCLUDE_DIR tinyxml2_LIBRARY)
