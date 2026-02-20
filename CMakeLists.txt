@@ -80,6 +80,15 @@ if( NOT XROOTD_EXTERNAL_TINYXML2 )
   FetchContent_MakeAvailable( tinyxml2 )
 else()
   find_package( tinyxml2 REQUIRED )
+  # tinyxml2 6.0.0 (EL8) provides the 'tinyxml2' target instead of the
+  # 'tinyxml2::tinyxml2' target.  If the former is found, define the latter.
+  if( TARGET tinyxml2 )
+    # Create an INTERFACE wrapper that links to the existing target
+    add_library(tinyxml2::tinyxml2 INTERFACE IMPORTED)
+    set_target_properties(tinyxml2::tinyxml2 PROPERTIES
+      INTERFACE_LINK_LIBRARIES tinyxml2
+    )
+  endif()
 endif()
 
 ##
@@ -144,7 +153,7 @@ target_link_libraries(XrdOssHttp XrdHTTPServerObj XrdPelicanHttpCore)
 add_library( XrdOssFilterObj OBJECT src/Filter.cc src/logging.cc )
 set_target_properties( XrdOssFilterObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
 target_include_directories( XrdOssFilterObj PRIVATE ${XRootD_INCLUDE_DIRS} )
-target_link_libraries( XrdOssFilterObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} )
+target_link_libraries( XrdOssFilterObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} std::filesystem)
 
 add_library( XrdOssFilter MODULE "$<TARGET_OBJECTS:XrdOssFilterObj>" )
 target_link_libraries( XrdOssFilter XrdOssFilterObj )
@@ -165,7 +174,7 @@ target_link_libraries(XrdOssGlobus XrdOssGlobusObj XrdPelicanHttpCore)
 #######################
 add_library( XrdOssPoscObj OBJECT src/Posc.cc )
 set_target_properties( XrdOssPoscObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
-target_link_libraries( XrdOssPoscObj XRootD::XrdServer XRootD::XrdUtils Threads::Threads std::atomic )
+target_link_libraries( XrdOssPoscObj XRootD::XrdServer XRootD::XrdUtils Threads::Threads std::atomic std::filesystem)
 
 add_library( XrdOssPosc MODULE "$<TARGET_OBJECTS:XrdOssPoscObj>" )
 target_link_libraries( XrdOssPosc XrdOssPoscObj )

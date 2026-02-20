@@ -32,9 +32,14 @@ Requires: xrootd-server <  1:%{xrootd_next_major}.0.0-1
 %prep
 %setup -q
 
+%if 0%{?el8}
+# el8 does in-source builds by default; turn that off to match what newer ELs do
+%global __cmake_in_source_build %{nil}
+%endif
+
 %build
 %cmake . -DCMAKE_BUILD_TYPE=RelWithDebInfo -DXROOTD_EXTERNAL_TINYXML2=ON
-cmake --build redhat-linux-build --verbose
+%cmake_build
 
 %install
 %cmake_install
