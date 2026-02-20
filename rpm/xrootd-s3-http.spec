@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.6.4
+Version:        0.6.5
 Release:        1%{?dist}
 Summary:        S3/HTTP/Globus filesystem plugins for xrootd
 
@@ -59,6 +59,9 @@ rm %{buildroot}%{_libdir}/libXrdPelicanHttpCore.so
 %license LICENSE
 
 %changelog
+* Fri Feb 20 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.5-1
+- Build on EL8
+
 * Wed Feb 04 2026 Patrick Brophy <patrick.brophy2@gmail.com> - 0.6.4-1
 - Fixed return code of POSC plugin when rename fails during Close() operation
 
