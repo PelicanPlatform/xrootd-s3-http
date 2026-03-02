@@ -44,6 +44,25 @@
 
 using namespace XrdHTTPServer;
 
+namespace {
+
+// Globus Transfer API mkdir request.
+class GlobusMkdirRequest final : public HTTPRequest {
+  public:
+	GlobusMkdirRequest(const std::string &url, XrdSysError &log,
+					   const TokenFile *token)
+		: HTTPRequest(url, log, token) {}
+
+	bool SendRequest(const std::string &payload) {
+		httpVerb = "POST";
+		expectedResponseCode = {202};
+		headers["Content-Type"] = "application/json";
+		return SendHTTPRequest(payload);
+	}
+};
+
+} // namespace
+
 GlobusFileSystem::GlobusFileSystem(XrdOss *oss, XrdSysLogger *lp,
 								   const char *configfn, XrdOucEnv *envP)
 	: XrdOssWrapper(*oss), m_oss(oss), m_log(lp, "globus_"),
@@ -125,6 +144,7 @@ bool GlobusFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	}
 
 	// Build the complete URLs
+	m_endpoint_path = endpoint_path;
 	if (!m_transfer_url.empty() && !endpoint_path.empty()) {
 		m_transfer_url += "/%s?path=" + endpoint_path;
 	}
@@ -216,6 +236,95 @@ int GlobusFileSystem::Unlink(const char *path, int Opts, XrdOucEnv *env) {
 	return m_oss->Unlink(path, Opts, env);
 }
 
+int GlobusFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
+							XrdOucEnv *env) {
+	(void)mode;
+	(void)env;
+
+	if (!path) {
+		return -ENOENT;
+	}
+
+	auto token = getTransferToken();
+	if (!token) {
+		m_log.Emsg("Mkdir", "Failed to get transfer token");
+		return -ENOENT;
+	}
+
+	std::string relative_path = extractRelativePath(path);
+	if (relative_path.empty()) {
+		relative_path = "/";
+	}
+	while (relative_path.size() > 1 && relative_path.back() == '/') {
+		relative_path.pop_back();
+	}
+
+	if (relative_path == "/") {
+		return -EEXIST;
+	}
+	// Globus requires each path to be made with a single command; you cannot
+	// submit an HTTP POST with the entire path if there are missing folders
+	// anywhere in the path. In this case, it returns HTTP code 404
+
+	if (!mkpath) {
+		GlobusMkdirRequest mkdirCommand(getMkdirUrl(), m_log, token);
+		nlohmann::json body = {{"DATA_TYPE", "mkdir"},
+							   {"path", buildEndpointPath(relative_path)}};
+		if (!mkdirCommand.SendRequest(body.dump())) {
+			unsigned long httpCode = mkdirCommand.getResponseCode();
+			// Globus mkdir semantics: 202 = success, 502 = exists, 403 = perms,
+			// 404 = not found
+			if (httpCode == 502) {
+				return -EEXIST;
+			}
+			if (httpCode == 403) {
+				return -EPERM;
+			}
+			if (httpCode == 404) {
+				return -ENOENT;
+			}
+
+			return HTTPRequest::HandleHTTPError(mkdirCommand, m_log, "POST",
+												relative_path.c_str());
+		}
+		return 0;
+	}
+
+	// Create each path component and treat EEXIST as success for recursive
+	// mkdir.
+	std::string current;
+	std::stringstream ss(relative_path);
+	std::string component;
+	while (std::getline(ss, component, '/')) {
+		if (component.empty()) {
+			continue;
+		}
+		current += "/" + component;
+		GlobusMkdirRequest mkdirCommand(getMkdirUrl(), m_log, token);
+		nlohmann::json body = {{"DATA_TYPE", "mkdir"},
+							   {"path", buildEndpointPath(current)}};
+		int rv = 0;
+		if (!mkdirCommand.SendRequest(body.dump())) {
+			unsigned long httpCode = mkdirCommand.getResponseCode();
+			// Globus mkdir semantics: 202 = success, 502 = exists, 403 = perms.
+			if (httpCode == 502) {
+				rv = -EEXIST;
+			} else if (httpCode == 403) {
+				rv = -EPERM;
+			}
+
+			if (rv == 0) {
+				rv = HTTPRequest::HandleHTTPError(mkdirCommand, m_log, "POST",
+												  current.c_str());
+			}
+		}
+		if (rv != 0 && rv != -EEXIST) {
+			return rv;
+		}
+	}
+	return 0;
+}
+
 const std::string
 GlobusFileSystem::getLsUrl(const std::string &relative_path) const {
 	return getOperationUrl("ls", relative_path);
@@ -224,6 +333,37 @@ GlobusFileSystem::getLsUrl(const std::string &relative_path) const {
 const std::string
 GlobusFileSystem::getStatUrl(const std::string &relative_path) const {
 	return getOperationUrl("stat", relative_path);
+}
+
+const std::string GlobusFileSystem::getMkdirUrl() const {
+	return getOperationUrl("mkdir");
+}
+
+std::string
+GlobusFileSystem::buildEndpointPath(const std::string &relative_path) const {
+	std::string endpoint = m_endpoint_path.empty() ? "/" : m_endpoint_path;
+	if (endpoint[0] != '/') {
+		endpoint = "/" + endpoint;
+	}
+	while (endpoint.size() > 1 && endpoint.back() == '/') {
+		endpoint.pop_back();
+	}
+
+	std::string rel = relative_path.empty() ? "/" : relative_path;
+	if (rel[0] != '/') {
+		rel = "/" + rel;
+	}
+	while (rel.size() > 1 && rel.back() == '/') {
+		rel.pop_back();
+	}
+
+	if (rel == "/") {
+		return endpoint;
+	}
+	if (endpoint == "/") {
+		return rel;
+	}
+	return endpoint + rel;
 }
 
 const std::string
