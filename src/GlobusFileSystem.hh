@@ -46,6 +46,8 @@ class GlobusFileSystem : public XrdOssWrapper {
 	}
 	int Stat(const char *path, struct stat *buff, int opts = 0,
 			 XrdOucEnv *env = 0) override;
+	int Mkdir(const char *path, mode_t mode, int mkpath = 0,
+			  XrdOucEnv *env = 0) override;
 	int StatFS(const char *path, char *buff, int &blen,
 			   XrdOucEnv *env = 0) override {
 		return -ENOSYS;
@@ -83,6 +85,7 @@ class GlobusFileSystem : public XrdOssWrapper {
 	// Methods to get operation-specific URLs
 	const std::string getLsUrl(const std::string &relative_path = "") const;
 	const std::string getStatUrl(const std::string &relative_path = "") const;
+	const std::string getMkdirUrl() const;
 
 	// Static utility method for parsing timestamps
 	static time_t parseTimestamp(const std::string &last_modified);
@@ -96,6 +99,8 @@ class GlobusFileSystem : public XrdOssWrapper {
 	const std::string
 	getOperationUrl(const std::string &operation,
 					const std::string &relative_path = "") const;
+	
+	std::string buildEndpointPath(const std::string &relative_path) const;
 
 	// Extract the relative path by removing the storage prefix
 	std::string extractRelativePath(const std::string &path) const;
@@ -106,5 +111,6 @@ class GlobusFileSystem : public XrdOssWrapper {
 	// Globus-specific configuration
 	std::string m_transfer_url;
 	std::string m_storage_prefix;
+	std::string m_endpoint_path;
 	TokenFile m_transfer_token;
 };

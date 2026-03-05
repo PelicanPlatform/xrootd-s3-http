@@ -140,8 +140,6 @@ bool HTTPRequest::SendHTTPRequest(const std::string &payload) {
 		return false;
 	}
 
-	headers["Content-Type"] = "binary/octet-stream";
-
 	m_log.Log(LogMask::Debug, "HTTPRequest::SendHTTPRequest",
 			  "Sending request");
 
@@ -814,6 +812,7 @@ HTTPUpload::~HTTPUpload() {}
 bool HTTPUpload::SendRequest(const std::string &payload) {
 	httpVerb = "PUT";
 	expectedResponseCode = {200, 201};
+	headers["Content-Type"] = "binary/octet-stream";
 	return SendHTTPRequest(payload);
 }
 
