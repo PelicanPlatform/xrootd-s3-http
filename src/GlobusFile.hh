@@ -21,8 +21,6 @@
 #include "GlobusFileSystem.hh"
 #include <XrdOss/XrdOssWrapper.hh>
 
-#include <mutex>
-
 class GlobusFile final : public XrdOssWrapDF {
   public:
 	GlobusFile(std::unique_ptr<XrdOssDF> wrapped, XrdSysError &log,
@@ -47,6 +45,4 @@ class GlobusFile final : public XrdOssWrapDF {
 	std::unique_ptr<XrdOssDF> m_wrapped;
 	XrdSysError &m_log;
 	GlobusFileSystem *m_oss;
-	std::mutex m_mkpath_attempt_mutex;
-	bool m_pending_mkpath_attempt{false};
 };

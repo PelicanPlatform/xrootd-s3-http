@@ -146,7 +146,17 @@ bool GlobusFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	// Build the complete URLs
 	m_endpoint_path = endpoint_path;
 	if (!m_transfer_url.empty() && !endpoint_path.empty()) {
-		m_transfer_url += "/%s?path=" + endpoint_path;
+		// Strip the trailing slash from endpoint_path before embedding it in
+		// the URL template.  extractRelativePath() always returns a path that
+		// starts with '/', so concatenating a trailing slash here would produce
+		// a double-slash (e.g. "?path=//top_level_path/custom_path").  Globus interprets
+		// "?path=//" as the root path and returns a 200 instead of a 404,
+		// causing parent-directory existence checks to spuriously succeed.
+		std::string ep = endpoint_path;
+		if (!ep.empty() && ep.back() == '/') {
+			ep.pop_back();
+		}
+		m_transfer_url += "/%s?path=" + ep;
 	}
 
 	if (!transfer_token_file.empty()) {
@@ -307,10 +317,16 @@ int GlobusFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
 
 	// Probe from deepest directory back toward root to find the deepest
 	// existing prefix. This avoids sweeping mkdir from the root every time.
+	// The prefixes are relative paths (e.g. "/top_level_path/custom_path"), so we must
+	// prepend the storage prefix before calling Stat so that
+	// extractRelativePath can correctly strip the prefix and produce the right
+	// Transfer API URL.  Without the storage prefix, extractRelativePath falls
+	// back to "/" (root), making every Stat appear to succeed and causing the
+	// actual mkdir loop to be skipped.
 	int first_missing_idx = 0;
 	for (int idx = static_cast<int>(prefixes.size()) - 1; idx >= 0; --idx) {
 		struct stat sb;
-		int stat_rv = Stat(prefixes[idx].c_str(), &sb, 0, env);
+		int stat_rv = Stat((m_storage_prefix + prefixes[idx]).c_str(), &sb, 0, env);
 		if (stat_rv == 0) {
 			if (!S_ISDIR(sb.st_mode)) {
 				return -ENOTDIR;
