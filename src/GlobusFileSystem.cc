@@ -44,6 +44,25 @@
 
 using namespace XrdHTTPServer;
 
+namespace {
+
+// Globus Transfer API mkdir request.
+class GlobusMkdirRequest final : public HTTPRequest {
+  public:
+	GlobusMkdirRequest(const std::string &url, XrdSysError &log,
+					   const TokenFile *token)
+		: HTTPRequest(url, log, token) {}
+
+	bool SendRequest(const std::string &payload) {
+		httpVerb = "POST";
+		expectedResponseCode = {202};
+		headers["Content-Type"] = "application/json";
+		return SendHTTPRequest(payload);
+	}
+};
+
+} // namespace
+
 GlobusFileSystem::GlobusFileSystem(XrdOss *oss, XrdSysLogger *lp,
 								   const char *configfn, XrdOucEnv *envP)
 	: XrdOssWrapper(*oss), m_oss(oss), m_log(lp, "globus_"),
@@ -125,8 +144,19 @@ bool GlobusFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 	}
 
 	// Build the complete URLs
+	m_endpoint_path = endpoint_path;
 	if (!m_transfer_url.empty() && !endpoint_path.empty()) {
-		m_transfer_url += "/%s?path=" + endpoint_path;
+		// Strip the trailing slash from endpoint_path before embedding it in
+		// the URL template.  extractRelativePath() always returns a path that
+		// starts with '/', so concatenating a trailing slash here would produce
+		// a double-slash (e.g. "?path=//top_level_path/custom_path").  Globus interprets
+		// "?path=//" as the root path and returns a 200 instead of a 404,
+		// causing parent-directory existence checks to spuriously succeed.
+		std::string ep = endpoint_path;
+		if (!ep.empty() && ep.back() == '/') {
+			ep.pop_back();
+		}
+		m_transfer_url += "/%s?path=" + ep;
 	}
 
 	if (!transfer_token_file.empty()) {
@@ -142,7 +172,7 @@ XrdOssDF *GlobusFileSystem::newDir(const char *user) {
 
 XrdOssDF *GlobusFileSystem::newFile(const char *user) {
 	std::unique_ptr<XrdOssDF> wrapped(wrapPI.newFile(user));
-	return new GlobusFile(std::move(wrapped), m_log);
+	return new GlobusFile(std::move(wrapped), m_log, this);
 }
 
 int GlobusFileSystem::Stat(const char *path, struct stat *buff, int opts,
@@ -216,6 +246,130 @@ int GlobusFileSystem::Unlink(const char *path, int Opts, XrdOucEnv *env) {
 	return m_oss->Unlink(path, Opts, env);
 }
 
+int GlobusFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
+							XrdOucEnv *env) {
+	(void)mode;
+
+	if (!path) {
+		return -ENOENT;
+	}
+
+	auto token = getTransferToken();
+	if (!token) {
+		m_log.Emsg("Mkdir", "Failed to get transfer token");
+		return -ENOENT;
+	}
+
+	std::string relative_path = extractRelativePath(path);
+	if (relative_path.empty()) {
+		relative_path = "/";
+	}
+	while (relative_path.size() > 1 && relative_path.back() == '/') {
+		relative_path.pop_back();
+	}
+
+	if (relative_path == "/") {
+		return -EEXIST;
+	}
+	// Globus requires each path to be made with a single command; you cannot
+	// submit an HTTP POST with the entire path if there are missing folders
+	// anywhere in the path. In this case, it returns HTTP code 404
+
+	if (!mkpath) {
+		GlobusMkdirRequest mkdirCommand(getMkdirUrl(), m_log, token);
+		nlohmann::json body = {{"DATA_TYPE", "mkdir"},
+							   {"path", buildEndpointPath(relative_path)}};
+		if (!mkdirCommand.SendRequest(body.dump())) {
+			unsigned long httpCode = mkdirCommand.getResponseCode();
+			// Globus mkdir semantics: 202 = success, 502 = exists, 403 = perms,
+			// 404 = not found
+			if (httpCode == 502) {
+				return -EEXIST;
+			}
+			if (httpCode == 403) {
+				return -EPERM;
+			}
+			if (httpCode == 404) {
+				return -ENOENT;
+			}
+
+			return HTTPRequest::HandleHTTPError(mkdirCommand, m_log, "POST",
+												relative_path.c_str());
+		}
+		return 0;
+	}
+
+	// Build all prefixes: /a, /a/b, /a/b/c.
+	std::vector<std::string> prefixes;
+	std::string current;
+	std::stringstream ss(relative_path);
+	std::string component;
+	while (std::getline(ss, component, '/')) {
+		if (component.empty()) {
+			continue;
+		}
+		current += "/" + component;
+		prefixes.push_back(current);
+	}
+	if (prefixes.empty()) {
+		return 0;
+	}
+
+	// Probe from deepest directory back toward root to find the deepest
+	// existing prefix. This avoids sweeping mkdir from the root every time.
+	// The prefixes are relative paths (e.g. "/top_level_path/custom_path"), so we must
+	// prepend the storage prefix before calling Stat so that
+	// extractRelativePath can correctly strip the prefix and produce the right
+	// Transfer API URL.  Without the storage prefix, extractRelativePath falls
+	// back to "/" (root), making every Stat appear to succeed and causing the
+	// actual mkdir loop to be skipped.
+	int first_missing_idx = 0;
+	for (int idx = static_cast<int>(prefixes.size()) - 1; idx >= 0; --idx) {
+		struct stat sb;
+		int stat_rv = Stat((m_storage_prefix + prefixes[idx]).c_str(), &sb, 0, env);
+		if (stat_rv == 0) {
+			if (!S_ISDIR(sb.st_mode)) {
+				return -ENOTDIR;
+			}
+			first_missing_idx = idx + 1;
+			break;
+		}
+		if (stat_rv != -ENOENT) {
+			return stat_rv;
+		}
+	}
+
+	// Create only missing suffix prefixes. Handle concurrency by accepting
+	// EEXIST if another writer creates a directory between our Stat and Mkdir.
+	for (int idx = first_missing_idx;
+		 idx < static_cast<int>(prefixes.size()); ++idx) {
+		GlobusMkdirRequest mkdirCommand(getMkdirUrl(), m_log, token);
+		nlohmann::json body = {{"DATA_TYPE", "mkdir"},
+							   {"path", buildEndpointPath(prefixes[idx])}};
+		int rv = 0;
+		if (!mkdirCommand.SendRequest(body.dump())) {
+			unsigned long httpCode = mkdirCommand.getResponseCode();
+			// Globus mkdir semantics: 202 = success, 502 = exists, 403 = perms.
+			if (httpCode == 502) {
+				rv = -EEXIST;
+			} else if (httpCode == 403) {
+				rv = -EPERM;
+			} else if (httpCode == 404) {
+				rv = -ENOENT;
+			}
+
+			if (rv == 0) {
+				rv = HTTPRequest::HandleHTTPError(mkdirCommand, m_log, "POST",
+												  prefixes[idx].c_str());
+			}
+		}
+		if (rv != 0 && rv != -EEXIST) {
+			return rv;
+		}
+	}
+	return 0;
+}
+
 const std::string
 GlobusFileSystem::getLsUrl(const std::string &relative_path) const {
 	return getOperationUrl("ls", relative_path);
@@ -224,6 +378,37 @@ GlobusFileSystem::getLsUrl(const std::string &relative_path) const {
 const std::string
 GlobusFileSystem::getStatUrl(const std::string &relative_path) const {
 	return getOperationUrl("stat", relative_path);
+}
+
+const std::string GlobusFileSystem::getMkdirUrl() const {
+	return getOperationUrl("mkdir");
+}
+
+std::string
+GlobusFileSystem::buildEndpointPath(const std::string &relative_path) const {
+	std::string endpoint = m_endpoint_path.empty() ? "/" : m_endpoint_path;
+	if (endpoint[0] != '/') {
+		endpoint = "/" + endpoint;
+	}
+	while (endpoint.size() > 1 && endpoint.back() == '/') {
+		endpoint.pop_back();
+	}
+
+	std::string rel = relative_path.empty() ? "/" : relative_path;
+	if (rel[0] != '/') {
+		rel = "/" + rel;
+	}
+	while (rel.size() > 1 && rel.back() == '/') {
+		rel.pop_back();
+	}
+
+	if (rel == "/") {
+		return endpoint;
+	}
+	if (endpoint == "/") {
+		return rel;
+	}
+	return endpoint + rel;
 }
 
 const std::string

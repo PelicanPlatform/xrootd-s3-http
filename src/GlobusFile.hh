@@ -23,15 +23,15 @@
 
 class GlobusFile final : public XrdOssWrapDF {
   public:
-	GlobusFile(std::unique_ptr<XrdOssDF> wrapped, XrdSysError &log)
-		: XrdOssWrapDF(*wrapped), m_wrapped(std::move(wrapped)) {}
+	GlobusFile(std::unique_ptr<XrdOssDF> wrapped, XrdSysError &log,
+			   GlobusFileSystem *globus_fs)
+		: XrdOssWrapDF(*wrapped), m_wrapped(std::move(wrapped)), m_log(log),
+		  m_oss(globus_fs) {}
 
 	virtual ~GlobusFile() {}
 
 	int Open(const char *path, int Oflag, mode_t Mode,
-			 XrdOucEnv &env) override {
-		return m_wrapped->Open(path, Oflag, Mode, env);
-	}
+			 XrdOucEnv &env) override;
 	int Fstat(struct stat *buf) override { return m_wrapped->Fstat(buf); }
 	ssize_t Read(void *buffer, off_t offset, size_t size) override {
 		return m_wrapped->Read(buffer, offset, size);
@@ -43,4 +43,6 @@ class GlobusFile final : public XrdOssWrapDF {
 
   private:
 	std::unique_ptr<XrdOssDF> m_wrapped;
+	XrdSysError &m_log;
+	GlobusFileSystem *m_oss;
 };
