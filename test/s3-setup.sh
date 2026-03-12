@@ -199,6 +199,8 @@ fi
 echo "Hello, World" > "$RUNDIR/hello_world.txt"
 "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/hello_world.txt
 "$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/hello_world2.txt
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/testfolder/file1.txt
+"$MC_BIN" --insecure --config-dir "$MINIO_CLIENTDIR" cp "$RUNDIR/hello_world.txt" userminio/test-bucket/testfolder/file2.txt
 
 IDX=0
 COUNT=25
