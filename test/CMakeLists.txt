@@ -60,6 +60,7 @@ add_executable( http-gtest http_tests.cc )
 add_executable( filter-gtest filter_tests.cc ../src/shortfile.cc )
 add_executable( posc-gtest posc_tests.cc ../src/shortfile.cc )
 add_executable( n2n-prefix-gtest n2n_prefix_tests.cc ../src/shortfile.cc )
+add_executable( acchttpcallout-gtest acchttpcallout_tests.cc ../src/shortfile.cc )
 
 target_link_libraries(s3-gtest XrdS3Testing GTest::gtest_main Threads::Threads)
 target_link_libraries(s3-unit-test XrdS3Testing GTest::gtest_main Threads::Threads)
@@ -67,6 +68,7 @@ target_link_libraries(http-gtest XrdHTTPServerTesting GTest::gtest_main Threads:
 target_link_libraries(filter-gtest XrdOssFilterTesting GTest::gtest_main Threads::Threads)
 target_link_libraries(posc-gtest XrdOssPoscTesting GTest::gtest_main Threads::Threads)
 target_link_libraries(n2n-prefix-gtest XrdN2NPrefixTesting GTest::gtest_main Threads::Threads)
+target_link_libraries(acchttpcallout-gtest XrdAccHttpCalloutTesting GTest::gtest_main Threads::Threads)
 
 gtest_add_tests(TARGET filter-gtest TEST_LIST filterUnitTests)
 
@@ -78,6 +80,13 @@ set_tests_properties(${filterUnitTests}
 gtest_add_tests(TARGET n2n-prefix-gtest TEST_LIST n2nPrefixUnitTests)
 
 set_tests_properties(${n2nPrefixUnitTests}
+  PROPERTIES
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
+)
+
+gtest_add_tests(TARGET acchttpcallout-gtest TEST_LIST accHttpCalloutUnitTests)
+
+set_tests_properties(${accHttpCalloutUnitTests}
   PROPERTIES
     ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt"
 )
