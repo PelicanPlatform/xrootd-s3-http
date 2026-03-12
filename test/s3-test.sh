@@ -60,3 +60,34 @@ if [ "$HTTP_CODE" -ne 404 ]; then
   echo "Expected HTTP code is 404; actual was $HTTP_CODE"
   exit 1
 fi
+
+echo "Running $TEST_NAME - PROPFIND href paths"
+
+PROPFIND_XML="$BINARY_DIR/tests/$TEST_NAME/propfind_testfolder.xml"
+HTTP_CODE=$(curl --cacert $X509_CA_FILE --silent --show-error --request PROPFIND --header 'Depth: 1' --output "$PROPFIND_XML" --write-out '%{http_code}' "$XROOTD_URL/test/testfolder" 2>> "$BINARY_DIR/tests/$TEST_NAME/client.log")
+if [ "$HTTP_CODE" -ne 207 ]; then
+  echo "Expected PROPFIND HTTP code is 207; actual was $HTTP_CODE"
+  exit 1
+fi
+
+if ! grep -q '<D:href>/test/testfolder</D:href>' "$PROPFIND_XML"; then
+  echo "Missing expected directory href in PROPFIND response"
+  cat "$PROPFIND_XML"
+  exit 1
+fi
+if ! grep -q '<D:href>/test/testfolder/file1.txt</D:href>' "$PROPFIND_XML"; then
+  echo "Missing expected file1 href in PROPFIND response"
+  cat "$PROPFIND_XML"
+  exit 1
+fi
+if ! grep -q '<D:href>/test/testfolder/file2.txt</D:href>' "$PROPFIND_XML"; then
+  echo "Missing expected file2 href in PROPFIND response"
+  cat "$PROPFIND_XML"
+  exit 1
+fi
+if grep -q 'testfolder%2F' "$PROPFIND_XML"; then
+  echo "Found encoded duplicate directory prefix in PROPFIND response"
+  cat "$PROPFIND_XML"
+  exit 1
+fi
+

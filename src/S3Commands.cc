@@ -642,7 +642,6 @@ bool AmazonS3List::SendRequest(const std::string &continuationToken) {
 	query_parameters["list-type"] = "2"; // Version 2 of the object-listing
 	query_parameters["delimiter"] = "/";
 	query_parameters["prefix"] = urlquote(object);
-	query_parameters["encoding-type"] = "url";
 	if (!continuationToken.empty()) {
 		query_parameters["continuation-token"] = urlquote(continuationToken);
 	}
@@ -701,8 +700,16 @@ bool AmazonS3CreateMultipartUpload::Results(std::string &uploadId,
 bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 						   std::vector<std::string> &commonPrefixes,
 						   std::string &ct, std::string &errMsg) {
+	return ParseListBucketResult(m_result, objInfo, commonPrefixes, ct,
+							 errMsg);
+}
+
+bool AmazonS3List::ParseListBucketResult(
+	const std::string &xml, std::vector<S3ObjectInfo> &objInfo,
+	std::vector<std::string> &commonPrefixes, std::string &ct,
+	std::string &errMsg) {
 	tinyxml2::XMLDocument doc;
-	auto err = doc.Parse(m_result.c_str());
+	auto err = doc.Parse(xml.c_str());
 	if (err != tinyxml2::XML_SUCCESS) {
 		errMsg = doc.ErrorStr();
 		return false;
