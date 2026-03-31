@@ -371,22 +371,27 @@ void PoscFileSystem::ExpireUserFiles(XrdOucEnv &env) {
 	dp->Close();
 }
 
-bool PoscFileSystem::InPoscDir(const std::filesystem::path &path) const {
+bool PoscFileSystem::PathHasPrefix(
+	const std::filesystem::path &path,
+	const std::filesystem::path &prefix) {
 	auto path_iter = path.begin();
-	for (auto posc_dir_iter = m_posc_dir.begin();
-		 posc_dir_iter != m_posc_dir.end(); ++posc_dir_iter, ++path_iter) {
-		// The path has fewer components than our storage directory; hence it is
+	for (auto pfx_iter = prefix.begin(); pfx_iter != prefix.end();
+		 ++pfx_iter, ++path_iter) {
+		// The path has fewer components than the prefix; hence it is
 		// not contained inside.
 		if (path_iter == path.end()) {
 			return false;
 		}
-		if (*posc_dir_iter != *path_iter) {
+		if (*pfx_iter != *path_iter) {
 			return false;
 		}
 	}
-	// In this case, the path has more components than the POSC directory and
-	// all of the components match, so it is inside.
+	// All components of the prefix match the beginning of the path.
 	return true;
+}
+
+bool PoscFileSystem::InPoscDir(const std::filesystem::path &path) const {
+	return PathHasPrefix(path, m_posc_dir);
 }
 
 std::string PoscFileSystem::GeneratePoscFile(const char *path, XrdOucEnv &env) {

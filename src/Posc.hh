@@ -69,6 +69,9 @@ class PoscFileSystem final : public XrdOssWrapper {
 	// no guarantee provided for uniqueness.
 	std::string GeneratePoscFile(const char *path, XrdOucEnv &env);
 
+	static bool PathHasPrefix(const std::filesystem::path &path,
+							  const std::filesystem::path &prefix);
+
 	bool InPoscDir(const std::filesystem::path &path) const;
 
 	void InitPosc();
