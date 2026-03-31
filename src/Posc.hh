@@ -32,6 +32,7 @@
 #include <memory>
 #include <mutex>
 #include <string_view>
+#include <vector>
 
 // Forward declarations
 class XrdSysError;
@@ -69,10 +70,12 @@ class PoscFileSystem final : public XrdOssWrapper {
 	// no guarantee provided for uniqueness.
 	std::string GeneratePoscFile(const char *path, XrdOucEnv &env);
 
-	static bool PathHasPrefix(const std::filesystem::path &path,
-							  const std::filesystem::path &prefix);
+	bool InBypassPrefix(const std::filesystem::path &path) const;
 
 	bool InPoscDir(const std::filesystem::path &path) const;
+
+	static bool PathHasPrefix(const std::filesystem::path &path,
+							  const std::filesystem::path &prefix);
 
 	void InitPosc();
 
@@ -130,6 +133,11 @@ class PoscFileSystem final : public XrdOssWrapper {
 	// The location where temporary files are stored while they are being
 	// written.
 	std::filesystem::path m_posc_dir;
+
+	// Path prefixes where POSC should be bypassed.
+	// Files under these prefixes are written directly to the final
+	// destination without going through the temp-file-and-rename flow.
+	std::vector<std::filesystem::path> m_bypass_prefixes;
 
 	// The underlying storage system we are wrapping.
 	XrdOss *m_oss;

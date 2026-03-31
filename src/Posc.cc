@@ -74,8 +74,16 @@ void PoscFileSystem::InitPosc() {
 			m_shutdown_requested = false;
 			m_shutdown_complete = false;
 		}
-		std::thread t(PoscFileSystem::ExpireThread, this);
-		t.detach();
+		try {
+			std::thread t(PoscFileSystem::ExpireThread, this);
+			t.detach();
+		} catch (const std::system_error &e) {
+			m_log->Emsg("Initialize",
+						"Failed to create expiry thread:", e.what());
+			std::unique_lock lock(m_shutdown_lock);
+			m_shutdown_complete = true;
+			m_expiry_thread_active.store(false);
+		}
 	}
 
 	m_log->Emsg("Initialize", "PoscFileSystem initialized");
@@ -98,8 +106,10 @@ int PoscFileSystem::Chmod(const char *path, mode_t mode, XrdOucEnv *env) {
 
 bool PoscFileSystem::Config(const char *configfn) {
 	m_log->setMsgMask(LogMask::Error | LogMask::Warning);
+	m_bypass_prefixes.clear();
 
-	XrdOucGatherConf poscConf("posc.prefix posc.trace", m_log.get());
+	XrdOucGatherConf poscConf("posc.prefix posc.trace posc.bypass",
+							  m_log.get());
 	int result;
 	if ((result = poscConf.Gather(configfn, XrdOucGatherConf::trim_lines)) <
 		0) {
@@ -150,6 +160,24 @@ bool PoscFileSystem::Config(const char *configfn) {
 							"posc.prefix posc_directory");
 				return false;
 			}
+		} else if (!strcmp(val, "bypass")) {
+			if (!(val = poscConf.GetToken())) {
+				m_log->Emsg("Config",
+							"posc.bypass requires at least one argument.  "
+							"Usage: posc.bypass path1 [path2] [...]");
+				return false;
+			}
+			do {
+				std::filesystem::path bp(val);
+				if (!bp.is_absolute()) {
+					m_log->Emsg("Config",
+								"posc.bypass paths must be absolute:", val);
+					return false;
+				}
+				m_bypass_prefixes.push_back(std::move(bp));
+				m_log->Log(LogMask::Info, "Config",
+						   "Added POSC bypass prefix:", val);
+			} while ((val = poscConf.GetToken()));
 		} else {
 			m_log->Emsg("Config", "Unknown configuration directive", val);
 			return false;
@@ -196,8 +224,11 @@ int PoscFileSystem::Create(const char *tid, const char *path, mode_t mode,
 	// POSC will handle the file creation in Open(), so we should NOT create
 	// the file here at the final destination. This prevents an empty file
 	// from appearing in the exported directory during upload.
+	//
+	// However, if the path is under a bypass prefix, we skip the POSC logic
+	// and let the create go through directly.
 	int open_flags = opts >> 8;
-	if (open_flags & (O_CREAT | O_TRUNC)) {
+	if ((open_flags & (O_CREAT | O_TRUNC)) && !InBypassPrefix(path)) {
 		m_log->Log(LogMask::Debug, "POSC",
 				   "Skipping Create for POSC-handled file:", path);
 		return 0;
@@ -371,9 +402,8 @@ void PoscFileSystem::ExpireUserFiles(XrdOucEnv &env) {
 	dp->Close();
 }
 
-bool PoscFileSystem::PathHasPrefix(
-	const std::filesystem::path &path,
-	const std::filesystem::path &prefix) {
+bool PoscFileSystem::PathHasPrefix(const std::filesystem::path &path,
+								   const std::filesystem::path &prefix) {
 	auto path_iter = path.begin();
 	for (auto pfx_iter = prefix.begin(); pfx_iter != prefix.end();
 		 ++pfx_iter, ++path_iter) {
@@ -392,6 +422,15 @@ bool PoscFileSystem::PathHasPrefix(
 
 bool PoscFileSystem::InPoscDir(const std::filesystem::path &path) const {
 	return PathHasPrefix(path, m_posc_dir);
+}
+
+bool PoscFileSystem::InBypassPrefix(const std::filesystem::path &path) const {
+	for (const auto &prefix : m_bypass_prefixes) {
+		if (PathHasPrefix(path, prefix)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 std::string PoscFileSystem::GeneratePoscFile(const char *path, XrdOucEnv &env) {
@@ -802,6 +841,16 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	}
 
 	if ((Oflag & (O_CREAT | O_TRUNC)) == 0) {
+		return wrapDF.Open(path, Oflag, Mode, env);
+	}
+
+	// If the path is under a bypass prefix, skip POSC and open directly.
+	// Clear any POSC state from a prior Open() on this reused PoscFile.
+	if (m_posc_fs.InBypassPrefix(path)) {
+		m_log.Log(LogMask::Debug, "POSC",
+				  "Bypassing POSC for path under bypass prefix:", path);
+		m_posc_filename.clear();
+		m_orig_filename.clear();
 		return wrapDF.Open(path, Oflag, Mode, env);
 	}
 

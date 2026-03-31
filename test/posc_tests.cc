@@ -28,6 +28,7 @@
 
 #include <chrono>
 #include <fcntl.h>
+#include <sstream>
 #include <string>
 #include <thread>
 
@@ -67,8 +68,8 @@ class TestPosc : public testing::Test {
 
 		m_logger = std::make_unique<XrdSysLogger>(2, 0);
 
-		m_default_oss = XrdOssDefaultSS(m_logger.get(),
-						GetConfigFile().c_str(), XrdOssDefault);
+		m_default_oss = XrdOssDefaultSS(m_logger.get(), GetConfigFile().c_str(),
+										XrdOssDefault);
 		ASSERT_NE(m_default_oss, nullptr)
 			<< "Failed to get default OSS instance";
 
@@ -85,6 +86,7 @@ class TestPosc : public testing::Test {
 	}
 
 	void TearDown() override {
+		m_posc_fs.reset();
 		if (!m_configfn.empty()) {
 			auto rv = unlink(m_configfn.c_str());
 			ASSERT_EQ(rv, 0) << "Failed to delete temp file ("
@@ -115,9 +117,10 @@ TEST_F(TestPosc, BasicFileVisibility) {
 	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
 
 	m_env.Put("oss.asize", "0");
-	fp->Open("/testfile.txt", O_CREAT | O_RDWR, 0644, m_env);
+	auto rv = fp->Open("/testfile.txt", O_CREAT | O_RDWR, 0644, m_env);
+	ASSERT_EQ(rv, 0) << "Failed to open file: " << strerror(-rv);
 
-	auto rv = m_posc_fs->Stat("/testfile.txt", nullptr, 0, &m_env);
+	rv = m_posc_fs->Stat("/testfile.txt", nullptr, 0, &m_env);
 	ASSERT_NE(rv, 0) << "Temporary file is visible";
 	ASSERT_EQ(rv, -ENOENT)
 		<< "Stat on not-visible file should have resulted in ENOENT: "
@@ -135,7 +138,8 @@ TEST_F(TestPosc, BasicFileVisibility) {
 
 	auto write_size = strlen("Hello, POSC!");
 	m_env.Put("oss.asize", std::to_string(write_size).c_str());
-	fp->Open("/testfile2.txt", O_CREAT | O_RDWR, 0644, m_env);
+	rv = fp->Open("/testfile2.txt", O_CREAT | O_RDWR, 0644, m_env);
+	ASSERT_EQ(rv, 0) << "Failed to open file: " << strerror(-rv);
 	ASSERT_EQ(fp->Write("Hello, POSC!", 0, write_size), write_size);
 
 	rv = m_posc_fs->Stat("/testfile2.txt", nullptr, 0, &m_env);
@@ -190,7 +194,8 @@ TEST_F(TestPosc, TempfileUpdate) {
 	std::unique_ptr<XrdOssDF> fp(m_posc_fs->newFile());
 	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
 
-	fp->Open("/testfile.txt", O_CREAT | O_RDWR, 0644, m_env);
+	auto rv = fp->Open("/testfile.txt", O_CREAT | O_RDWR, 0644, m_env);
+	ASSERT_EQ(rv, 0) << "Failed to open file: " << strerror(-rv);
 
 	auto pfp = dynamic_cast<PoscFile *>(fp.get());
 	ASSERT_NE(fp, nullptr)
@@ -201,7 +206,7 @@ TEST_F(TestPosc, TempfileUpdate) {
 		<< "POSC file is not opened in POSC mode";
 
 	struct stat buff;
-	auto rv = m_default_oss->Stat(posc_filename.c_str(), &buff, 0, &m_env);
+	rv = m_default_oss->Stat(posc_filename.c_str(), &buff, 0, &m_env);
 	ASSERT_EQ(rv, 0) << "Failed to stat underlying POSC file";
 
 #ifdef __APPLE__
@@ -293,3 +298,112 @@ TEST_F(TestPosc, AutoCreateParentDir) {
 	ASSERT_TRUE(S_ISREG(sb.st_mode)) << "Path should be a regular file";
 }
 
+// Test fixture with a bypass prefix configured
+class TestPoscBypass : public TestPosc {
+  protected:
+	std::string GetConfig() override {
+		std::stringstream ss;
+		ss << "oss.localroot " << m_temp_dir << "\n";
+		ss << "posc.prefix /posc_test\n"
+			  "posc.trace debug\n"
+			  "posc.bypass /monitoring /other/bypass\n";
+		return ss.str();
+	}
+};
+
+TEST_F(TestPoscBypass, BypassFileVisibleBeforeClose) {
+	// Create the monitoring directory first
+	auto rv = m_posc_fs->Mkdir("/monitoring", 0755, 1, &m_env);
+	ASSERT_EQ(rv, 0) << "Failed to create /monitoring dir: " << strerror(-rv);
+
+	std::unique_ptr<XrdOssDF> fp(m_posc_fs->newFile());
+	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
+
+	m_env.Put("oss.asize", "0");
+	rv = fp->Open("/monitoring/test.txt", O_CREAT | O_RDWR, 0644, m_env);
+	ASSERT_EQ(rv, 0) << "Open under bypass prefix should succeed: "
+					 << strerror(-rv);
+
+	// Under a bypass prefix, the file should be visible BEFORE close
+	// because POSC is not staging it through a temp file.
+	struct stat sb;
+	rv = m_posc_fs->Stat("/monitoring/test.txt", &sb, 0, &m_env);
+	ASSERT_EQ(rv, 0) << "Bypassed file should be visible before close: "
+					 << strerror(-rv);
+
+	ASSERT_EQ(fp->Close(), 0) << "Failed to close file";
+
+	rv = m_posc_fs->Stat("/monitoring/test.txt", &sb, 0, &m_env);
+	ASSERT_EQ(rv, 0) << "Bypassed file should exist after close: "
+					 << strerror(-rv);
+}
+
+TEST_F(TestPoscBypass, NonBypassStillUsesPosc) {
+	std::unique_ptr<XrdOssDF> fp(m_posc_fs->newFile());
+	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
+
+	m_env.Put("oss.asize", "0");
+	auto rv = fp->Open("/normalfile.txt", O_CREAT | O_RDWR, 0644, m_env);
+	ASSERT_EQ(rv, 0) << "Failed to open file: " << strerror(-rv);
+
+	// Normal (non-bypassed) files should NOT be visible before close
+	rv = m_posc_fs->Stat("/normalfile.txt", nullptr, 0, &m_env);
+	ASSERT_EQ(rv, -ENOENT) << "Non-bypassed file should be hidden before close";
+
+	ASSERT_EQ(fp->Close(), 0) << "Failed to close file";
+
+	struct stat sb;
+	rv = m_posc_fs->Stat("/normalfile.txt", &sb, 0, &m_env);
+	ASSERT_EQ(rv, 0) << "File should exist after close: " << strerror(-rv);
+}
+
+TEST_F(TestPoscBypass, BypassNestedPath) {
+	// Create the nested directory structure
+	auto rv = m_posc_fs->Mkdir("/monitoring/selfTest", 0755, 1, &m_env);
+	ASSERT_EQ(rv, 0) << "Failed to create dir: " << strerror(-rv);
+
+	std::unique_ptr<XrdOssDF> fp(m_posc_fs->newFile());
+	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
+
+	auto write_size = strlen("test content");
+	m_env.Put("oss.asize", std::to_string(write_size).c_str());
+	rv = fp->Open("/monitoring/selfTest/self-test-2026.txt", O_CREAT | O_RDWR,
+				  0644, m_env);
+	ASSERT_EQ(rv, 0) << "Open under nested bypass prefix should succeed: "
+					 << strerror(-rv);
+
+	ASSERT_EQ(fp->Write("test content", 0, write_size), write_size);
+
+	// Should be visible before close (bypassed)
+	struct stat sb;
+	rv = m_posc_fs->Stat("/monitoring/selfTest/self-test-2026.txt", &sb, 0,
+						 &m_env);
+	ASSERT_EQ(rv, 0) << "Nested bypassed file should be visible before close: "
+					 << strerror(-rv);
+
+	ASSERT_EQ(fp->Close(), 0) << "Failed to close file";
+}
+
+TEST_F(TestPoscBypass, BypassDoesNotMatchPartialComponent) {
+	std::unique_ptr<XrdOssDF> fp(m_posc_fs->newFile());
+	ASSERT_NE(fp, nullptr) << "Failed to create new file object";
+
+	// "/monitoringextra" should NOT match the bypass prefix "/monitoring"
+	// (path component matching, not string prefix matching)
+	auto rv = m_posc_fs->Mkdir("/monitoringextra", 0755, 1, &m_env);
+	ASSERT_EQ(rv, 0) << "Failed to create dir: " << strerror(-rv);
+
+	m_env.Put("oss.asize", "0");
+	rv = fp->Open("/monitoringextra/test.txt", O_CREAT | O_RDWR, 0644, m_env);
+	ASSERT_EQ(rv, 0) << "Failed to open file: " << strerror(-rv);
+
+	// Should NOT be visible before close (not a bypass match)
+	rv = m_posc_fs->Stat("/monitoringextra/test.txt", nullptr, 0, &m_env);
+	ASSERT_EQ(rv, -ENOENT) << "Partial component match should not bypass POSC";
+
+	ASSERT_EQ(fp->Close(), 0) << "Failed to close file";
+
+	struct stat sb;
+	rv = m_posc_fs->Stat("/monitoringextra/test.txt", &sb, 0, &m_env);
+	ASSERT_EQ(rv, 0) << "File should exist after close: " << strerror(-rv);
+}
