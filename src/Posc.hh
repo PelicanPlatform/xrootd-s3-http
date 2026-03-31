@@ -137,7 +137,7 @@ class PoscFileSystem final : public XrdOssWrapper {
 	static std::chrono::steady_clock::duration m_posc_file_timeout;
 
 	// Static members to manage the periodic cleanup of stale files.
-	static std::once_flag m_expiry_launch;
+	static std::atomic<bool> m_expiry_thread_active;
 	static std::mutex m_shutdown_lock;
 	static std::condition_variable m_shutdown_complete_cv;
 	static std::condition_variable m_shutdown_requested_cv;

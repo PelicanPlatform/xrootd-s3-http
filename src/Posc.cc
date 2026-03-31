@@ -41,7 +41,7 @@ std::chrono::steady_clock::duration PoscFile::m_posc_file_update =
 std::chrono::steady_clock::duration PoscFileSystem::m_posc_file_timeout =
 	std::chrono::hours(1);
 
-std::once_flag PoscFileSystem::m_expiry_launch;
+std::atomic<bool> PoscFileSystem::m_expiry_thread_active{false};
 std::mutex PoscFileSystem::m_shutdown_lock;
 std::condition_variable PoscFileSystem::m_shutdown_requested_cv;
 std::condition_variable PoscFileSystem::m_shutdown_complete_cv;
@@ -67,24 +67,30 @@ PoscFileSystem::PoscFileSystem(XrdOss *oss, std::unique_ptr<XrdSysError> log,
 }
 
 void PoscFileSystem::InitPosc() {
-	std::call_once(m_expiry_launch, [&] {
+	bool expected = false;
+	if (m_expiry_thread_active.compare_exchange_strong(expected, true)) {
 		{
 			std::unique_lock lock(m_shutdown_lock);
-			if (m_shutdown_requested) {
-				m_log->Emsg("Initialize",
-							"POSC expiry thread already requested shutdown");
-				return;
-			}
+			m_shutdown_requested = false;
 			m_shutdown_complete = false;
 		}
 		std::thread t(PoscFileSystem::ExpireThread, this);
 		t.detach();
-	});
+	}
 
 	m_log->Emsg("Initialize", "PoscFileSystem initialized");
 }
 
-PoscFileSystem::~PoscFileSystem() {}
+PoscFileSystem::~PoscFileSystem() {
+	// Signal the expiry thread to stop and wait for it, preventing
+	// use-after-free when this instance is destroyed.
+	std::unique_lock lock(m_shutdown_lock);
+	m_shutdown_requested = true;
+	m_shutdown_requested_cv.notify_one();
+	m_shutdown_complete_cv.wait(lock, [] { return m_shutdown_complete; });
+	// Allow the next PoscFileSystem instance to launch a new thread.
+	m_expiry_thread_active.store(false);
+}
 
 int PoscFileSystem::Chmod(const char *path, mode_t mode, XrdOucEnv *env) {
 	return VerifyPath(path, &XrdOss::Chmod, path, mode, env);
