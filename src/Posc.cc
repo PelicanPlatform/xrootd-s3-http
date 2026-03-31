@@ -1,6 +1,6 @@
 /***************************************************************
  *
- * Copyright (C) 2025, Pelican Project, Morgridge Institute for Research
+ * Copyright (C) 2026, Pelican Project, Morgridge Institute for Research
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License.  You may
@@ -669,16 +669,7 @@ PoscFile::~PoscFile() {
 		}
 	}
 
-	std::unique_lock lock(m_list_mutex);
-	if (m_prev) {
-		m_prev->m_next = m_next;
-	}
-	if (m_next) {
-		m_next->m_prev = m_prev;
-	}
-	if (m_first == this) {
-		m_first = m_next;
-	}
+	RemoveFromList();
 }
 
 void PoscFile::CopySecEntity(const XrdSecEntity &in) {
@@ -720,6 +711,14 @@ int PoscFile::Close(long long *retsz) {
 	if (m_posc_filename.empty()) {
 		return wrapDF.Close(retsz);
 	}
+
+	// Remove from the open-file tracking list before processing the close.
+	// This must happen before wrapDF.Close() to prevent a re-open on the
+	// same PoscFile from creating a self-referential cycle in the list:
+	// Open #1 adds to list → Close #1 (without removal) → Open #2 adds
+	// again with m_first==this → m_next=this → cycle → infinite loop in
+	// UpdateOpenFiles / dangling m_first after destruction.
+	RemoveFromList();
 
 	auto close_rv = wrapDF.Close(retsz);
 	if (close_rv) {
@@ -921,6 +920,21 @@ int PoscFile::pgWrite(XrdSfsAio *aioparm, uint64_t opts) {
 			std::memory_order_relaxed);
 	}
 	return wrapDF.pgWrite(aioparm, opts);
+}
+
+void PoscFile::RemoveFromList() {
+	std::unique_lock lock(m_list_mutex);
+	if (m_prev) {
+		m_prev->m_next = m_next;
+	}
+	if (m_next) {
+		m_next->m_prev = m_prev;
+	}
+	if (m_first == this) {
+		m_first = m_next;
+	}
+	m_prev = nullptr;
+	m_next = nullptr;
 }
 
 void PoscFile::UpdateOpenFiles() {

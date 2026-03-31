@@ -1,6 +1,6 @@
 /***************************************************************
  *
- * Copyright (C) 2025, Pelican Project, Morgridge Institute for Research
+ * Copyright (C) 2026, Pelican Project, Morgridge Institute for Research
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License.  You may
@@ -186,6 +186,7 @@ class PoscFile final : public XrdOssWrapDF {
 	virtual int Write(XrdSfsAio *aiop) override;
 
   private:
+	void RemoveFromList();
 	class XrdSecEntityAttrCopy final : public XrdSecEntityAttrCB {
 	  public:
 		XrdSecEntityAttrCopy(XrdSecEntityAttr &dest) : m_dest(dest) {}
