@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.6.5
+Version:        0.6.6
 Release:        1%{?dist}
 Summary:        S3/HTTP/Globus filesystem plugins for xrootd
 
@@ -59,6 +59,13 @@ rm %{buildroot}%{_libdir}/libXrdPelicanHttpCore.so
 %license LICENSE
 
 %changelog
+* Tue Mar 31 2026 Justin Hiemstra <jhiemstra@wisc.edu> - 0.6.6-1
+- Add configurable bypass prefixes for POSC plugin
+- Fix linked-list cycle bug in POSC open-file tracking
+- Fix use-after-free in POSC expiry thread lifecycle
+- Support mkdir for Globus OSS plugin
+- Create intermediate parent directories on upload to missing paths
+
 * Fri Feb 20 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.5-1
 - Build on EL8
 
