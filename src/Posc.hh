@@ -1,6 +1,6 @@
 /***************************************************************
  *
- * Copyright (C) 2025, Pelican Project, Morgridge Institute for Research
+ * Copyright (C) 2026, Pelican Project, Morgridge Institute for Research
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License.  You may
@@ -32,6 +32,7 @@
 #include <memory>
 #include <mutex>
 #include <string_view>
+#include <vector>
 
 // Forward declarations
 class XrdSysError;
@@ -69,7 +70,12 @@ class PoscFileSystem final : public XrdOssWrapper {
 	// no guarantee provided for uniqueness.
 	std::string GeneratePoscFile(const char *path, XrdOucEnv &env);
 
+	bool InBypassPrefix(const std::filesystem::path &path) const;
+
 	bool InPoscDir(const std::filesystem::path &path) const;
+
+	static bool PathHasPrefix(const std::filesystem::path &path,
+							  const std::filesystem::path &prefix);
 
 	void InitPosc();
 
@@ -128,6 +134,11 @@ class PoscFileSystem final : public XrdOssWrapper {
 	// written.
 	std::filesystem::path m_posc_dir;
 
+	// Path prefixes where POSC should be bypassed.
+	// Files under these prefixes are written directly to the final
+	// destination without going through the temp-file-and-rename flow.
+	std::vector<std::filesystem::path> m_bypass_prefixes;
+
 	// The underlying storage system we are wrapping.
 	XrdOss *m_oss;
 	std::unique_ptr<XrdSysError> m_log;
@@ -137,7 +148,7 @@ class PoscFileSystem final : public XrdOssWrapper {
 	static std::chrono::steady_clock::duration m_posc_file_timeout;
 
 	// Static members to manage the periodic cleanup of stale files.
-	static std::once_flag m_expiry_launch;
+	static std::atomic<bool> m_expiry_thread_active;
 	static std::mutex m_shutdown_lock;
 	static std::condition_variable m_shutdown_complete_cv;
 	static std::condition_variable m_shutdown_requested_cv;
@@ -186,6 +197,7 @@ class PoscFile final : public XrdOssWrapDF {
 	virtual int Write(XrdSfsAio *aiop) override;
 
   private:
+	void RemoveFromList();
 	class XrdSecEntityAttrCopy final : public XrdSecEntityAttrCB {
 	  public:
 		XrdSecEntityAttrCopy(XrdSecEntityAttr &dest) : m_dest(dest) {}

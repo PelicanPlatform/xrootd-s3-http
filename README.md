@@ -248,13 +248,14 @@ There are three configuration commands for the POSC module:
 ```
 posc.trace [all|error|warning|info|debug|none]
 posc.prefix posc_directory
+posc.bypass path1 [path2] [...]
 ```
 
  - `posc.trace`: Controls the logging verbosity of the module.  Can be specified multiple times
    (values are additive) and multiple values can be given per line.  Example:
 
    ```
-   filter.trace info
+   posc.trace info
    ```
 
    The default level is `warning`.
@@ -269,6 +270,25 @@ posc.prefix posc_directory
 
    The `posc.prefix` directory is not exported into the namespace; users will not be able to list
    its contents.
+
+ - `posc.bypass`: Specifies path prefixes that should bypass the POSC mechanism entirely.  Files
+   created under these paths will be written directly to their final location without staging
+   through the `posc.prefix` directory.  Can be specified multiple times (values are additive)
+   and multiple space-delimited paths can be given per line.
+
+   Path matching is done at path boundaries, not as string prefixes.  This means `/monitoring`
+   will match both `/monitoring` and `/monitoring/selfTest/probe.txt` but will NOT match
+   `/monitoringextra/probe.txt`.
+
+   Example:
+
+   ```
+   posc.bypass /pelican/monitoring /other/ephemeral
+   ```
+
+   This is useful for paths where the atomic-upload semantics are unnecessary (e.g., ephemeral
+   self-test or monitoring files) and where the temp-file-and-rename flow would interfere with
+   readers that need immediate visibility.
 
 Files in the `posc.prefix` directory will have the following structure:
 

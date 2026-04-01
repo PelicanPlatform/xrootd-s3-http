@@ -1,6 +1,6 @@
 /***************************************************************
  *
- * Copyright (C) 2025, Pelican Project, Morgridge Institute for Research
+ * Copyright (C) 2026, Pelican Project, Morgridge Institute for Research
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you
  * may not use this file except in compliance with the License.  You may
@@ -41,7 +41,7 @@ std::chrono::steady_clock::duration PoscFile::m_posc_file_update =
 std::chrono::steady_clock::duration PoscFileSystem::m_posc_file_timeout =
 	std::chrono::hours(1);
 
-std::once_flag PoscFileSystem::m_expiry_launch;
+std::atomic<bool> PoscFileSystem::m_expiry_thread_active{false};
 std::mutex PoscFileSystem::m_shutdown_lock;
 std::condition_variable PoscFileSystem::m_shutdown_requested_cv;
 std::condition_variable PoscFileSystem::m_shutdown_complete_cv;
@@ -67,24 +67,38 @@ PoscFileSystem::PoscFileSystem(XrdOss *oss, std::unique_ptr<XrdSysError> log,
 }
 
 void PoscFileSystem::InitPosc() {
-	std::call_once(m_expiry_launch, [&] {
+	bool expected = false;
+	if (m_expiry_thread_active.compare_exchange_strong(expected, true)) {
 		{
 			std::unique_lock lock(m_shutdown_lock);
-			if (m_shutdown_requested) {
-				m_log->Emsg("Initialize",
-							"POSC expiry thread already requested shutdown");
-				return;
-			}
+			m_shutdown_requested = false;
 			m_shutdown_complete = false;
 		}
-		std::thread t(PoscFileSystem::ExpireThread, this);
-		t.detach();
-	});
+		try {
+			std::thread t(PoscFileSystem::ExpireThread, this);
+			t.detach();
+		} catch (const std::system_error &e) {
+			m_log->Emsg("Initialize",
+						"Failed to create expiry thread:", e.what());
+			std::unique_lock lock(m_shutdown_lock);
+			m_shutdown_complete = true;
+			m_expiry_thread_active.store(false);
+		}
+	}
 
 	m_log->Emsg("Initialize", "PoscFileSystem initialized");
 }
 
-PoscFileSystem::~PoscFileSystem() {}
+PoscFileSystem::~PoscFileSystem() {
+	// Signal the expiry thread to stop and wait for it, preventing
+	// use-after-free when this instance is destroyed.
+	std::unique_lock lock(m_shutdown_lock);
+	m_shutdown_requested = true;
+	m_shutdown_requested_cv.notify_one();
+	m_shutdown_complete_cv.wait(lock, [] { return m_shutdown_complete; });
+	// Allow the next PoscFileSystem instance to launch a new thread.
+	m_expiry_thread_active.store(false);
+}
 
 int PoscFileSystem::Chmod(const char *path, mode_t mode, XrdOucEnv *env) {
 	return VerifyPath(path, &XrdOss::Chmod, path, mode, env);
@@ -92,8 +106,10 @@ int PoscFileSystem::Chmod(const char *path, mode_t mode, XrdOucEnv *env) {
 
 bool PoscFileSystem::Config(const char *configfn) {
 	m_log->setMsgMask(LogMask::Error | LogMask::Warning);
+	m_bypass_prefixes.clear();
 
-	XrdOucGatherConf poscConf("posc.prefix posc.trace", m_log.get());
+	XrdOucGatherConf poscConf("posc.prefix posc.trace posc.bypass",
+							  m_log.get());
 	int result;
 	if ((result = poscConf.Gather(configfn, XrdOucGatherConf::trim_lines)) <
 		0) {
@@ -144,6 +160,24 @@ bool PoscFileSystem::Config(const char *configfn) {
 							"posc.prefix posc_directory");
 				return false;
 			}
+		} else if (!strcmp(val, "bypass")) {
+			if (!(val = poscConf.GetToken())) {
+				m_log->Emsg("Config",
+							"posc.bypass requires at least one argument.  "
+							"Usage: posc.bypass path1 [path2] [...]");
+				return false;
+			}
+			do {
+				std::filesystem::path bp(val);
+				if (!bp.is_absolute()) {
+					m_log->Emsg("Config",
+								"posc.bypass paths must be absolute:", val);
+					return false;
+				}
+				m_bypass_prefixes.push_back(std::move(bp));
+				m_log->Log(LogMask::Info, "Config",
+						   "Added POSC bypass prefix:", val);
+			} while ((val = poscConf.GetToken()));
 		} else {
 			m_log->Emsg("Config", "Unknown configuration directive", val);
 			return false;
@@ -190,8 +224,11 @@ int PoscFileSystem::Create(const char *tid, const char *path, mode_t mode,
 	// POSC will handle the file creation in Open(), so we should NOT create
 	// the file here at the final destination. This prevents an empty file
 	// from appearing in the exported directory during upload.
+	//
+	// However, if the path is under a bypass prefix, we skip the POSC logic
+	// and let the create go through directly.
 	int open_flags = opts >> 8;
-	if (open_flags & (O_CREAT | O_TRUNC)) {
+	if ((open_flags & (O_CREAT | O_TRUNC)) && !InBypassPrefix(path)) {
 		m_log->Log(LogMask::Debug, "POSC",
 				   "Skipping Create for POSC-handled file:", path);
 		return 0;
@@ -365,22 +402,35 @@ void PoscFileSystem::ExpireUserFiles(XrdOucEnv &env) {
 	dp->Close();
 }
 
-bool PoscFileSystem::InPoscDir(const std::filesystem::path &path) const {
+bool PoscFileSystem::PathHasPrefix(const std::filesystem::path &path,
+								   const std::filesystem::path &prefix) {
 	auto path_iter = path.begin();
-	for (auto posc_dir_iter = m_posc_dir.begin();
-		 posc_dir_iter != m_posc_dir.end(); ++posc_dir_iter, ++path_iter) {
-		// The path has fewer components than our storage directory; hence it is
+	for (auto pfx_iter = prefix.begin(); pfx_iter != prefix.end();
+		 ++pfx_iter, ++path_iter) {
+		// The path has fewer components than the prefix; hence it is
 		// not contained inside.
 		if (path_iter == path.end()) {
 			return false;
 		}
-		if (*posc_dir_iter != *path_iter) {
+		if (*pfx_iter != *path_iter) {
 			return false;
 		}
 	}
-	// In this case, the path has more components than the POSC directory and
-	// all of the components match, so it is inside.
+	// All components of the prefix match the beginning of the path.
 	return true;
+}
+
+bool PoscFileSystem::InPoscDir(const std::filesystem::path &path) const {
+	return PathHasPrefix(path, m_posc_dir);
+}
+
+bool PoscFileSystem::InBypassPrefix(const std::filesystem::path &path) const {
+	for (const auto &prefix : m_bypass_prefixes) {
+		if (PathHasPrefix(path, prefix)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 std::string PoscFileSystem::GeneratePoscFile(const char *path, XrdOucEnv &env) {
@@ -669,16 +719,7 @@ PoscFile::~PoscFile() {
 		}
 	}
 
-	std::unique_lock lock(m_list_mutex);
-	if (m_prev) {
-		m_prev->m_next = m_next;
-	}
-	if (m_next) {
-		m_next->m_prev = m_prev;
-	}
-	if (m_first == this) {
-		m_first = m_next;
-	}
+	RemoveFromList();
 }
 
 void PoscFile::CopySecEntity(const XrdSecEntity &in) {
@@ -720,6 +761,14 @@ int PoscFile::Close(long long *retsz) {
 	if (m_posc_filename.empty()) {
 		return wrapDF.Close(retsz);
 	}
+
+	// Remove from the open-file tracking list before processing the close.
+	// This must happen before wrapDF.Close() to prevent a re-open on the
+	// same PoscFile from creating a self-referential cycle in the list:
+	// Open #1 adds to list → Close #1 (without removal) → Open #2 adds
+	// again with m_first==this → m_next=this → cycle → infinite loop in
+	// UpdateOpenFiles / dangling m_first after destruction.
+	RemoveFromList();
 
 	auto close_rv = wrapDF.Close(retsz);
 	if (close_rv) {
@@ -792,6 +841,16 @@ int PoscFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 	}
 
 	if ((Oflag & (O_CREAT | O_TRUNC)) == 0) {
+		return wrapDF.Open(path, Oflag, Mode, env);
+	}
+
+	// If the path is under a bypass prefix, skip POSC and open directly.
+	// Clear any POSC state from a prior Open() on this reused PoscFile.
+	if (m_posc_fs.InBypassPrefix(path)) {
+		m_log.Log(LogMask::Debug, "POSC",
+				  "Bypassing POSC for path under bypass prefix:", path);
+		m_posc_filename.clear();
+		m_orig_filename.clear();
 		return wrapDF.Open(path, Oflag, Mode, env);
 	}
 
@@ -921,6 +980,21 @@ int PoscFile::pgWrite(XrdSfsAio *aioparm, uint64_t opts) {
 			std::memory_order_relaxed);
 	}
 	return wrapDF.pgWrite(aioparm, opts);
+}
+
+void PoscFile::RemoveFromList() {
+	std::unique_lock lock(m_list_mutex);
+	if (m_prev) {
+		m_prev->m_next = m_next;
+	}
+	if (m_next) {
+		m_next->m_prev = m_prev;
+	}
+	if (m_first == this) {
+		m_first = m_next;
+	}
+	m_prev = nullptr;
+	m_next = nullptr;
 }
 
 void PoscFile::UpdateOpenFiles() {
