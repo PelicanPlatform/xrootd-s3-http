@@ -419,18 +419,24 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		m_log.Log(XrdHTTPServer::Debug, "Stat", ss.str().c_str());
 	}
 
-	// Some S3-compatible backends (e.g. OpenStack Swift) create
-	// zero-byte placeholder objects with a trailing '/' to represent
-	// directories.  Filter these out so they don't mask actual children,
-	// but remember if we removed one — it proves the directory exists.
-	auto origSize = objInfo.size();
-	objInfo.erase(std::remove_if(objInfo.begin(), objInfo.end(),
-								 [&object](const S3ObjectInfo &obj) {
-									 return obj.m_key == object &&
-											obj.m_size == 0;
-								 }),
-				  objInfo.end());
-	bool removedPlaceholder = (objInfo.size() < origSize);
+	// Filter out the "self" object whose key exactly matches the prefix
+	// we listed (e.g. "trailing/" when we listed prefix "trailing/").
+	// Only zero-byte self-objects count as directory placeholders
+	// (the OpenStack Swift convention); non-zero ones are anomalous
+	// trailing-slash keys that should result in ENOENT.
+	bool removedPlaceholder = false;
+	objInfo.erase(
+		std::remove_if(objInfo.begin(), objInfo.end(),
+					   [&object, &removedPlaceholder](const S3ObjectInfo &obj) {
+						   if (obj.m_key == object) {
+							   if (obj.m_size == 0) {
+								   removedPlaceholder = true;
+							   }
+							   return true;
+						   }
+						   return false;
+					   }),
+		objInfo.end());
 
 	if (!objInfo.size() && !commonPrefixes.size()) {
 		if (removedPlaceholder) {
