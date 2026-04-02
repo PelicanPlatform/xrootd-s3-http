@@ -62,10 +62,12 @@ int S3Directory::ListS3Dir(const std::string &ct) {
 				  "Failed to parse S3 results:", errMsg.c_str());
 		return -EIO;
 	}
-	// Some S3-compatible backends (e.g. OpenStack Swift) create zero-byte
-	// placeholder objects whose key equals the prefix (e.g. "dir/").  If
-	// Readdir encounters such an entry, it produces an empty filename which
-	// XRootD interprets as end-of-directory.  Filter them out.
+	// Filter out any object whose key exactly equals the listed prefix
+	// (e.g. "dir/" appearing inside a listing for prefix "dir/").  Such
+	// self-referencing entries produce an empty filename after trimming
+	// slashes, which XRootD interprets as end-of-directory.  This covers
+	// both zero-byte directory placeholders (OpenStack Swift convention)
+	// and any other object stored under the same key as the prefix.
 	m_objInfo.erase(std::remove_if(m_objInfo.begin(), m_objInfo.end(),
 								   [this](const S3ObjectInfo &obj) {
 									   return obj.m_key == m_object;

@@ -368,9 +368,10 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		}
 	}
 
-	// List the object name as a pseudo-directory.  Limit the results
-	// back to a single item (we're just looking to see if there's a
-	// common prefix here).
+	// List the object name as a pseudo-directory.  We request up to 2
+	// items: one potential zero-byte placeholder whose key equals the
+	// prefix (e.g. "dir/") and one child entry.  Two results let us
+	// distinguish an empty placeholder-only directory from a non-empty one.
 	AmazonS3List listCommand(*ai, object, 2, m_log);
 	res = listCommand.SendRequest("");
 	if (!res) {
