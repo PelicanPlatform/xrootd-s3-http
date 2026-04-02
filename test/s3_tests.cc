@@ -403,6 +403,26 @@ TEST(S3ListParsing, ContinuationToken) {
 	EXPECT_EQ(ct, "abc123");
 }
 
+TEST(S3ListParsing, DecodesUrlEncodedContinuationToken) {
+	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>true</IsTruncated>
+  <NextContinuationToken>path%2Fto%2Fkey</NextContinuationToken>
+  <Contents>
+    <Key>foo/bar.txt</Key>
+    <Size>10</Size>
+  </Contents>
+</ListBucketResult>)";
+
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	ASSERT_TRUE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err))
+		<< err;
+	EXPECT_EQ(ct, "path/to/key");
+}
+
 TEST(S3ListParsing, ContinuationTokenClearedWhenNotTruncated) {
 	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
 <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">

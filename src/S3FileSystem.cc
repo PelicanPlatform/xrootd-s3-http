@@ -240,13 +240,10 @@ XrdOssDF *S3FileSystem::newFile(const char *user) {
 // In this case, `Stat` of `/foo` will return a file so walking the
 // bucket will miss `/foo/bar.txt`
 //
-// We will also return an ENOENT for objects with a trailing `/`.  So,
-// if there's a single object in the bucket:
-//
-// - /foo/bar.txt/
-//
-// then a `Stat` of `/foo/bar.txt` and `/foo/bar.txt/` will both return
-// `-ENOENT`.
+// Objects with a trailing `/` are treated as directory placeholders
+// (as created by OpenStack Swift and some S3 tools).  A `Stat` of the
+// corresponding path will report a directory if the placeholder has
+// children, or a genuine zero-byte file otherwise.
 int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 					   XrdOucEnv *env) {
 	m_log.Log(XrdHTTPServer::Debug, "Stat", "Stat'ing path", path);

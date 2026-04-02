@@ -806,6 +806,7 @@ bool AmazonS3List::ParseListBucketResult(
 			if (ctChar) {
 				ct = ctChar;
 				trim(ct);
+				ct = urlunquote(ct);
 			}
 		}
 	}
