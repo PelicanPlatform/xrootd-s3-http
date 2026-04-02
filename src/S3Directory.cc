@@ -25,6 +25,7 @@
 
 #include <tinyxml2.h>
 
+#include <algorithm>
 #include <sstream>
 
 void S3Directory::Reset() {
@@ -61,6 +62,16 @@ int S3Directory::ListS3Dir(const std::string &ct) {
 				  "Failed to parse S3 results:", errMsg.c_str());
 		return -EIO;
 	}
+	// Some S3-compatible backends (e.g. OpenStack Swift) create zero-byte
+	// placeholder objects whose key equals the prefix (e.g. "dir/").  If
+	// Readdir encounters such an entry, it produces an empty filename which
+	// XRootD interprets as end-of-directory.  Filter them out.
+	m_objInfo.erase(
+		std::remove_if(
+			m_objInfo.begin(), m_objInfo.end(),
+			[this](const S3ObjectInfo &obj) { return obj.m_key == m_object; }),
+		m_objInfo.end());
+
 	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
 		std::stringstream ss;
 		ss << "Directory listing returned " << m_objInfo.size()

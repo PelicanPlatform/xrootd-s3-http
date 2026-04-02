@@ -294,24 +294,44 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	// a 404 response, then we will assume it may be a directory.
 	AmazonS3Head headCommand = AmazonS3Head(*ai, object, m_log);
 	auto res = headCommand.SendRequest();
+	// zeroByteFile is set when HEAD returns 200 with a zero-byte body that
+	// is not our own dir marker.  Some S3-compatible backends (e.g. OpenStack
+	// Swift) create zero-byte placeholder objects to represent directories.
+	// We fall through to the list-based check to decide, and if the list
+	// returns nothing we treat the object as a genuine zero-byte file.
+	bool zeroByteFile = false;
 	if (res) {
-		if (buff) {
-			memset(buff, '\0', sizeof(struct stat));
-			if (object == m_dir_marker_name) {
+		if (object == m_dir_marker_name) {
+			if (buff) {
+				memset(buff, '\0', sizeof(struct stat));
 				buff->st_mode = 0700 | S_IFDIR;
 				buff->st_size = 4096;
 				buff->st_nlink = 0;
-			} else {
+				buff->st_uid = buff->st_gid = 1;
+				buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+				buff->st_dev = 0;
+				buff->st_ino = 1;
+			}
+			return 0;
+		} else if (headCommand.getSize() > 0) {
+			// Non-empty object: unambiguously a regular file.
+			if (buff) {
+				memset(buff, '\0', sizeof(struct stat));
 				buff->st_mode = 0600 | S_IFREG;
 				buff->st_size = headCommand.getSize();
 				buff->st_nlink = 1;
+				buff->st_uid = buff->st_gid = 1;
+				buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+				buff->st_dev = 0;
+				buff->st_ino = 1;
 			}
-			buff->st_uid = buff->st_gid = 1;
-			buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
-			buff->st_dev = 0;
-			buff->st_ino = 1;
+			return 0;
+		} else {
+			// Zero-byte object: could be a directory placeholder.
+			// Fall through to the list-based check.
+			zeroByteFile = true;
+			object = object + "/";
 		}
-		return 0;
 	} else {
 		auto httpCode = headCommand.getResponseCode();
 		if (httpCode == 0) {
@@ -354,7 +374,7 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	// List the object name as a pseudo-directory.  Limit the results
 	// back to a single item (we're just looking to see if there's a
 	// common prefix here).
-	AmazonS3List listCommand(*ai, object, 1, m_log);
+	AmazonS3List listCommand(*ai, object, 2, m_log);
 	res = listCommand.SendRequest("");
 	if (!res) {
 		auto httpCode = listCommand.getResponseCode();
@@ -402,23 +422,46 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 		m_log.Log(XrdHTTPServer::Debug, "Stat", ss.str().c_str());
 	}
 
-	// Recall we queried for 'object name' + '/'; as in, 'foo/'
-	// instead of 'foo'.
-	// If there's an object name with a trailing '/', then we
-	// aren't able to open it or otherwise represent it within
-	// XRootD.  Hence, we just pretend it doesn't exist.
-	bool foundObj = false;
-	for (const auto &obj : objInfo) {
-		if (obj.m_key == object) {
-			foundObj = true;
-			break;
-		}
-	}
-	if (foundObj) {
-		return -ENOENT;
-	}
+	// Some S3-compatible backends (e.g. OpenStack Swift) create
+	// zero-byte placeholder objects with a trailing '/' to represent
+	// directories.  Filter these out so they don't mask actual children,
+	// but remember if we removed one — it proves the directory exists.
+	auto origSize = objInfo.size();
+	objInfo.erase(
+		std::remove_if(objInfo.begin(), objInfo.end(),
+			[&object](const S3ObjectInfo &obj) { return obj.m_key == object; }),
+		objInfo.end());
+	bool removedPlaceholder = (objInfo.size() < origSize);
 
 	if (!objInfo.size() && !commonPrefixes.size()) {
+		if (removedPlaceholder) {
+			// The placeholder proves this is a real (empty) directory.
+			if (buff) {
+				memset(buff, '\0', sizeof(struct stat));
+				buff->st_mode = 0700 | S_IFDIR;
+				buff->st_nlink = 0;
+				buff->st_uid = buff->st_gid = 1;
+				buff->st_size = 4096;
+				buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+				buff->st_dev = 0;
+				buff->st_ino = 1;
+			}
+			return 0;
+		}
+		if (zeroByteFile) {
+			// No children found: the zero-byte object is a genuine file.
+			if (buff) {
+				memset(buff, '\0', sizeof(struct stat));
+				buff->st_mode = 0600 | S_IFREG;
+				buff->st_size = 0;
+				buff->st_nlink = 1;
+				buff->st_uid = buff->st_gid = 1;
+				buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+				buff->st_dev = 0;
+				buff->st_ino = 1;
+			}
+			return 0;
+		}
 		return -ENOENT;
 	}
 
