@@ -427,10 +427,11 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	// directories.  Filter these out so they don't mask actual children,
 	// but remember if we removed one — it proves the directory exists.
 	auto origSize = objInfo.size();
-	objInfo.erase(
-		std::remove_if(objInfo.begin(), objInfo.end(),
-			[&object](const S3ObjectInfo &obj) { return obj.m_key == object; }),
-		objInfo.end());
+	objInfo.erase(std::remove_if(objInfo.begin(), objInfo.end(),
+								 [&object](const S3ObjectInfo &obj) {
+									 return obj.m_key == object;
+								 }),
+				  objInfo.end());
 	bool removedPlaceholder = (objInfo.size() < origSize);
 
 	if (!objInfo.size() && !commonPrefixes.size()) {

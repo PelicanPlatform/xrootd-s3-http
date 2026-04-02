@@ -66,11 +66,11 @@ int S3Directory::ListS3Dir(const std::string &ct) {
 	// placeholder objects whose key equals the prefix (e.g. "dir/").  If
 	// Readdir encounters such an entry, it produces an empty filename which
 	// XRootD interprets as end-of-directory.  Filter them out.
-	m_objInfo.erase(
-		std::remove_if(
-			m_objInfo.begin(), m_objInfo.end(),
-			[this](const S3ObjectInfo &obj) { return obj.m_key == m_object; }),
-		m_objInfo.end());
+	m_objInfo.erase(std::remove_if(m_objInfo.begin(), m_objInfo.end(),
+								   [this](const S3ObjectInfo &obj) {
+									   return obj.m_key == m_object;
+								   }),
+					m_objInfo.end());
 
 	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
 		std::stringstream ss;
