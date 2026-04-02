@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <filesystem>
 #include <string>
 
@@ -160,7 +161,10 @@ std::string urlquote(const std::string input) {
 		{
 			output += val;
 		} else {
-			output += "%" + std::to_string(val);
+			char buf[4];
+			snprintf(buf, sizeof(buf), "%%%02X",
+					 static_cast<unsigned char>(val));
+			output += buf;
 		}
 	}
 	return output;
