@@ -426,7 +426,8 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 	auto origSize = objInfo.size();
 	objInfo.erase(std::remove_if(objInfo.begin(), objInfo.end(),
 								 [&object](const S3ObjectInfo &obj) {
-									 return obj.m_key == object;
+									 return obj.m_key == object &&
+											obj.m_size == 0;
 								 }),
 				  objInfo.end());
 	bool removedPlaceholder = (objInfo.size() < origSize);
