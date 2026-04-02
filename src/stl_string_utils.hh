@@ -46,6 +46,11 @@ int formatstr_cat(std::string &s, const char *format, ...)
 // ASCII representation (e.g., ' ' becomes %20)
 std::string urlquote(const std::string input);
 
+// Given a percent-encoded input string, decode it back to the
+// original value.  Invalid percent sequences (e.g., '%GG') are
+// passed through unchanged.
+std::string urlunquote(const std::string &input);
+
 // Trim the slash(es) from a given object name
 //
 // foo/bar/ -> foo/bar

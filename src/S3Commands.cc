@@ -701,8 +701,15 @@ bool AmazonS3CreateMultipartUpload::Results(std::string &uploadId,
 bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 						   std::vector<std::string> &commonPrefixes,
 						   std::string &ct, std::string &errMsg) {
+	return ParseListBucketResult(m_result, objInfo, commonPrefixes, ct, errMsg);
+}
+
+bool AmazonS3List::ParseListBucketResult(
+	const std::string &xml, std::vector<S3ObjectInfo> &objInfo,
+	std::vector<std::string> &commonPrefixes, std::string &ct,
+	std::string &errMsg) {
 	tinyxml2::XMLDocument doc;
-	auto err = doc.Parse(m_result.c_str());
+	auto err = doc.Parse(xml.c_str());
 	if (err != tinyxml2::XML_SUCCESS) {
 		errMsg = doc.ErrorStr();
 		return false;
@@ -764,6 +771,7 @@ bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 				if (prefixChar != nullptr) {
 					auto prefixStr = std::string(prefixChar);
 					trim(prefixStr);
+					prefixStr = urlunquote(prefixStr);
 					if (!prefixStr.empty()) {
 						commonPrefixes.emplace_back(prefixStr);
 					}
@@ -779,6 +787,7 @@ bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 				if (keyChar != nullptr) {
 					keyStr = std::string(keyChar);
 					trim(keyStr);
+					keyStr = urlunquote(keyStr);
 				}
 			}
 			auto sizeElem = child->FirstChildElement("Size");
