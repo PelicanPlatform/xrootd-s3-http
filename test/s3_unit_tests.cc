@@ -482,6 +482,84 @@ TEST_F(FileSystemS3Fixture, InvalidObject) {
 	ASSERT_EQ(fs.Stat("/test/trailing/", &buf, 0, nullptr), -ENOENT);
 }
 
+TEST_F(FileSystemS3Fixture, ZeroByteDirectoryPlaceholder) {
+	// Use the S3 upload API directly to create zero-byte placeholder objects
+	// with trailing-slash keys, bypassing XRootD path normalization.
+	auto oss = GetFS();
+	std::string exposedPath, object;
+	ASSERT_EQ(oss->parsePath("/test/dummy", exposedPath, object), 0);
+
+	XrdSysLogger log;
+	XrdSysError err(&log, "test");
+
+	// Case 1: empty placeholder only — Stat should report a directory.
+	{
+		std::string key = "phdir1/";
+		auto ai = oss->getS3AccessInfo(exposedPath, key);
+		ASSERT_NE(ai, nullptr);
+		ASSERT_TRUE(AmazonS3Upload(*ai, key, err).SendRequest(""));
+	}
+	struct stat buf;
+	ASSERT_EQ(oss->Stat("/test/phdir1", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	// Case 2: placeholder + child file — Stat should still report a
+	// directory.
+	{
+		std::string key = "phdir2/";
+		auto ai = oss->getS3AccessInfo(exposedPath, key);
+		ASSERT_NE(ai, nullptr);
+		ASSERT_TRUE(AmazonS3Upload(*ai, key, err).SendRequest(""));
+	}
+	WritePattern("/test/phdir2/child.txt", 10, 'a', 10, true);
+	ASSERT_EQ(oss->Stat("/test/phdir2", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFDIR, S_IFDIR);
+
+	// Case 3: genuine zero-byte regular file (no trailing slash) — Stat
+	// should report a regular file with size 0.
+	WritePattern("/test/zerobyte_ph.txt", 0, 'a', 1, true);
+	ASSERT_EQ(oss->Stat("/test/zerobyte_ph.txt", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
+	ASSERT_EQ(buf.st_size, 0);
+}
+
+TEST_F(FileSystemS3Fixture, ReadirSkipsPlaceholder) {
+	// A zero-byte "dir/" placeholder appearing before its children in a
+	// ListObjectsV2 result used to produce an empty Readdir filename, which
+	// XRootD interprets as end-of-directory, hiding all children.  Verify
+	// the placeholder is filtered and children are still returned.
+	auto oss = GetFS();
+	std::string exposedPath, object;
+	ASSERT_EQ(oss->parsePath("/test/dummy", exposedPath, object), 0);
+
+	XrdSysLogger log;
+	XrdSysError err(&log, "test");
+
+	std::string key = "pldir/";
+	auto ai = oss->getS3AccessInfo(exposedPath, key);
+	ASSERT_NE(ai, nullptr);
+	ASSERT_TRUE(AmazonS3Upload(*ai, key, err).SendRequest(""));
+	WritePattern("/test/pldir/child.txt", 10, 'a', 10, true);
+
+	std::unique_ptr<XrdOssDF> dir(oss->newDir());
+	XrdOucEnv env;
+	ASSERT_EQ(dir->Opendir("/test/pldir", env), 0);
+
+	struct stat buf;
+	ASSERT_EQ(dir->StatRet(&buf), 0);
+
+	std::vector<char> name(255);
+	ASSERT_EQ(dir->Readdir(&name[0], 255), 0);
+	ASSERT_EQ(std::string(&name[0]), "child.txt");
+
+	// The next Readdir should signal end-of-directory with an empty name,
+	// not have been cut short by the placeholder entry.
+	ASSERT_EQ(dir->Readdir(&name[0], 255), 0);
+	ASSERT_EQ(std::string(&name[0]), "");
+
+	ASSERT_EQ(dir->Close(), 0);
+}
+
 // Check out the logic of the overlap copy routine.
 std::tuple<off_t, size_t, off_t, size_t>
 OverlapCopy(off_t req_off, size_t req_size, char *req_buf, off_t cache_off,

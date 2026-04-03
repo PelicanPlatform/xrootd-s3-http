@@ -359,6 +359,10 @@ class AmazonS3List final : public AmazonRequest {
 	virtual ~AmazonS3List() {}
 
 	bool SendRequest(const std::string &continuationToken);
+	static bool ParseListBucketResult(const std::string &xml,
+									  std::vector<S3ObjectInfo> &objInfo,
+									  std::vector<std::string> &commonPrefixes,
+									  std::string &ct, std::string &errMsg);
 	bool Results(std::vector<S3ObjectInfo> &objInfo,
 				 std::vector<std::string> &commonPrefixes, std::string &ct,
 				 std::string &errMsg);

@@ -18,6 +18,7 @@
 
 #include "../src/S3Commands.hh"
 #include "../src/S3FileSystem.hh"
+#include "../src/stl_string_utils.hh"
 #include "s3_tests_common.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
@@ -271,6 +272,196 @@ TEST_F(FileSystemS3PathBucketSlash, Stat) {
 TEST_F(FileSystemS3PathBucketSlash, List) {
 	S3FileSystem fs(m_log.get(), m_configfn.c_str(), nullptr);
 	TestDirectoryContents(fs, "/test/cells/tabula-sapiens");
+}
+
+// ---------------------------------------------------------------------------
+// urlquote / urlunquote round-trip and correctness tests
+// ---------------------------------------------------------------------------
+
+TEST(UrlEncoding, QuoteProducesUppercaseHex) {
+	// Space should become %20, not %32 (which was the old decimal bug)
+	auto result = urlquote("hello world");
+	EXPECT_EQ(result, "hello%20world");
+}
+
+TEST(UrlEncoding, QuotePreservesUnreservedChars) {
+	// Letters, digits, and _.-~/ should pass through unchanged
+	std::string unreserved = "abcXYZ019_.-~/";
+	EXPECT_EQ(urlquote(unreserved), unreserved);
+}
+
+TEST(UrlEncoding, QuoteEncodesSpecialChars) {
+	EXPECT_EQ(urlquote("a&b<c>d"), "a%26b%3Cc%3Ed");
+}
+
+TEST(UrlEncoding, UnquoteDecodesPercents) {
+	EXPECT_EQ(urlunquote("hello%20world"), "hello world");
+	EXPECT_EQ(urlunquote("foo%2Fbar"), "foo/bar");
+	EXPECT_EQ(urlunquote("%26%3C%3E"), "&<>");
+}
+
+TEST(UrlEncoding, UnquoteLowerAndUpperHex) {
+	EXPECT_EQ(urlunquote("%2f"), "/");
+	EXPECT_EQ(urlunquote("%2F"), "/");
+}
+
+TEST(UrlEncoding, UnquotePassesThroughInvalidSequences) {
+	// Incomplete percent sequence at end of string
+	EXPECT_EQ(urlunquote("abc%2"), "abc%2");
+	// Invalid hex chars
+	EXPECT_EQ(urlunquote("abc%GG"), "abc%GG");
+	// Bare percent
+	EXPECT_EQ(urlunquote("100%"), "100%");
+}
+
+TEST(UrlEncoding, RoundTrip) {
+	std::string original = "path/to/file with spaces & ampersands.txt";
+	EXPECT_EQ(urlunquote(urlquote(original)), original);
+}
+
+// ---------------------------------------------------------------------------
+// ParseListBucketResult tests
+// ---------------------------------------------------------------------------
+
+TEST(S3ListParsing, BasicKeysAndPrefixes) {
+	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>false</IsTruncated>
+  <Contents>
+    <Key>testfolder/file1.txt</Key>
+    <Size>42</Size>
+  </Contents>
+  <Contents>
+    <Key>testfolder/file2.txt</Key>
+    <Size>100</Size>
+  </Contents>
+  <CommonPrefixes>
+    <Prefix>testfolder/subdir/</Prefix>
+  </CommonPrefixes>
+</ListBucketResult>)";
+
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	ASSERT_TRUE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err))
+		<< err;
+	ASSERT_EQ(objs.size(), 2);
+	EXPECT_EQ(objs[0].m_key, "testfolder/file1.txt");
+	EXPECT_EQ(objs[0].m_size, 42);
+	EXPECT_EQ(objs[1].m_key, "testfolder/file2.txt");
+	EXPECT_EQ(objs[1].m_size, 100);
+	ASSERT_EQ(prefixes.size(), 1);
+	EXPECT_EQ(prefixes[0], "testfolder/subdir/");
+	EXPECT_TRUE(ct.empty());
+}
+
+TEST(S3ListParsing, DecodesUrlEncodedKeysAndPrefixes) {
+	// Simulates encoding-type=url response from S3 where keys/prefixes
+	// contain percent-encoded characters
+	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>false</IsTruncated>
+  <Contents>
+    <Key>testfolder%2Ffile%201.txt</Key>
+    <Size>42</Size>
+  </Contents>
+  <CommonPrefixes>
+    <Prefix>testfolder%2Fsubdir%2F</Prefix>
+  </CommonPrefixes>
+</ListBucketResult>)";
+
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	ASSERT_TRUE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err))
+		<< err;
+	ASSERT_EQ(objs.size(), 1);
+	EXPECT_EQ(objs[0].m_key, "testfolder/file 1.txt");
+	ASSERT_EQ(prefixes.size(), 1);
+	EXPECT_EQ(prefixes[0], "testfolder/subdir/");
+}
+
+TEST(S3ListParsing, ContinuationToken) {
+	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>true</IsTruncated>
+  <NextContinuationToken>abc123</NextContinuationToken>
+  <Contents>
+    <Key>foo/bar.txt</Key>
+    <Size>10</Size>
+  </Contents>
+</ListBucketResult>)";
+
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	ASSERT_TRUE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err))
+		<< err;
+	EXPECT_EQ(ct, "abc123");
+}
+
+TEST(S3ListParsing, DecodesUrlEncodedContinuationToken) {
+	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>true</IsTruncated>
+  <NextContinuationToken>path%2Fto%2Fkey</NextContinuationToken>
+  <Contents>
+    <Key>foo/bar.txt</Key>
+    <Size>10</Size>
+  </Contents>
+</ListBucketResult>)";
+
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	ASSERT_TRUE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err))
+		<< err;
+	EXPECT_EQ(ct, "path/to/key");
+}
+
+TEST(S3ListParsing, ContinuationTokenClearedWhenNotTruncated) {
+	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>false</IsTruncated>
+  <NextContinuationToken>leftover</NextContinuationToken>
+  <Contents>
+    <Key>obj</Key>
+    <Size>1</Size>
+  </Contents>
+</ListBucketResult>)";
+
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	ASSERT_TRUE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err))
+		<< err;
+	EXPECT_TRUE(ct.empty());
+}
+
+TEST(S3ListParsing, InvalidXml) {
+	std::string xml = "this is not xml at all";
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	EXPECT_FALSE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err));
+	EXPECT_FALSE(err.empty());
+}
+
+TEST(S3ListParsing, WrongRootElement) {
+	std::string xml = R"(<?xml version="1.0"?>
+<Error><Code>NoSuchBucket</Code></Error>)";
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	EXPECT_FALSE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err));
+	EXPECT_NE(err.find("ListBucketResult"), std::string::npos);
 }
 
 int main(int argc, char **argv) {

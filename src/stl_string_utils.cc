@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
 #include <filesystem>
 #include <string>
 
@@ -160,8 +161,39 @@ std::string urlquote(const std::string input) {
 		{
 			output += val;
 		} else {
-			output += "%" + std::to_string(val);
+			char buf[4];
+			snprintf(buf, sizeof(buf), "%%%02X",
+					 static_cast<unsigned char>(val));
+			output += buf;
 		}
+	}
+	return output;
+}
+
+static int hexval(char c) {
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	return -1;
+}
+
+std::string urlunquote(const std::string &input) {
+	std::string output;
+	output.reserve(input.size());
+	for (size_t i = 0; i < input.size(); ++i) {
+		if (input[i] == '%' && i + 2 < input.size()) {
+			int hi = hexval(input[i + 1]);
+			int lo = hexval(input[i + 2]);
+			if (hi >= 0 && lo >= 0) {
+				output += static_cast<char>((hi << 4) | lo);
+				i += 2;
+				continue;
+			}
+		}
+		output += input[i];
 	}
 	return output;
 }

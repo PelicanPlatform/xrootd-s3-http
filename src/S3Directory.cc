@@ -25,6 +25,7 @@
 
 #include <tinyxml2.h>
 
+#include <algorithm>
 #include <sstream>
 
 void S3Directory::Reset() {
@@ -61,6 +62,18 @@ int S3Directory::ListS3Dir(const std::string &ct) {
 				  "Failed to parse S3 results:", errMsg.c_str());
 		return -EIO;
 	}
+	// Filter out any object whose key exactly equals the listed prefix
+	// (e.g. "dir/" appearing inside a listing for prefix "dir/").  Such
+	// self-referencing entries produce an empty filename after trimming
+	// slashes, which XRootD interprets as end-of-directory.  This covers
+	// both zero-byte directory placeholders (OpenStack Swift convention)
+	// and any other object stored under the same key as the prefix.
+	m_objInfo.erase(std::remove_if(m_objInfo.begin(), m_objInfo.end(),
+								   [this](const S3ObjectInfo &obj) {
+									   return obj.m_key == m_object;
+								   }),
+					m_objInfo.end());
+
 	if (m_log.getMsgMask() & XrdHTTPServer::Debug) {
 		std::stringstream ss;
 		ss << "Directory listing returned " << m_objInfo.size()
