@@ -163,19 +163,9 @@ int HTTPDirectory::Readdir(char *buff, int blen) {
 
 int HTTPDirectory::Opendir(const char *path, XrdOucEnv &env) {
 	m_log.Log(LogMask::Debug, "HTTPDirectory::Opendir", "Opendir called");
-	auto configured_hostname = m_oss.getHTTPHostName();
-	auto configured_hostUrl = m_oss.getHTTPHostUrl();
-	const auto &configured_url_base = m_oss.getHTTPUrlBase();
-	if (!configured_url_base.empty()) {
-		configured_hostUrl = configured_url_base;
-		configured_hostname = m_oss.getStoragePrefix();
-	}
-
-	//
-	// Check the path for validity.
-	//
+	const HTTPFileSystem::HTTPRouteConfig *route = nullptr;
 	std::string object;
-	int rv = parse_path(m_oss.getHTTPHostName(), path, object);
+	int rv = m_oss.ResolvePath(path, route, object);
 
 	if (rv != 0) {
 		return rv;
@@ -183,11 +173,13 @@ int HTTPDirectory::Opendir(const char *path, XrdOucEnv &env) {
 
 	if (m_remoteList.empty()) {
 		m_log.Log(LogMask::Debug, "HTTPFile::Opendir", "Opendir called");
-		HTTPList list(configured_hostUrl, object, m_log, m_oss.getToken());
+		std::string configured_hostUrl =
+			!route->url_base.empty() ? route->url_base : route->host_url;
+		HTTPList list(configured_hostUrl, object, m_log, route->token.get());
 		m_log.Log(LogMask::Debug, "HTTPDirectory::Opendir",
 				  "About to perform download from HTTPDirectory::Opendir(): "
 				  "hostname / object:",
-				  configured_hostname.c_str(), object.c_str());
+				  route->matchPrefix().c_str(), object.c_str());
 		if (!list.SendRequest()) {
 			std::stringstream ss;
 			ss << "Failed to send GetObject command: " << list.getResponseCode()

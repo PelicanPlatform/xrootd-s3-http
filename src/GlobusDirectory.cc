@@ -49,19 +49,20 @@ void GlobusDirectory::Reset() {
 	m_directories.clear();
 	m_stat_buf = nullptr;
 	m_object = "";
+	m_route = nullptr;
 }
 
 int GlobusDirectory::ListGlobusDir() {
 	m_log.Log(XrdHTTPServer::Debug, "GlobusDirectory::ListGlobusDir",
 			  "Listing directory:", m_object.c_str());
 
-	auto token = m_fs.getTransferToken();
-	if (!token) {
+	if (!m_route || !m_route->transfer_token) {
 		m_log.Emsg("Listing", "Failed to get transfer token");
 		return -ENOENT;
 	}
+	auto token = m_route->transfer_token.get();
 
-	HTTPDownload listCommand(m_fs.getLsUrl(), m_object, m_log, token);
+	HTTPDownload listCommand(m_fs.getLsUrl(*m_route), m_object, m_log, token);
 	if (!listCommand.SendRequest(0, 0)) {
 		return HTTPRequest::HandleHTTPError(
 			listCommand, m_log, "Globus directory listing", m_object.c_str());
@@ -122,20 +123,16 @@ int GlobusDirectory::Opendir(const char *path, XrdOucEnv &env) {
 		realPath = realPath + "/";
 	}
 
-	std::string storagePrefix = m_fs.getStoragePrefix();
-	std::string object;
-
-	if (realPath.find(storagePrefix) == 0) {
-		object = realPath.substr(storagePrefix.length());
-	} else {
-		object = realPath;
+	std::string relative_path;
+	int rv = m_fs.ResolvePath(realPath, m_route, relative_path);
+	if (rv != 0) {
+		return rv;
+	}
+	if (!relative_path.empty() && relative_path[0] == '/') {
+		relative_path = relative_path.substr(1);
 	}
 
-	if (!object.empty() && object[0] == '/') {
-		object = object.substr(1);
-	}
-
-	m_object = object;
+	m_object = relative_path;
 
 	return ListGlobusDir();
 }
