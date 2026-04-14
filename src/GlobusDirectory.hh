@@ -57,9 +57,9 @@ class GlobusDirectory : public XrdOssDF {
 	ssize_t m_idx{0};
 	std::vector<GlobusObjectInfo> m_objInfo;
 	std::vector<GlobusObjectInfo> m_directories;
-	std::string m_prefix;
 	std::string m_object;
 	XrdSysError &m_log;
 	const GlobusFileSystem &m_fs;
+	const GlobusFileSystem::GlobusRouteConfig *m_route{nullptr};
 	struct stat *m_stat_buf{nullptr};
 };

@@ -40,9 +40,43 @@
 
 using namespace XrdHTTPServer;
 
+namespace {
+
+std::string normalize_http_prefix(const std::string &prefix) {
+	if (prefix.empty() || prefix[0] == '/') {
+		return prefix;
+	}
+	return "/" + prefix;
+}
+
+bool validate_http_route(XrdSysError &log,
+						 const HTTPFileSystem::HTTPRouteConfig &route) {
+	if (route.url_base.empty()) {
+		if (route.host_name.empty()) {
+			log.Emsg("Config", "httpserver.host_name not specified; this or "
+							 "httpserver.url_base are required");
+			return false;
+		}
+		if (route.host_url.empty()) {
+			log.Emsg("Config", "httpserver.host_url not specified; this or "
+							 "httpserver.url_base are required");
+			return false;
+		}
+	}
+	if (route.remote_flavor != "http" && route.remote_flavor != "webdav" &&
+		route.remote_flavor != "auto") {
+		log.Emsg("Config", "Invalid httpserver.remote_flavor specified; "
+						 "must be one of: 'http', 'webdav', or 'auto'");
+		return false;
+	}
+	return true;
+}
+
+} // namespace
+
 HTTPFileSystem::HTTPFileSystem(XrdSysLogger *lp, const char *configfn,
 							   XrdOucEnv * /*envP*/)
-	: m_log(lp, "httpserver_"), m_token("", &m_log) {
+	: m_log(lp, "httpserver_") {
 	m_log.Say("------ Initializing the HTTP filesystem plugin.");
 	if (!Config(lp, configfn)) {
 		throw std::runtime_error("Failed to configure HTTP filesystem plugin.");
@@ -74,8 +108,6 @@ bool HTTPFileSystem::handle_required_config(const std::string &name_from_config,
 }
 
 bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
-	m_remote_flavor = "auto";
-
 	XrdOucEnv myEnv;
 	XrdOucGatherConf httpserver_conf("httpserver.", &m_log);
 	int result;
@@ -85,8 +117,11 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 		return false;
 	}
 
-	std::string attribute;
-	std::string token_file;
+	bool saw_blocks = false;
+	bool in_block = false;
+	HTTPRouteConfig default_route;
+	default_route.remote_flavor = "auto";
+	std::shared_ptr<HTTPRouteConfig> route(new HTTPRouteConfig(default_route));
 
 	m_log.setMsgMask(0);
 
@@ -99,51 +134,105 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 			continue;
 		}
 
+		if (!strcmp(attribute, "httpserver.begin")) {
+			if (in_block) {
+				m_log.Emsg("Config", "Nested httpserver.begin blocks are not allowed");
+				return false;
+			}
+			in_block = true;
+			saw_blocks = true;
+			route.reset(new HTTPRouteConfig(default_route));
+			continue;
+		}
+		if (!strcmp(attribute, "httpserver.end")) {
+			if (!in_block) {
+				m_log.Emsg("Config", "Encountered httpserver.end without matching begin");
+				return false;
+			}
+			route->storage_prefix = normalize_http_prefix(route->storage_prefix);
+			if (!validate_http_route(m_log, *route)) {
+				return false;
+			}
+			auto prefix = route->matchPrefix();
+			if (prefix.empty()) {
+				m_log.Emsg("Config", "httpserver route prefix must not be empty");
+				return false;
+			}
+			m_routes[prefix] = route;
+			in_block = false;
+			continue;
+		}
+
 		auto value = httpserver_conf.GetToken();
 		if (!value) {
 			continue;
 		}
 
+		auto &target = in_block ? *route : default_route;
+
 		if (!handle_required_config(attribute, "httpserver.host_name", value,
-									http_host_name) ||
+									target.host_name) ||
 			!handle_required_config(attribute, "httpserver.host_url", value,
-									http_host_url) ||
+									target.host_url) ||
 			!handle_required_config(attribute, "httpserver.url_base", value,
-									m_url_base) ||
+									target.url_base) ||
 			!handle_required_config(attribute, "httpserver.remote_flavor",
-									value, m_remote_flavor) ||
+									value, target.remote_flavor) ||
 			!handle_required_config(attribute, "httpserver.storage_prefix",
-									value, m_storage_prefix) ||
-			!handle_required_config(attribute, "httpserver.token_file", value,
-									token_file)) {
+									value, target.storage_prefix)) {
 			return false;
+		}
+		if (!strcmp(attribute, "httpserver.token_file")) {
+			target.token = std::make_shared<TokenFile>(value, &m_log);
 		}
 	}
 
-	if (m_url_base.empty()) {
-		if (http_host_name.empty()) {
-			m_log.Emsg("Config", "httpserver.host_name not specified; this or "
-								 "httpserver.url_base are required");
-			return false;
-		}
-		if (http_host_url.empty()) {
-			m_log.Emsg("Config", "httpserver.host_url not specified; this or "
-								 "httpserver.url_base are required");
-			return false;
-		}
-		if (m_remote_flavor != "http" && m_remote_flavor != "webdav" &&
-			m_remote_flavor != "auto") {
-			m_log.Emsg("Config", "Invalid httpserver.remote_flavor specified; "
-								 "must be one of: 'http', 'webdav', or 'auto'");
-			return false;
-		}
+	if (in_block) {
+		m_log.Emsg("Config", "Encountered unterminated httpserver.begin block");
+		return false;
 	}
 
-	if (!token_file.empty()) {
-		m_token = TokenFile(token_file, &m_log);
+	if (!saw_blocks) {
+		auto final_route = std::make_shared<HTTPRouteConfig>(default_route);
+		final_route->storage_prefix = normalize_http_prefix(final_route->storage_prefix);
+		if (!validate_http_route(m_log, *final_route)) {
+			return false;
+		}
+		auto prefix = final_route->matchPrefix();
+		if (prefix.empty()) {
+			m_log.Emsg("Config", "httpserver route prefix must not be empty");
+			return false;
+		}
+		m_routes[prefix] = final_route;
 	}
 
 	return true;
+}
+
+int HTTPFileSystem::ResolvePath(const char *path,
+								const HTTPRouteConfig *&route,
+								std::string &object) const {
+	const HTTPRouteConfig *best_route = nullptr;
+	std::string best_object;
+	size_t best_len = 0;
+	for (const auto &entry : m_routes) {
+		std::string candidate_object;
+		if (parse_path(entry.second->matchPrefix(), path, candidate_object) != 0) {
+			continue;
+		}
+		size_t candidate_len = entry.second->matchPrefix().size();
+		if (!best_route || candidate_len > best_len) {
+			best_route = entry.second.get();
+			best_object = candidate_object;
+			best_len = candidate_len;
+		}
+	}
+	if (!best_route) {
+		return -ENOENT;
+	}
+	route = best_route;
+	object = best_object;
+	return 0;
 }
 
 // Object Allocation Functions
@@ -176,8 +265,8 @@ int HTTPFileSystem::Create(const char *tid, const char *path, mode_t mode,
 						   XrdOucEnv &env, int opts) {
 	// Is path valid?
 	std::string object;
-	std::string hostname = this->getHTTPHostName();
-	int rv = parse_path(hostname, path, object);
+	const HTTPRouteConfig *route = nullptr;
+	int rv = ResolvePath(path, route, object);
 	if (rv != 0) {
 		return rv;
 	}
@@ -195,16 +284,17 @@ int HTTPFileSystem::Unlink(const char *path, int Opts, XrdOucEnv *env) {
 	}
 
 	std::string object;
-	if (parse_path(getStoragePrefix(), path, object) != 0) {
+	const HTTPRouteConfig *route = nullptr;
+	if (ResolvePath(path, route, object) != 0) {
 		m_log.Emsg("Unlink", "Failed to parse path:", path);
 		return -EIO;
 	}
 	// delete the file
 	std::string hostUrl =
-		!getHTTPUrlBase().empty() ? getHTTPUrlBase() : getHTTPHostUrl();
+		!route->url_base.empty() ? route->url_base : route->host_url;
 	m_log.Log(LogMask::Debug, "Unlink", "Object:", object.c_str());
 	m_log.Log(LogMask::Debug, "Unlink", "Host URL:", hostUrl.c_str());
-	HTTPDelete deleteCommand(hostUrl, object, m_log, &m_token);
+	HTTPDelete deleteCommand(hostUrl, object, m_log, route->token.get());
 	if (!deleteCommand.SendRequest()) {
 		return HTTPRequest::HandleHTTPError(deleteCommand, m_log, "DELETE",
 											object.c_str());
