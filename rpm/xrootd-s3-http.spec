@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.6.6
+Version:        0.6.7
 Release:        1%{?dist}
 Summary:        S3/HTTP/Globus filesystem plugins for xrootd
 
@@ -59,6 +59,9 @@ rm %{buildroot}%{_libdir}/libXrdPelicanHttpCore.so
 %license LICENSE
 
 %changelog
+* Fri Apr 24 2026 Justin Hiemstra <jhiemstra@wisc.edu> - 0.6.7-1
+- Fix S3 listing bug that broke object paths in downstream XML consumers
+
 * Tue Mar 31 2026 Justin Hiemstra <jhiemstra@wisc.edu> - 0.6.6-1
 - Add configurable bypass prefixes for POSC plugin
 - Fix linked-list cycle bug in POSC open-file tracking
