@@ -18,6 +18,7 @@
 
 #include "../src/HTTPCommands.hh"
 #include "../src/HTTPFileSystem.hh"
+#include "../src/GlobusFileSystem.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
 #include <XrdSys/XrdSysError.hh>
@@ -29,9 +30,11 @@
 #include <algorithm>
 #include <csignal>
 #include <cstring>
+#include <filesystem>
 #include <fcntl.h>
 #include <fstream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -69,6 +72,137 @@ void parseEnvFile() {
 			g_config_file = val;
 		}
 	}
+}
+
+std::string writeTempConfig(const std::string &contents) {
+	std::string pattern = "/tmp/http-config-XXXXXX";
+	std::vector<char> path(pattern.begin(), pattern.end());
+	path.push_back('\0');
+	int fd = mkstemp(path.data());
+	if (fd == -1) {
+		throw std::runtime_error("failed to create temp config");
+	}
+	FILE *fh = fdopen(fd, "w");
+	if (!fh) {
+		close(fd);
+		throw std::runtime_error("failed to open temp config");
+	}
+	if (fwrite(contents.data(), 1, contents.size(), fh) != contents.size()) {
+		fclose(fh);
+		throw std::runtime_error("failed to write temp config");
+	}
+	fclose(fh);
+	return std::string(path.data());
+}
+
+TEST(TestHTTPFile, TestMultiRouteResolvePath) {
+	const auto cfgPath = writeTempConfig(
+		"httpserver.begin\n"
+		"httpserver.url_base https://root.example\n"
+		"httpserver.storage_prefix /\n"
+		"httpserver.end\n"
+		"httpserver.begin\n"
+		"httpserver.url_base https://foo.example\n"
+		"httpserver.storage_prefix /foo\n"
+		"httpserver.end\n");
+	struct Cleanup {
+		std::string path;
+		~Cleanup() { std::filesystem::remove(path); }
+	} cleanup{cfgPath};
+
+	XrdSysLogger log;
+	HTTPFileSystem fs(&log, cfgPath.c_str(), nullptr);
+	ASSERT_EQ(fs.GetRouteCount(), 2u);
+
+	const HTTPFileSystem::HTTPRouteConfig *route = nullptr;
+	std::string object;
+	ASSERT_EQ(fs.ResolvePath("/foo/bar.txt", route, object), 0);
+	ASSERT_NE(route, nullptr);
+	ASSERT_EQ(route->storage_prefix, "/foo");
+	ASSERT_EQ(route->url_base, "https://foo.example");
+	ASSERT_EQ(object, "bar.txt");
+
+	ASSERT_EQ(fs.ResolvePath("/other.txt", route, object), 0);
+	ASSERT_NE(route, nullptr);
+	ASSERT_EQ(route->storage_prefix, "/");
+	ASSERT_EQ(route->url_base, "https://root.example");
+	ASSERT_EQ(object, "other.txt");
+}
+
+TEST(TestHTTPFile, TestMultiRouteDefaultsOutsideBlocks) {
+	const auto cfgPath = writeTempConfig(
+		"httpserver.trace debug\n"
+		"httpserver.token_file /tmp/shared.token\n"
+		"httpserver.remote_flavor webdav\n"
+		"httpserver.begin\n"
+		"httpserver.url_base https://root.example\n"
+		"httpserver.storage_prefix /\n"
+		"httpserver.end\n"
+		"httpserver.begin\n"
+		"httpserver.url_base https://foo.example\n"
+		"httpserver.storage_prefix /foo\n"
+		"httpserver.end\n");
+	struct Cleanup {
+		std::string path;
+		~Cleanup() { std::filesystem::remove(path); }
+	} cleanup{cfgPath};
+
+	XrdSysLogger log;
+	HTTPFileSystem fs(&log, cfgPath.c_str(), nullptr);
+	ASSERT_EQ(fs.GetRouteCount(), 2u);
+
+	const HTTPFileSystem::HTTPRouteConfig *route = nullptr;
+	std::string object;
+	ASSERT_EQ(fs.ResolvePath("/foo/bar.txt", route, object), 0);
+	ASSERT_NE(route, nullptr);
+	ASSERT_EQ(route->storage_prefix, "/foo");
+	ASSERT_EQ(route->remote_flavor, "webdav");
+	ASSERT_NE(route->token, nullptr);
+
+	ASSERT_EQ(fs.ResolvePath("/other.txt", route, object), 0);
+	ASSERT_NE(route, nullptr);
+	ASSERT_EQ(route->storage_prefix, "/");
+	ASSERT_EQ(route->remote_flavor, "webdav");
+	ASSERT_NE(route->token, nullptr);
+}
+
+TEST(TestGlobusFile, TestMultiRouteDefaultsOutsideBlocks) {
+	const auto cfgPath = writeTempConfig(
+		"globus.trace debug\n"
+		"globus.transfer_url_base https://transfer.example/endpoint/abc123\n"
+		"globus.transfer_token_file /tmp/shared.transfer.token\n"
+		"globus.begin\n"
+		"globus.endpoint_path /foo\n"
+		"globus.storage_prefix /first/ns\n"
+		"globus.end\n"
+		"globus.begin\n"
+		"globus.endpoint_path /bar\n"
+		"globus.storage_prefix /second/ns\n"
+		"globus.end\n");
+	struct Cleanup {
+		std::string path;
+		~Cleanup() { std::filesystem::remove(path); }
+	} cleanup{cfgPath};
+
+	XrdSysLogger log;
+	GlobusFileSystem fs(nullptr, &log, cfgPath.c_str(), nullptr);
+	ASSERT_EQ(fs.GetRouteCount(), 2u);
+
+	const GlobusFileSystem::GlobusRouteConfig *route = nullptr;
+	std::string relative_path;
+	ASSERT_EQ(fs.ResolvePath("/first/ns/file.txt", route, relative_path), 0);
+	ASSERT_NE(route, nullptr);
+	ASSERT_EQ(route->storage_prefix, "/first/ns");
+	ASSERT_EQ(route->endpoint_path, "/foo");
+	ASSERT_EQ(route->transfer_url, "https://transfer.example/endpoint/abc123");
+	ASSERT_NE(route->transfer_token, nullptr);
+
+	ASSERT_EQ(fs.ResolvePath("/second/ns/file.txt", route, relative_path), 0);
+	ASSERT_NE(route, nullptr);
+	ASSERT_EQ(route->storage_prefix, "/second/ns");
+	ASSERT_EQ(route->endpoint_path, "/bar");
+	ASSERT_EQ(route->transfer_url, "https://transfer.example/endpoint/abc123");
+	ASSERT_NE(route->transfer_token, nullptr);
 }
 
 TEST(TestHTTPFile, TestList) {
