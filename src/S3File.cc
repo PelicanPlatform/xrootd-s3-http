@@ -1311,7 +1311,6 @@ XrdOss *XrdOssGetStorageSystem2(XrdOss *native_oss, XrdSysLogger *Logger,
 
 	envP->Export("XRDXROOTD_NOPOSC", "1");
 
-	S3File::LaunchMonitorThread(*log, envP);
 	try {
 		AmazonRequest::Init(*log);
 		g_s3_oss = new S3FileSystem(Logger, config_fn, envP);
