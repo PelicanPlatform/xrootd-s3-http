@@ -91,27 +91,18 @@ int HTTPFile::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		}
 	}
 
-	auto configured_hostname = m_oss->getHTTPHostName();
-	auto configured_hostUrl = m_oss->getHTTPHostUrl();
-	const auto &configured_url_base = m_oss->getHTTPUrlBase();
-	if (!configured_url_base.empty()) {
-		configured_hostUrl = configured_url_base;
-		configured_hostname = m_oss->getStoragePrefix();
-	}
-
-	//
-	// Check the path for validity.
-	//
+	const HTTPFileSystem::HTTPRouteConfig *route = nullptr;
 	std::string object;
-	int rv = parse_path(configured_hostname, path, object);
+	int rv = m_oss->ResolvePath(path, route, object);
 
 	if (rv != 0) {
 		return rv;
 	}
 
 	m_object = object;
-	m_hostname = configured_hostname;
-	m_hostUrl = configured_hostUrl;
+	m_hostname = route->matchPrefix();
+	m_hostUrl = !route->url_base.empty() ? route->url_base : route->host_url;
+	m_token = route->token.get();
 
 	if ((Oflag & O_ACCMODE) == O_RDONLY) {
 		struct stat buf;
@@ -136,7 +127,7 @@ ssize_t HTTPFile::Read(void *buffer, off_t offset, size_t size) {
 		m_log.Log(LogMask::Warning, "HTTPFile::Read", "File not open");
 		return -EBADF;
 	}
-	HTTPDownload download(m_hostUrl, m_object, m_log, m_oss->getToken());
+	HTTPDownload download(m_hostUrl, m_object, m_log, m_token);
 	m_log.Log(
 		LogMask::Debug, "HTTPFile::Read",
 		"About to perform download from HTTPFile::Read(): hostname / object:",
@@ -176,7 +167,7 @@ int HTTPFile::Fstat(struct stat *buff) {
 	m_log.Log(LogMask::Debug, "HTTPFile::Fstat",
 			  "About to perform HTTPFile::Fstat():", m_hostUrl.c_str(),
 			  m_object.c_str());
-	HTTPHead head(m_hostUrl, m_object, m_log, m_oss->getToken());
+	HTTPHead head(m_hostUrl, m_object, m_log, m_token);
 
 	if (!head.SendRequest()) {
 		// SendRequest() returns false for all errors, including ones
@@ -265,7 +256,7 @@ ssize_t HTTPFile::Write(const void *buffer, off_t offset, size_t size) {
 
 	// Small object optimization as in S3File::Write()
 	if (!m_write_offset && m_object_size == static_cast<off_t>(size)) {
-		HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
+		HTTPUpload upload(m_hostUrl, m_object, m_log, m_token);
 		std::string payload((char *)buffer, size);
 		if (!upload.SendRequest(payload)) {
 			return HTTPRequest::HandleHTTPError(upload, m_log, "PUT",
@@ -288,7 +279,7 @@ ssize_t HTTPFile::Write(const void *buffer, off_t offset, size_t size) {
 			return -EIO;
 		}
 		m_write_op.reset(
-			new HTTPUpload(m_hostUrl, m_object, m_log, m_oss->getToken()));
+			new HTTPUpload(m_hostUrl, m_object, m_log, m_token));
 		std::string payload((char *)buffer, size);
 		if (!m_write_op->StartStreamingRequest(payload, m_object_size)) {
 			return HTTPRequest::HandleHTTPError(
@@ -334,7 +325,7 @@ int HTTPFile::Close(long long *retsz) {
 	// If we opened the object in write mode but did not actually write
 	// anything, make a quick zero-length file.
 	if (m_write && !m_write_offset) {
-		HTTPUpload upload(m_hostUrl, m_object, m_log, m_oss->getToken());
+		HTTPUpload upload(m_hostUrl, m_object, m_log, m_token);
 		if (!upload.SendRequest("")) {
 			return HTTPRequest::HandleHTTPError(
 				upload, m_log, "PUT zero-length", m_object.c_str());

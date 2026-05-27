@@ -65,8 +65,7 @@ class GlobusMkdirRequest final : public HTTPRequest {
 
 GlobusFileSystem::GlobusFileSystem(XrdOss *oss, XrdSysLogger *lp,
 								   const char *configfn, XrdOucEnv *envP)
-	: XrdOssWrapper(*oss), m_oss(oss), m_log(lp, "globus_"),
-	  m_transfer_token("", nullptr) {
+	: XrdOssWrapper(*oss), m_oss(oss), m_log(lp, "globus_") {
 	m_log.Say("------ Initializing the Globus filesystem plugin.");
 
 	if (!Config(lp, configfn)) {
@@ -111,18 +110,47 @@ bool GlobusFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 		return false;
 	}
 
-	std::string attribute;
-	std::string transfer_token_file;
-	std::string endpoint_path;
+	bool saw_blocks = false;
+	bool in_block = false;
+	GlobusRouteConfig default_route;
+	std::shared_ptr<GlobusRouteConfig> route(new GlobusRouteConfig(default_route));
 
 	m_log.setMsgMask(0);
 
 	while (globus_conf.GetLine()) {
-		attribute = globus_conf.GetToken();
+		std::string attribute = globus_conf.GetToken();
 		if (!strcmp(attribute.c_str(), "globus.trace")) {
 			if (!XrdHTTPServer::ConfigLog(globus_conf, m_log)) {
 				m_log.Emsg("Config", "Failed to configure the log level");
 			}
+			continue;
+		}
+
+		if (!strcmp(attribute.c_str(), "globus.begin")) {
+			if (in_block) {
+				m_log.Emsg("Config", "Nested globus.begin blocks are not allowed");
+				return false;
+			}
+			in_block = true;
+			saw_blocks = true;
+			route.reset(new GlobusRouteConfig(default_route));
+			continue;
+		}
+		if (!strcmp(attribute.c_str(), "globus.end")) {
+			if (!in_block) {
+				m_log.Emsg("Config", "Encountered globus.end without matching begin");
+				return false;
+			}
+			if (route->storage_prefix.empty() || route->endpoint_path.empty() ||
+				route->transfer_url.empty()) {
+				m_log.Emsg("Config", "globus route is missing one or more required settings");
+				return false;
+			}
+			if (route->storage_prefix[0] != '/') {
+				route->storage_prefix = "/" + route->storage_prefix;
+			}
+			m_routes[route->storage_prefix] = route;
+			in_block = false;
 			continue;
 		}
 
@@ -131,39 +159,72 @@ bool GlobusFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 			continue;
 		}
 
+		auto &target = in_block ? *route : default_route;
+
 		if (!handle_required_config(attribute, "globus.endpoint_path", value,
-									endpoint_path) ||
+									target.endpoint_path) ||
 			!handle_required_config(attribute, "globus.storage_prefix", value,
-									m_storage_prefix) ||
+									target.storage_prefix) ||
 			!handle_required_config(attribute, "globus.transfer_url_base",
-									value, m_transfer_url) ||
-			!handle_required_config(attribute, "globus.transfer_token_file",
-									value, transfer_token_file)) {
+									value, target.transfer_url)) {
 			return false;
 		}
-	}
-
-	// Build the complete URLs
-	m_endpoint_path = endpoint_path;
-	if (!m_transfer_url.empty() && !endpoint_path.empty()) {
-		// Strip the trailing slash from endpoint_path before embedding it in
-		// the URL template.  extractRelativePath() always returns a path that
-		// starts with '/', so concatenating a trailing slash here would produce
-		// a double-slash (e.g. "?path=//top_level_path/custom_path").  Globus interprets
-		// "?path=//" as the root path and returns a 200 instead of a 404,
-		// causing parent-directory existence checks to spuriously succeed.
-		std::string ep = endpoint_path;
-		if (!ep.empty() && ep.back() == '/') {
-			ep.pop_back();
+		if (!strcmp(attribute.c_str(), "globus.transfer_token_file")) {
+			target.transfer_token = std::make_shared<TokenFile>(value, &m_log);
 		}
-		m_transfer_url += "/%s?path=" + ep;
 	}
 
-	if (!transfer_token_file.empty()) {
-		m_transfer_token = TokenFile(transfer_token_file, &m_log);
+	if (in_block) {
+		m_log.Emsg("Config", "Encountered unterminated globus.begin block");
+		return false;
+	}
+
+	if (!saw_blocks) {
+		auto final_route = std::make_shared<GlobusRouteConfig>(default_route);
+		if (final_route->storage_prefix.empty() || final_route->endpoint_path.empty() ||
+			final_route->transfer_url.empty()) {
+			m_log.Emsg("Config", "globus route is missing one or more required settings");
+			return false;
+		}
+		if (final_route->storage_prefix[0] != '/') {
+			final_route->storage_prefix = "/" + final_route->storage_prefix;
+		}
+		m_routes[final_route->storage_prefix] = final_route;
 	}
 
 	return true;
+}
+
+int GlobusFileSystem::ResolvePath(const std::string &path,
+								  const GlobusRouteConfig *&route,
+								  std::string &relative_path) const {
+	const GlobusRouteConfig *best_route = nullptr;
+	std::string best_object;
+	size_t best_len = 0;
+	for (const auto &entry : m_routes) {
+		std::string candidate_object;
+		if (parse_path(entry.second->storage_prefix, path.c_str(),
+					   candidate_object) != 0) {
+			continue;
+		}
+		size_t candidate_len = entry.second->storage_prefix.size();
+		if (!best_route || candidate_len > best_len) {
+			best_route = entry.second.get();
+			best_object = candidate_object;
+			best_len = candidate_len;
+		}
+	}
+	if (!best_route) {
+		return -ENOENT;
+	}
+	route = best_route;
+	relative_path = best_object;
+	if (relative_path.empty()) {
+		relative_path = "/";
+	} else if (relative_path[0] != '/') {
+		relative_path = "/" + relative_path;
+	}
+	return 0;
 }
 
 XrdOssDF *GlobusFileSystem::newDir(const char *user) {
@@ -177,19 +238,23 @@ XrdOssDF *GlobusFileSystem::newFile(const char *user) {
 
 int GlobusFileSystem::Stat(const char *path, struct stat *buff, int opts,
 						   XrdOucEnv *env) {
-	// Extract the part of path that comes after the storage prefix
-	std::string relative_path = extractRelativePath(path);
+	const GlobusRouteConfig *route = nullptr;
+	std::string relative_path;
+	int rv = ResolvePath(path, route, relative_path);
+	if (rv != 0) {
+		return rv;
+	}
 
 	m_log.Log(LogMask::Debug, "GlobusFileSystem::Stat", "Stat'ing path",
 			  relative_path.c_str());
 
-	auto token = getTransferToken();
+	auto token = route->transfer_token.get();
 	if (!token) {
 		m_log.Emsg("Stat", "Failed to get transfer token");
 		return -ENOENT;
 	}
 
-	HTTPDownload statCommand(getStatUrl(relative_path), "", m_log, token);
+	HTTPDownload statCommand(getStatUrl(*route, relative_path), "", m_log, token);
 	if (!statCommand.SendRequest(0, 0)) {
 		return HTTPRequest::HandleHTTPError(statCommand, m_log, "GET", "");
 	}
@@ -254,13 +319,18 @@ int GlobusFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
 		return -ENOENT;
 	}
 
-	auto token = getTransferToken();
+	const GlobusRouteConfig *route = nullptr;
+	std::string relative_path;
+	int rv = ResolvePath(path, route, relative_path);
+	if (rv != 0) {
+		return rv;
+	}
+
+	auto token = route->transfer_token.get();
 	if (!token) {
 		m_log.Emsg("Mkdir", "Failed to get transfer token");
 		return -ENOENT;
 	}
-
-	std::string relative_path = extractRelativePath(path);
 	if (relative_path.empty()) {
 		relative_path = "/";
 	}
@@ -276,9 +346,9 @@ int GlobusFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
 	// anywhere in the path. In this case, it returns HTTP code 404
 
 	if (!mkpath) {
-		GlobusMkdirRequest mkdirCommand(getMkdirUrl(), m_log, token);
+		GlobusMkdirRequest mkdirCommand(getMkdirUrl(*route), m_log, token);
 		nlohmann::json body = {{"DATA_TYPE", "mkdir"},
-							   {"path", buildEndpointPath(relative_path)}};
+							   {"path", buildEndpointPath(*route, relative_path)}};
 		if (!mkdirCommand.SendRequest(body.dump())) {
 			unsigned long httpCode = mkdirCommand.getResponseCode();
 			// Globus mkdir semantics: 202 = success, 502 = exists, 403 = perms,
@@ -326,7 +396,7 @@ int GlobusFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
 	int first_missing_idx = 0;
 	for (int idx = static_cast<int>(prefixes.size()) - 1; idx >= 0; --idx) {
 		struct stat sb;
-		int stat_rv = Stat((m_storage_prefix + prefixes[idx]).c_str(), &sb, 0, env);
+		int stat_rv = Stat((route->storage_prefix + prefixes[idx]).c_str(), &sb, 0, env);
 		if (stat_rv == 0) {
 			if (!S_ISDIR(sb.st_mode)) {
 				return -ENOTDIR;
@@ -343,9 +413,9 @@ int GlobusFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
 	// EEXIST if another writer creates a directory between our Stat and Mkdir.
 	for (int idx = first_missing_idx;
 		 idx < static_cast<int>(prefixes.size()); ++idx) {
-		GlobusMkdirRequest mkdirCommand(getMkdirUrl(), m_log, token);
+		GlobusMkdirRequest mkdirCommand(getMkdirUrl(*route), m_log, token);
 		nlohmann::json body = {{"DATA_TYPE", "mkdir"},
-							   {"path", buildEndpointPath(prefixes[idx])}};
+							   {"path", buildEndpointPath(*route, prefixes[idx])}};
 		int rv = 0;
 		if (!mkdirCommand.SendRequest(body.dump())) {
 			unsigned long httpCode = mkdirCommand.getResponseCode();
@@ -371,22 +441,25 @@ int GlobusFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
 }
 
 const std::string
-GlobusFileSystem::getLsUrl(const std::string &relative_path) const {
-	return getOperationUrl("ls", relative_path);
+GlobusFileSystem::getLsUrl(const GlobusRouteConfig &route,
+						   const std::string &relative_path) const {
+	return getOperationUrl(route, "ls", relative_path);
 }
 
 const std::string
-GlobusFileSystem::getStatUrl(const std::string &relative_path) const {
-	return getOperationUrl("stat", relative_path);
+GlobusFileSystem::getStatUrl(const GlobusRouteConfig &route,
+							 const std::string &relative_path) const {
+	return getOperationUrl(route, "stat", relative_path);
 }
 
-const std::string GlobusFileSystem::getMkdirUrl() const {
-	return getOperationUrl("mkdir");
+const std::string GlobusFileSystem::getMkdirUrl(const GlobusRouteConfig &route) const {
+	return getOperationUrl(route, "mkdir");
 }
 
 std::string
-GlobusFileSystem::buildEndpointPath(const std::string &relative_path) const {
-	std::string endpoint = m_endpoint_path.empty() ? "/" : m_endpoint_path;
+GlobusFileSystem::buildEndpointPath(const GlobusRouteConfig &route,
+									const std::string &relative_path) const {
+	std::string endpoint = route.endpoint_path.empty() ? "/" : route.endpoint_path;
 	if (endpoint[0] != '/') {
 		endpoint = "/" + endpoint;
 	}
@@ -412,14 +485,23 @@ GlobusFileSystem::buildEndpointPath(const std::string &relative_path) const {
 }
 
 const std::string
-GlobusFileSystem::getOperationUrl(const std::string &operation,
+GlobusFileSystem::getOperationUrl(const GlobusRouteConfig &route,
+								  const std::string &operation,
 								  const std::string &relative_path) const {
-	if (m_transfer_url.empty()) {
+	if (route.transfer_url.empty()) {
 		return "";
 	}
 
-	size_t format_pos = m_transfer_url.find("%s");
-	std::string result = m_transfer_url;
+	std::string transfer_url = route.transfer_url;
+	if (!route.endpoint_path.empty()) {
+		std::string ep = route.endpoint_path;
+		if (!ep.empty() && ep.back() == '/') {
+			ep.pop_back();
+		}
+		transfer_url += "/%s?path=" + ep;
+	}
+	size_t format_pos = transfer_url.find("%s");
+	std::string result = transfer_url;
 	result.replace(format_pos, 2, operation);
 
 	// Append the relative path to the URL
@@ -429,23 +511,6 @@ GlobusFileSystem::getOperationUrl(const std::string &operation,
 
 	return result;
 }
-
-std::string
-GlobusFileSystem::extractRelativePath(const std::string &path) const {
-	std::string relative_path = "/";
-
-	if (!m_storage_prefix.empty() && path.find(m_storage_prefix) == 0) {
-		relative_path = path.substr(m_storage_prefix.length());
-		if (relative_path.empty()) {
-			relative_path = "/";
-		} else if (relative_path[0] != '/') {
-			relative_path = "/" + relative_path;
-		}
-	}
-
-	return relative_path;
-}
-
 time_t GlobusFileSystem::parseTimestamp(const std::string &last_modified) {
 	if (!last_modified.empty()) {
 		struct tm tm_time = {};

@@ -24,11 +24,19 @@
 #include <XrdOuc/XrdOucStream.hh>
 #include <XrdSys/XrdSysError.hh>
 
+#include <map>
 #include <memory>
 #include <string>
 
 class GlobusFileSystem : public XrdOssWrapper {
   public:
+	struct GlobusRouteConfig {
+		std::string storage_prefix;
+		std::string endpoint_path;
+		std::string transfer_url;
+		std::shared_ptr<TokenFile> transfer_token;
+	};
+
 	GlobusFileSystem(XrdOss *oss, XrdSysLogger *lp, const char *configfn,
 					 XrdOucEnv *envP);
 	virtual ~GlobusFileSystem();
@@ -78,14 +86,16 @@ class GlobusFileSystem : public XrdOssWrapper {
 	}
 	int Unlink(const char *path, int Opts = 0, XrdOucEnv *env = 0) override;
 
-	// Getters for Globus-specific configuration
-	const std::string &getStoragePrefix() const { return m_storage_prefix; }
-	const TokenFile *getTransferToken() const { return &m_transfer_token; }
+	int ResolvePath(const std::string &path, const GlobusRouteConfig *&route,
+					std::string &relative_path) const;
+	size_t GetRouteCount() const { return m_routes.size(); }
 
 	// Methods to get operation-specific URLs
-	const std::string getLsUrl(const std::string &relative_path = "") const;
-	const std::string getStatUrl(const std::string &relative_path = "") const;
-	const std::string getMkdirUrl() const;
+	const std::string getLsUrl(const GlobusRouteConfig &route,
+							   const std::string &relative_path = "") const;
+	const std::string getStatUrl(const GlobusRouteConfig &route,
+								 const std::string &relative_path = "") const;
+	const std::string getMkdirUrl(const GlobusRouteConfig &route) const;
 
 	// Static utility method for parsing timestamps
 	static time_t parseTimestamp(const std::string &last_modified);
@@ -97,20 +107,15 @@ class GlobusFileSystem : public XrdOssWrapper {
 
   private:
 	const std::string
-	getOperationUrl(const std::string &operation,
+	getOperationUrl(const GlobusRouteConfig &route,
+					const std::string &operation,
 					const std::string &relative_path = "") const;
 	
-	std::string buildEndpointPath(const std::string &relative_path) const;
-
-	// Extract the relative path by removing the storage prefix
-	std::string extractRelativePath(const std::string &path) const;
+	std::string buildEndpointPath(const GlobusRouteConfig &route,
+								  const std::string &relative_path) const;
 
 	XrdOss *m_oss;
 	XrdSysError m_log;
 
-	// Globus-specific configuration
-	std::string m_transfer_url;
-	std::string m_storage_prefix;
-	std::string m_endpoint_path;
-	TokenFile m_transfer_token;
+	std::map<std::string, std::shared_ptr<GlobusRouteConfig>> m_routes;
 };

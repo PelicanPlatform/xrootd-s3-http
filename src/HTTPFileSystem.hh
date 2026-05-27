@@ -26,11 +26,25 @@
 #include <XrdSys/XrdSysPthread.hh>
 #include <XrdVersion.hh>
 
+#include <map>
 #include <memory>
 #include <string>
 
 class HTTPFileSystem : public XrdOss {
   public:
+	struct HTTPRouteConfig {
+		std::string host_name;
+		std::string host_url;
+		std::string url_base;
+		std::string storage_prefix;
+		std::string remote_flavor;
+		std::shared_ptr<TokenFile> token;
+
+		const std::string &matchPrefix() const {
+			return !storage_prefix.empty() ? storage_prefix : host_name;
+		}
+	};
+
 	HTTPFileSystem(XrdSysLogger *lp, const char *configfn, XrdOucEnv *envP);
 	virtual ~HTTPFileSystem();
 
@@ -100,12 +114,9 @@ class HTTPFileSystem : public XrdOss {
 		return nullptr;
 	}
 
-	const std::string &getHTTPHostName() const { return http_host_name; }
-	const std::string &getHTTPHostUrl() const { return http_host_url; }
-	const std::string &getHTTPUrlBase() const { return m_url_base; }
-	const std::string &getStoragePrefix() const { return m_storage_prefix; }
-	const std::string &getRemoteFlavor() const { return m_remote_flavor; }
-	const TokenFile *getToken() const { return &m_token; }
+	int ResolvePath(const char *path, const HTTPRouteConfig *&route,
+					std::string &object) const;
+	size_t GetRouteCount() const { return m_routes.size(); }
 
   protected:
 	XrdSysError m_log;
@@ -115,11 +126,5 @@ class HTTPFileSystem : public XrdOss {
 								const std::string &source, std::string &target);
 
   private:
-	std::string http_host_name;
-	std::string http_host_url;
-	std::string m_url_base;
-	std::string m_storage_prefix;
-	std::string m_remote_flavor; // http, webdav or auto. auto is currently a
-								 // synonym for webdav
-	TokenFile m_token;
+	std::map<std::string, std::shared_ptr<HTTPRouteConfig>> m_routes;
 };

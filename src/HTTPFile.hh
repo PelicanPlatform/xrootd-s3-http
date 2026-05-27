@@ -103,6 +103,7 @@ class HTTPFile : public XrdOssDF {
 	std::string m_hostname;
 	std::string m_hostUrl;
 	std::string m_object;
+	const TokenFile *m_token{nullptr};
 	// Whether the file was opened in write mode
 	bool m_write{false};
 	// Whether the file is open
