@@ -56,6 +56,22 @@ class HTTPDirectory : public XrdOssDF {
 	void parseHTMLToListing(const std::string &htmlContent);
 	std::string extractHTMLTable(const std::string &htmlContent);
 
+	// Parse a WebDAV PROPFIND (207 Multi-Status) XML document into
+	// m_remoteList.  `requestObject` is the object path that was listed and is
+	// used to drop the collection's own self-entry from the results.
+	void parseWebDAVToListing(const std::string &xmlContent,
+							  const std::string &requestObject);
+
+	// Retrieve the listing for `object` on `hostUrl` via a plain-HTTP GET of
+	// the HTML directory index.  Returns 0 on success (or a soft failure, to
+	// preserve prior behavior).
+	int listViaHTTP(const std::string &hostUrl, const std::string &object);
+
+	// Retrieve the listing for `object` on `hostUrl` via a WebDAV PROPFIND.
+	// Returns 0 on success, -ENOTSUP if the server rejected PROPFIND with 405
+	// (so the caller may fall back to HTTP), or another negative errno.
+	int listViaWebDAV(const std::string &hostUrl, const std::string &object);
+
 	struct stat *mystat;
 	XrdSysError &m_log;
 	HTTPFileSystem &m_oss;

@@ -31,6 +31,7 @@
 #include <XrdSys/XrdSysError.hh>
 #include <XrdVersion.hh>
 
+#include <cstring>
 #include <curl/curl.h>
 #include <filesystem>
 #include <iostream>
@@ -103,6 +104,13 @@ void HTTPDirectory::parseHTMLToListing(const std::string &htmlContent) {
 			columnIndex++;
 		}
 
+		// XRootD's HTML index appends a trailing '/' to directory names; drop
+		// it so entry names match those returned by the WebDAV listing and by
+		// POSIX readdir.
+		if (!entry.name.empty() && entry.name.back() == '/') {
+			entry.name.pop_back();
+		}
+
 		// Skip adding invalid/empty rows
 		if (entry.name.empty()) {
 			continue;
@@ -124,6 +132,147 @@ void HTTPDirectory::parseHTMLToListing(const std::string &htmlContent) {
 		workingFile.st_dev = 0;
 		workingFile.st_ino = 0;
 		m_remoteList.push_back({entry.name, workingFile});
+	}
+}
+
+namespace {
+
+// tinyxml2 is namespace-unaware, so element names arrive with their XML
+// prefix attached (e.g. "D:response", "lp1:resourcetype").  Return the local
+// name with any "prefix:" stripped.
+std::string localName(const char *name) {
+	std::string s(name ? name : "");
+	auto pos = s.rfind(':');
+	return pos == std::string::npos ? s : s.substr(pos + 1);
+}
+
+// Depth-first search for the first descendant element with the given local
+// name.  Does not consider `root` itself.
+const tinyxml2::XMLElement *findByLocalName(const tinyxml2::XMLElement *root,
+											const std::string &ln) {
+	if (!root) {
+		return nullptr;
+	}
+	for (auto child = root->FirstChildElement(); child != nullptr;
+		 child = child->NextSiblingElement()) {
+		if (localName(child->Name()) == ln) {
+			return child;
+		}
+		if (auto found = findByLocalName(child, ln)) {
+			return found;
+		}
+	}
+	return nullptr;
+}
+
+// Collect every descendant element with the given local name.  A matched
+// element is not descended into (WebDAV <response> elements are never nested).
+void collectByLocalName(const tinyxml2::XMLElement *root, const std::string &ln,
+						std::vector<const tinyxml2::XMLElement *> &out) {
+	if (!root) {
+		return;
+	}
+	for (auto child = root->FirstChildElement(); child != nullptr;
+		 child = child->NextSiblingElement()) {
+		if (localName(child->Name()) == ln) {
+			out.push_back(child);
+		} else {
+			collectByLocalName(child, ln, out);
+		}
+	}
+}
+
+// Strip leading and trailing '/' characters.
+std::string trimSlashes(const std::string &s) {
+	auto begin = s.find_first_not_of('/');
+	if (begin == std::string::npos) {
+		return "";
+	}
+	auto end = s.find_last_not_of('/');
+	return s.substr(begin, end - begin + 1);
+}
+
+// Reduce a WebDAV href to a server-relative path with surrounding slashes
+// removed.  Handles both absolute-path hrefs ("/testdir/file") and full-URL
+// hrefs ("https://host/testdir/file").
+std::string hrefToRelPath(const std::string &href) {
+	std::string path = href;
+	auto scheme = path.find("://");
+	if (scheme != std::string::npos) {
+		auto slash = path.find('/', scheme + 3);
+		path = (slash == std::string::npos) ? "" : path.substr(slash);
+	}
+	return trimSlashes(path);
+}
+
+} // namespace
+
+void HTTPDirectory::parseWebDAVToListing(const std::string &xmlContent,
+										 const std::string &requestObject) {
+	m_remoteList.clear();
+
+	tinyxml2::XMLDocument doc;
+	if (doc.Parse(xmlContent.c_str()) != tinyxml2::XML_SUCCESS) {
+		m_log.Log(LogMask::Warning, "HTTPDirectory",
+				  "Failed to parse WebDAV PROPFIND response");
+		return;
+	}
+
+	const std::string base = trimSlashes(requestObject);
+
+	std::vector<const tinyxml2::XMLElement *> responses;
+	collectByLocalName(doc.RootElement(), "response", responses);
+
+	for (auto response : responses) {
+		auto hrefEl = findByLocalName(response, "href");
+		if (!hrefEl || !hrefEl->GetText()) {
+			continue;
+		}
+		const std::string relPath = hrefToRelPath(hrefEl->GetText());
+
+		// Skip the entry describing the listed collection itself.
+		if (relPath == base) {
+			continue;
+		}
+
+		// The entry name is the final path component.
+		auto slash = relPath.find_last_of('/');
+		std::string name =
+			(slash == std::string::npos) ? relPath : relPath.substr(slash + 1);
+		if (name.empty()) {
+			continue;
+		}
+
+		// A resource is a directory if it carries a <collection/> resourcetype
+		// or an <iscollection> flag set to 1.
+		bool isDir = findByLocalName(response, "collection") != nullptr;
+		if (!isDir) {
+			auto isColl = findByLocalName(response, "iscollection");
+			if (isColl && isColl->GetText() &&
+				std::string(isColl->GetText()) == "1") {
+				isDir = true;
+			}
+		}
+
+		off_t size = 0;
+		if (auto lenEl = findByLocalName(response, "getcontentlength")) {
+			if (lenEl->GetText()) {
+				try {
+					size = static_cast<off_t>(std::stoll(lenEl->GetText()));
+				} catch (const std::exception &) {
+					size = 0;
+				}
+			}
+		}
+
+		struct stat entry;
+		memset(&entry, 0, sizeof(entry));
+		entry.st_mode = isDir ? (0700 | S_IFDIR) : (0600 | S_IFREG);
+		entry.st_size = isDir ? 4096 : size;
+		entry.st_nlink = 1;
+		entry.st_uid = 1;
+		entry.st_gid = 1;
+		m_remoteList.push_back({name, entry});
 	}
 }
 
@@ -161,14 +310,55 @@ int HTTPDirectory::Readdir(char *buff, int blen) {
 	}
 }
 
+int HTTPDirectory::listViaHTTP(const std::string &hostUrl,
+							   const std::string &object) {
+	HTTPList list(hostUrl, object, m_log, m_oss.getToken());
+	m_log.Log(LogMask::Debug, "HTTPDirectory::listViaHTTP",
+			  "Requesting HTML directory listing for object:", object.c_str());
+	if (!list.SendRequest()) {
+		std::stringstream ss;
+		ss << "Failed to send directory GET command: " << list.getResponseCode()
+		   << " '" << list.getResultString() << "'";
+		m_log.Log(LogMask::Warning, "HTTPDirectory::listViaHTTP",
+				  ss.str().c_str());
+		return 0;
+	}
+
+	parseHTMLToListing(extractHTMLTable(list.getResultString()));
+	return 0;
+}
+
+int HTTPDirectory::listViaWebDAV(const std::string &hostUrl,
+								 const std::string &object) {
+	HTTPPropfind propfind(hostUrl, object, m_log, m_oss.getToken());
+	m_log.Log(LogMask::Debug, "HTTPDirectory::listViaWebDAV",
+			  "Requesting WebDAV PROPFIND listing for object:", object.c_str());
+	if (!propfind.SendRequest("1")) {
+		// A 405 means the server does not implement PROPFIND; signal the caller
+		// so it can fall back to an HTML listing.
+		if (propfind.getResponseCode() == 405) {
+			m_log.Log(LogMask::Info, "HTTPDirectory::listViaWebDAV",
+					  "Server rejected PROPFIND (405 Method Not Allowed)");
+			return -ENOTSUP;
+		}
+		std::stringstream ss;
+		ss << "Failed to send PROPFIND command: " << propfind.getResponseCode()
+		   << " '" << propfind.getResultString() << "'";
+		m_log.Log(LogMask::Warning, "HTTPDirectory::listViaWebDAV",
+				  ss.str().c_str());
+		return 0;
+	}
+
+	parseWebDAVToListing(propfind.getResultString(), object);
+	return 0;
+}
+
 int HTTPDirectory::Opendir(const char *path, XrdOucEnv &env) {
 	m_log.Log(LogMask::Debug, "HTTPDirectory::Opendir", "Opendir called");
-	auto configured_hostname = m_oss.getHTTPHostName();
 	auto configured_hostUrl = m_oss.getHTTPHostUrl();
 	const auto &configured_url_base = m_oss.getHTTPUrlBase();
 	if (!configured_url_base.empty()) {
 		configured_hostUrl = configured_url_base;
-		configured_hostname = m_oss.getStoragePrefix();
 	}
 
 	//
@@ -181,24 +371,23 @@ int HTTPDirectory::Opendir(const char *path, XrdOucEnv &env) {
 		return rv;
 	}
 
-	if (m_remoteList.empty()) {
-		m_log.Log(LogMask::Debug, "HTTPFile::Opendir", "Opendir called");
-		HTTPList list(configured_hostUrl, object, m_log, m_oss.getToken());
-		m_log.Log(LogMask::Debug, "HTTPDirectory::Opendir",
-				  "About to perform download from HTTPDirectory::Opendir(): "
-				  "hostname / object:",
-				  configured_hostname.c_str(), object.c_str());
-		if (!list.SendRequest()) {
-			std::stringstream ss;
-			ss << "Failed to send GetObject command: " << list.getResponseCode()
-			   << "'" << list.getResultString() << "'";
-			m_log.Log(LogMask::Warning, "HTTPDirectory::Opendir",
-					  ss.str().c_str());
-			return 0;
-		}
-
-		parseHTMLToListing(extractHTMLTable(list.getResultString()));
+	if (!m_remoteList.empty()) {
+		return 0;
 	}
 
-	return 0;
+	RemoteFlavor flavor = m_oss.getResolvedFlavor();
+	if (flavor == RemoteFlavor::Http) {
+		return listViaHTTP(configured_hostUrl, object);
+	}
+
+	// WebDAV, or "auto" that has not resolved yet: optimistically try PROPFIND
+	// and, when the flavor is still unknown, fall back to an HTML listing if
+	// the server does not support WebDAV.
+	int listrv = listViaWebDAV(configured_hostUrl, object);
+	if (listrv == -ENOTSUP && flavor == RemoteFlavor::Unknown) {
+		m_log.Log(LogMask::Info, "HTTPDirectory::Opendir",
+				  "Falling back to HTML directory listing");
+		return listViaHTTP(configured_hostUrl, object);
+	}
+	return listrv;
 }

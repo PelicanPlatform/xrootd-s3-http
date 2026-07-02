@@ -26,8 +26,18 @@
 #include <XrdSys/XrdSysPthread.hh>
 #include <XrdVersion.hh>
 
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <mutex>
 #include <string>
+
+// How the remote server's directory listings are retrieved.
+//   Http    - plain GET returning XRootD's HTML directory index.
+//   Webdav  - WebDAV PROPFIND returning a multi-status XML document.
+//   Unknown - not yet determined (the "auto" flavor before/while probing);
+//             callers should optimistically try WebDAV and fall back to HTTP.
+enum class RemoteFlavor { Unknown, Http, Webdav };
 
 class HTTPFileSystem : public XrdOss {
   public:
@@ -107,6 +117,14 @@ class HTTPFileSystem : public XrdOss {
 	const std::string &getRemoteFlavor() const { return m_remote_flavor; }
 	const TokenFile *getToken() const { return &m_token; }
 
+	// Return the resolved remote flavor used to list directories.
+	//
+	// For the explicitly-configured "http"/"webdav" flavors this is a direct
+	// mapping.  For "auto" it reflects the result of an OPTIONS probe; if the
+	// probe has not yet succeeded (e.g. the remote was down at startup) this
+	// returns RemoteFlavor::Unknown and lazily re-probes on a fixed interval.
+	RemoteFlavor getResolvedFlavor();
+
   protected:
 	XrdSysError m_log;
 
@@ -115,11 +133,28 @@ class HTTPFileSystem : public XrdOss {
 								const std::string &source, std::string &target);
 
   private:
+	// Send an OPTIONS request to the remote and classify it as WebDAV-capable
+	// (advertises PROPFIND) or plain HTTP.  Returns RemoteFlavor::Unknown if
+	// the probe could not be completed.
+	RemoteFlavor detectRemoteFlavor();
+
+	// For the "auto" flavor: run detectRemoteFlavor() if the flavor is still
+	// unknown and we have not probed within the retry interval.  Safe to call
+	// concurrently and never throws.
+	void maybeProbeFlavor();
+
 	std::string http_host_name;
 	std::string http_host_url;
 	std::string m_url_base;
 	std::string m_storage_prefix;
-	std::string m_remote_flavor; // http, webdav or auto. auto is currently a
-								 // synonym for webdav
+	std::string m_remote_flavor; // configured flavor: http, webdav or auto
 	TokenFile m_token;
+
+	// Resolved listing flavor; only meaningful (and mutated) for "auto".
+	std::atomic<RemoteFlavor> m_resolved_flavor{RemoteFlavor::Unknown};
+	std::mutex m_probe_mtx; // serializes OPTIONS probes for "auto"
+	bool m_probed_once{false};
+	std::chrono::steady_clock::time_point m_last_probe;
+	// How long to wait before re-probing a remote that was unreachable.
+	static constexpr std::chrono::seconds m_probe_interval{60};
 };

@@ -170,6 +170,12 @@ echo "Hello, World" > "$XROOTD_EXPORTDIR/hello_world.txt"
 mkdir "$XROOTD_EXPORTDIR/testdir"
 echo "Hello, World" > "$XROOTD_EXPORTDIR/testdir/hello_world.txt"
 
+# A directory with mixed content (a regular file and a subdirectory) used to
+# exercise directory listing across the http/webdav/auto flavors.
+mkdir -p "$XROOTD_EXPORTDIR/listdir/subdir"
+printf '0123456789' > "$XROOTD_EXPORTDIR/listdir/file_a.txt"
+printf 'nested' > "$XROOTD_EXPORTDIR/listdir/subdir/nested.txt"
+
 # Launch XRootD daemon.
 ASAN_OPTIONS=detect_odr_violation=0 "$XROOTD_BIN" -c "$XROOTD_CONFIG" -l "$BINARY_DIR/tests/$TEST_NAME/server.log" 0<&- >>"$BINARY_DIR/tests/$TEST_NAME/server.log" 2>>"$BINARY_DIR/tests/$TEST_NAME/server.log" &
 XROOTD_PID=$!
@@ -216,12 +222,24 @@ EOF
 
 echo "http server config: $XROOTD_HTTPSERVER_CONFIG"
 
+# Additional plugin configs that differ only in the remote_flavor, used to
+# exercise WebDAV (PROPFIND) listings and the auto-detect path.
+XROOTD_HTTPSERVER_CONFIG_WEBDAV="$XROOTD_CONFIGDIR/xrootd-httpserver-webdav.cfg"
+sed 's/^httpserver.remote_flavor .*/httpserver.remote_flavor webdav/' \
+	"$XROOTD_HTTPSERVER_CONFIG" > "$XROOTD_HTTPSERVER_CONFIG_WEBDAV"
+
+XROOTD_HTTPSERVER_CONFIG_AUTO="$XROOTD_CONFIGDIR/xrootd-httpserver-auto.cfg"
+sed 's/^httpserver.remote_flavor .*/httpserver.remote_flavor auto/' \
+	"$XROOTD_HTTPSERVER_CONFIG" > "$XROOTD_HTTPSERVER_CONFIG_AUTO"
+
 cat > "$BINARY_DIR/tests/$TEST_NAME/setup.sh" <<EOF
 XROOTD_BIN=$XROOTD_BIN
 XROOTD_PID=$XROOTD_PID
 XROOTD_URL=$XROOTD_URL
 X509_CA_FILE=$XROOTD_CONFIGDIR/tlsca.pem
 XROOTD_CFG=$XROOTD_HTTPSERVER_CONFIG
+XROOTD_CFG_WEBDAV=$XROOTD_HTTPSERVER_CONFIG_WEBDAV
+XROOTD_CFG_AUTO=$XROOTD_HTTPSERVER_CONFIG_AUTO
 EOF
 
 echo "Test environment written to $BINARY_DIR/tests/$TEST_NAME/setup.sh"

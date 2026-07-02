@@ -31,12 +31,16 @@
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <string>
+#include <sys/stat.h>
 #include <vector>
 
 std::string g_ca_file;
 std::string g_config_file;
+std::string g_config_file_webdav;
+std::string g_config_file_auto;
 std::string g_url;
 
 void parseEnvFile() {
@@ -67,6 +71,10 @@ void parseEnvFile() {
 			g_url = val;
 		} else if (key == "XROOTD_CFG") {
 			g_config_file = val;
+		} else if (key == "XROOTD_CFG_WEBDAV") {
+			g_config_file_webdav = val;
+		} else if (key == "XROOTD_CFG_AUTO") {
+			g_config_file_auto = val;
 		}
 	}
 }
@@ -95,6 +103,99 @@ TEST(TestHTTPFile, TestList) {
 	char buf[255];
 	auto res = fd->Readdir(buf, 255);
 	ASSERT_EQ(res, 15);
+}
+
+// Read an entire directory into a name -> stat map using the OSS interface.
+static std::map<std::string, struct stat>
+listDirectory(HTTPFileSystem &fs, const char *path, XrdOucEnv &env) {
+	std::map<std::string, struct stat> entries;
+	std::unique_ptr<XrdOssDF> fd(fs.newDir());
+	struct stat entryStat;
+	fd->StatRet(&entryStat);
+	if (fd->Opendir(path, env) != 0) {
+		return entries;
+	}
+	char buf[512];
+	while (true) {
+		auto n = fd->Readdir(buf, sizeof(buf));
+		if (n <= 0 || buf[0] == '\0') {
+			break;
+		}
+		// Readdir populates the stat struct registered via StatRet for the
+		// entry it just returned.
+		entries[std::string(buf)] = entryStat;
+	}
+	return entries;
+}
+
+// List a mixed directory (one file, one subdirectory) over the WebDAV
+// (PROPFIND) flavor and verify the entries, their types, and sizes.
+TEST(TestHTTPFile, TestListWebDAV) {
+	ASSERT_FALSE(g_config_file_webdav.empty())
+		<< "webdav config file not provided by the test harness";
+
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file_webdav.c_str(), &env);
+	ASSERT_EQ(fs.getResolvedFlavor(), RemoteFlavor::Webdav);
+
+	auto entries = listDirectory(fs, "/listdir", env);
+	ASSERT_EQ(entries.size(), 2u);
+	ASSERT_EQ(entries.count("file_a.txt"), 1u);
+	ASSERT_EQ(entries.count("subdir"), 1u);
+
+	EXPECT_TRUE(S_ISREG(entries["file_a.txt"].st_mode));
+	EXPECT_EQ(entries["file_a.txt"].st_size, 10);
+	EXPECT_TRUE(S_ISDIR(entries["subdir"].st_mode));
+}
+
+// A WebDAV listing of a directory containing a single file returns exactly
+// that file (and not the collection's own self-entry).
+TEST(TestHTTPFile, TestListWebDAVSingleFile) {
+	ASSERT_FALSE(g_config_file_webdav.empty());
+
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file_webdav.c_str(), &env);
+
+	auto entries = listDirectory(fs, "/testdir", env);
+	ASSERT_EQ(entries.size(), 1u);
+	ASSERT_EQ(entries.count("hello_world.txt"), 1u);
+	EXPECT_TRUE(S_ISREG(entries["hello_world.txt"].st_mode));
+	EXPECT_EQ(entries["hello_world.txt"].st_size, 13);
+}
+
+// The "auto" flavor probes the remote with OPTIONS; XRootD advertises WebDAV,
+// so the flavor must resolve to WebDAV and produce the same listing.
+TEST(TestHTTPFile, TestListAuto) {
+	ASSERT_FALSE(g_config_file_auto.empty());
+
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file_auto.c_str(), &env);
+	// The startup OPTIONS probe should have detected WebDAV support.
+	ASSERT_EQ(fs.getResolvedFlavor(), RemoteFlavor::Webdav);
+
+	auto entries = listDirectory(fs, "/listdir", env);
+	ASSERT_EQ(entries.size(), 2u);
+	ASSERT_EQ(entries.count("file_a.txt"), 1u);
+	ASSERT_EQ(entries.count("subdir"), 1u);
+}
+
+// The explicit "http" flavor lists the same directory via the HTML index; the
+// entries must match those seen over WebDAV.
+TEST(TestHTTPFile, TestListHTTPFlavor) {
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+	ASSERT_EQ(fs.getResolvedFlavor(), RemoteFlavor::Http);
+
+	auto entries = listDirectory(fs, "/listdir", env);
+	ASSERT_EQ(entries.size(), 2u);
+	ASSERT_EQ(entries.count("file_a.txt"), 1u);
+	ASSERT_EQ(entries.count("subdir"), 1u);
+	EXPECT_TRUE(S_ISREG(entries["file_a.txt"].st_mode));
+	EXPECT_TRUE(S_ISDIR(entries["subdir"].st_mode));
 }
 
 TEST(TestHTTPFile, TestXfer) {
