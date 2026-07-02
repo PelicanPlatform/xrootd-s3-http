@@ -435,6 +435,10 @@ bool HTTPRequest::ReleaseHandle(CURL *curl) {
 	curl_easy_setopt(curl, CURLOPT_NOBODY, 0);
 	curl_easy_setopt(curl, CURLOPT_POST, 0);
 	curl_easy_setopt(curl, CURLOPT_UPLOAD, 0);
+	// Custom request verbs (DELETE, PROPFIND, OPTIONS) set
+	// CURLOPT_CUSTOMREQUEST; it must be cleared or it persists on this reused
+	// handle and overrides the method of the next GET/HEAD/PUT that borrows it.
+	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, nullptr);
 	curl_easy_setopt(curl, CURLOPT_HEADER, 0);
 	curl_easy_setopt(curl, CURLOPT_SSLCERT, nullptr);
 	curl_easy_setopt(curl, CURLOPT_SSLKEY, nullptr);
@@ -551,6 +555,16 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 
 	if (httpVerb == "DELETE") {
 		rv = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+		if (rv != CURLE_OK) {
+			this->errorCode = "E_CURL_LIB";
+			this->errorMessage =
+				"curl_easy_setopt( CURLOPT_CUSTOMREQUEST ) failed.";
+			return false;
+		}
+	}
+
+	if (httpVerb == "PROPFIND" || httpVerb == "OPTIONS") {
+		rv = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, httpVerb.c_str());
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
 			this->errorMessage =
@@ -901,6 +915,63 @@ bool HTTPDelete::SendRequest() {
 	includeResponseHeader = true;
 	std::string noPayloadAllowed;
 	return SendHTTPRequest(noPayloadAllowed);
+}
+
+// ---------------------------------------------------------------------------
+
+HTTPPropfind::~HTTPPropfind() {}
+
+bool HTTPPropfind::SendRequest(const std::string &depth) {
+	httpVerb = "PROPFIND";
+	headers["Depth"] = depth;
+	// A successful PROPFIND is reported with 207 Multi-Status.  An empty
+	// request body is interpreted by RFC 4918 servers as an `allprop` request.
+	this->expectedResponseCode = {207};
+	std::string noPayloadAllowed;
+	return SendHTTPRequest(noPayloadAllowed);
+}
+
+// ---------------------------------------------------------------------------
+
+HTTPOptions::~HTTPOptions() {}
+
+bool HTTPOptions::SendRequest() {
+	httpVerb = "OPTIONS";
+	this->expectedResponseCode = {200, 204};
+	// Capture the response headers (Allow, DAV) into the result string.
+	includeResponseHeader = true;
+	std::string noPayloadAllowed;
+	return SendHTTPRequest(noPayloadAllowed);
+}
+
+bool HTTPOptions::SupportsPropfind() const {
+	// includeResponseHeader routes the raw response headers into m_result.
+	// Scan them line-by-line for a DAV capability header or a PROPFIND entry
+	// in the Allow header.
+	std::istringstream stream(m_result);
+	std::string line;
+	while (std::getline(stream, line)) {
+		if (!line.empty() && line.back() == '\r') {
+			line.pop_back();
+		}
+		auto colon = line.find(':');
+		if (colon == std::string::npos) {
+			continue;
+		}
+		std::string name = line.substr(0, colon);
+		std::string value = line.substr(colon + 1);
+		std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+		std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+
+		// The presence of a DAV header indicates WebDAV support.
+		if (name == "dav") {
+			return true;
+		}
+		if (name == "allow" && value.find("propfind") != std::string::npos) {
+			return true;
+		}
+	}
+	return false;
 }
 
 // ---------------------------------------------------------------------------

@@ -246,7 +246,7 @@ class HTTPRequest {
 	const TokenFile *m_token{nullptr};
 
 	// The following members manage the work queue and workers.
-	static std::once_flag 
+	static std::once_flag
 		m_init_flag; // Flag to ensure we only initialize workers once.
 	static std::shared_ptr<HandlerQueue>
 		m_queue; // Global queue for all HTTP requests to be processed.
@@ -394,6 +394,50 @@ class HTTPDelete final : public HTTPRequest {
 	virtual ~HTTPDelete();
 
 	virtual bool SendRequest();
+
+  protected:
+	std::string object;
+};
+
+// Retrieve a directory listing from a WebDAV server using the PROPFIND verb.
+// A successful request yields a 207 Multi-Status XML body in the result
+// string.
+class HTTPPropfind final : public HTTPRequest {
+  public:
+	HTTPPropfind(const std::string &h, const std::string &o, XrdSysError &log,
+				 const TokenFile *token)
+		: HTTPRequest(h, log, token), object(o) {
+		hostUrl = hostUrl + "/" + object;
+	}
+
+	virtual ~HTTPPropfind();
+
+	// `depth` is the value of the WebDAV Depth header ("0" for the resource
+	// itself, "1" to include its immediate children).
+	virtual bool SendRequest(const std::string &depth = "1");
+
+  protected:
+	std::string object;
+};
+
+// Query a remote server's capabilities using the OPTIONS verb.  Used to
+// discover whether a server supports WebDAV (PROPFIND) for the "auto" flavor.
+class HTTPOptions final : public HTTPRequest {
+  public:
+	HTTPOptions(const std::string &h, const std::string &o, XrdSysError &log,
+				const TokenFile *token)
+		: HTTPRequest(h, log, token), object(o) {
+		hostUrl = hostUrl + "/" + object;
+	}
+
+	virtual ~HTTPOptions();
+
+	virtual bool SendRequest();
+
+	// True if the OPTIONS response advertises support for the WebDAV PROPFIND
+	// verb (via the `Allow` or `DAV` response headers).  Only meaningful after
+	// a successful SendRequest().
+	bool SupportsPropfind() const;
 
   protected:
 	std::string object;

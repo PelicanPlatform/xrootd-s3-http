@@ -17,6 +17,7 @@
  ***************************************************************/
 
 #include "HTTPFileSystem.hh"
+#include "HTTPCommands.hh"
 #include "HTTPDirectory.hh"
 #include "HTTPFile.hh"
 #include "logging.hh"
@@ -131,19 +132,87 @@ bool HTTPFileSystem::Config(XrdSysLogger *lp, const char *configfn) {
 								 "httpserver.url_base are required");
 			return false;
 		}
-		if (m_remote_flavor != "http" && m_remote_flavor != "webdav" &&
-			m_remote_flavor != "auto") {
-			m_log.Emsg("Config", "Invalid httpserver.remote_flavor specified; "
-								 "must be one of: 'http', 'webdav', or 'auto'");
-			return false;
-		}
+	}
+
+	if (m_remote_flavor != "http" && m_remote_flavor != "webdav" &&
+		m_remote_flavor != "auto") {
+		m_log.Emsg("Config", "Invalid httpserver.remote_flavor specified; "
+							 "must be one of: 'http', 'webdav', or 'auto'");
+		return false;
 	}
 
 	if (!token_file.empty()) {
 		m_token = TokenFile(token_file, &m_log);
 	}
 
+	// For the "auto" flavor, probe the remote once at startup so the first
+	// directory listing does not pay the OPTIONS round-trip.  A failure here
+	// (e.g. the remote is not yet reachable) is non-fatal: the flavor stays
+	// unknown and is re-probed lazily on the next listing.
+	if (m_remote_flavor == "auto") {
+		maybeProbeFlavor();
+	}
+
 	return true;
+}
+
+RemoteFlavor HTTPFileSystem::detectRemoteFlavor() {
+	std::string hostUrl =
+		!getHTTPUrlBase().empty() ? getHTTPUrlBase() : getHTTPHostUrl();
+
+	HTTPOptions options(hostUrl, "", m_log, &m_token);
+	if (!options.SendRequest()) {
+		m_log.Log(LogMask::Warning, "HTTPFileSystem",
+				  "OPTIONS probe of remote failed; directory-listing flavor "
+				  "remains undetermined");
+		return RemoteFlavor::Unknown;
+	}
+
+	if (options.SupportsPropfind()) {
+		m_log.Log(LogMask::Info, "HTTPFileSystem",
+				  "Remote advertises WebDAV; using PROPFIND for listings");
+		return RemoteFlavor::Webdav;
+	}
+
+	m_log.Log(LogMask::Info, "HTTPFileSystem",
+			  "Remote does not advertise WebDAV; using HTML for listings");
+	return RemoteFlavor::Http;
+}
+
+void HTTPFileSystem::maybeProbeFlavor() {
+	if (m_resolved_flavor.load() != RemoteFlavor::Unknown) {
+		return;
+	}
+
+	std::lock_guard<std::mutex> lock(m_probe_mtx);
+	// Re-check under the lock; another thread may have resolved it.
+	if (m_resolved_flavor.load() != RemoteFlavor::Unknown) {
+		return;
+	}
+
+	auto now = std::chrono::steady_clock::now();
+	if (m_probed_once && (now - m_last_probe) < m_probe_interval) {
+		return;
+	}
+	m_probed_once = true;
+	m_last_probe = now;
+
+	auto detected = detectRemoteFlavor();
+	if (detected != RemoteFlavor::Unknown) {
+		m_resolved_flavor.store(detected);
+	}
+}
+
+RemoteFlavor HTTPFileSystem::getResolvedFlavor() {
+	if (m_remote_flavor == "http") {
+		return RemoteFlavor::Http;
+	}
+	if (m_remote_flavor == "webdav") {
+		return RemoteFlavor::Webdav;
+	}
+	// "auto": consult (and lazily refresh) the probed result.
+	maybeProbeFlavor();
+	return m_resolved_flavor.load();
 }
 
 // Object Allocation Functions
