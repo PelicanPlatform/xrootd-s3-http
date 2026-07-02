@@ -435,7 +435,7 @@ bool HTTPRequest::ReleaseHandle(CURL *curl) {
 	curl_easy_setopt(curl, CURLOPT_NOBODY, 0);
 	curl_easy_setopt(curl, CURLOPT_POST, 0);
 	curl_easy_setopt(curl, CURLOPT_UPLOAD, 0);
-	// Custom request verbs (DELETE, PROPFIND, OPTIONS) set
+	// Custom request verbs (DELETE, PROPFIND, OPTIONS, MKCOL) set
 	// CURLOPT_CUSTOMREQUEST; it must be cleared or it persists on this reused
 	// handle and overrides the method of the next GET/HEAD/PUT that borrows it.
 	curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, nullptr);
@@ -563,7 +563,8 @@ bool HTTPRequest::SetupHandle(CURL *curl) {
 		}
 	}
 
-	if (httpVerb == "PROPFIND" || httpVerb == "OPTIONS") {
+	if (httpVerb == "PROPFIND" || httpVerb == "OPTIONS" ||
+		httpVerb == "MKCOL") {
 		rv = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, httpVerb.c_str());
 		if (rv != CURLE_OK) {
 			this->errorCode = "E_CURL_LIB";
@@ -972,6 +973,21 @@ bool HTTPOptions::SupportsPropfind() const {
 		}
 	}
 	return false;
+}
+
+// ---------------------------------------------------------------------------
+
+HTTPMkcol::~HTTPMkcol() {}
+
+bool HTTPMkcol::SendRequest() {
+	httpVerb = "MKCOL";
+	// RFC 4918: a successful MKCOL is reported with 201 Created.  XRootD's
+	// XrdHttp also replies 201 when the collection already exists (i.e. the
+	// operation is idempotent) rather than the RFC-mandated 405.
+	this->expectedResponseCode = {201};
+	includeResponseHeader = true;
+	std::string noPayloadAllowed;
+	return SendHTTPRequest(noPayloadAllowed);
 }
 
 // ---------------------------------------------------------------------------

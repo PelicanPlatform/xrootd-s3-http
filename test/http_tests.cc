@@ -198,6 +198,108 @@ TEST(TestHTTPFile, TestListHTTPFlavor) {
 	EXPECT_TRUE(S_ISDIR(entries["subdir"].st_mode));
 }
 
+// Create a fresh directory and confirm it exists afterwards.
+TEST(TestHTTPFile, TestMkdir) {
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+
+	// The path should not exist before we create it.
+	struct stat si;
+	ASSERT_EQ(fs.Stat("/mkdir_test_dir/", &si, 0, &env), -ENOENT);
+
+	ASSERT_EQ(fs.Mkdir("/mkdir_test_dir", 0755, 0, &env), 0);
+
+	// After creation the path resolves as a directory (the trailing slash
+	// tells the backend to treat it as one).
+	ASSERT_EQ(fs.Stat("/mkdir_test_dir/", &si, 0, &env), 0);
+	ASSERT_TRUE(S_ISDIR(si.st_mode));
+}
+
+// XRootD's MKCOL is idempotent: creating an existing directory succeeds
+// rather than returning an error.
+TEST(TestHTTPFile, TestMkdirAlreadyExists) {
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+
+	ASSERT_EQ(fs.Mkdir("/mkdir_existing_dir", 0755, 0, &env), 0);
+	// Creating it a second time must still succeed.
+	ASSERT_EQ(fs.Mkdir("/mkdir_existing_dir", 0755, 0, &env), 0);
+}
+
+// Attempting to create a directory where a regular file already exists must
+// fail with EEXIST (the server answers MKCOL with 405 Method Not Allowed).
+TEST(TestHTTPFile, TestMkdirOverExistingFile) {
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+
+	// Lay down a regular file first.
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	auto rc = fh->Open("/mkdir_conflict.txt", O_WRONLY | O_CREAT | O_TRUNC,
+					   0644, env);
+	ASSERT_EQ(rc, 0);
+	const char payload[] = "not a directory";
+	ASSERT_EQ(fh->Write(payload, 0, strlen(payload)),
+			  static_cast<ssize_t>(strlen(payload)));
+	ASSERT_EQ(fh->Close(), 0);
+
+	ASSERT_EQ(fs.Mkdir("/mkdir_conflict.txt", 0755, 0, &env), -EEXIST);
+}
+
+// A multi-level path with missing intermediate parents is created in full;
+// XRootD's MKCOL creates the parents on demand.
+TEST(TestHTTPFile, TestMkdirNested) {
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+
+	ASSERT_EQ(fs.Mkdir("/mkdir_parent/child/grandchild", 0755, 1, &env), 0);
+
+	struct stat si;
+	ASSERT_EQ(fs.Stat("/mkdir_parent/child/grandchild/", &si, 0, &env), 0);
+	ASSERT_TRUE(S_ISDIR(si.st_mode));
+	// The intermediate parent must exist as well.
+	ASSERT_EQ(fs.Stat("/mkdir_parent/child/", &si, 0, &env), 0);
+	ASSERT_TRUE(S_ISDIR(si.st_mode));
+}
+
+// End-to-end: a freshly created directory is usable as a container for a
+// file that can subsequently be written and read back.
+TEST(TestHTTPFile, TestMkdirThenWriteFile) {
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+
+	ASSERT_EQ(fs.Mkdir("/mkdir_usable", 0755, 0, &env), 0);
+
+	const char test_data[] = "contents inside a freshly made directory";
+	const size_t data_size = strlen(test_data);
+
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	auto rc = fh->Open("/mkdir_usable/inside.txt", O_WRONLY | O_CREAT | O_TRUNC,
+					   0644, env);
+	ASSERT_EQ(rc, 0);
+	ASSERT_EQ(fh->Write(test_data, 0, data_size),
+			  static_cast<ssize_t>(data_size));
+	ASSERT_EQ(fh->Close(), 0);
+
+	struct stat si;
+	rc = fs.Stat("/mkdir_usable/inside.txt", &si, 0, &env);
+	ASSERT_EQ(rc, 0);
+	ASSERT_EQ(si.st_size, data_size);
+
+	std::unique_ptr<XrdOssDF> read_fh(fs.newFile());
+	ASSERT_EQ(read_fh->Open("/mkdir_usable/inside.txt", O_RDONLY, 0700, env),
+			  0);
+	char read_buf[128];
+	ASSERT_EQ(read_fh->Read(read_buf, 0, data_size),
+			  static_cast<ssize_t>(data_size));
+	ASSERT_EQ(memcmp(read_buf, test_data, data_size), 0);
+	ASSERT_EQ(read_fh->Close(), 0);
+}
+
 TEST(TestHTTPFile, TestXfer) {
 	XrdSysLogger log;
 	HTTPFileSystem fs(&log, g_config_file.c_str(), nullptr);

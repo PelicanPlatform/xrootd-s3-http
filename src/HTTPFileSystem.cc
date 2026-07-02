@@ -254,6 +254,43 @@ int HTTPFileSystem::Create(const char *tid, const char *path, mode_t mode,
 	return 0;
 }
 
+int HTTPFileSystem::Mkdir(const char *path, mode_t mode, int mkpath,
+						  XrdOucEnv *env) {
+	m_log.Log(LogMask::Debug, "Mkdir", "Creating directory", path);
+
+	// Validate and translate the incoming path into the remote object name.
+	std::string object;
+	if (parse_path(getStoragePrefix(), path, object) != 0) {
+		m_log.Emsg("Mkdir", "Failed to parse path:", path);
+		return -EINVAL;
+	}
+
+	std::string hostUrl =
+		!getHTTPUrlBase().empty() ? getHTTPUrlBase() : getHTTPHostUrl();
+	m_log.Log(LogMask::Debug, "Mkdir", "Object:", object.c_str());
+	m_log.Log(LogMask::Debug, "Mkdir", "Host URL:", hostUrl.c_str());
+
+	// Issue a WebDAV MKCOL against the remote server.  XRootD's XrdHttp
+	// creates any missing intermediate parents itself, so the `mkpath`
+	// argument requires no special handling here.
+	HTTPMkcol mkcolCommand(hostUrl, object, m_log, &m_token);
+	if (!mkcolCommand.SendRequest()) {
+		// A 405 (Method Not Allowed) from MKCOL means a non-collection
+		// resource already exists at this path; surface that as EEXIST so
+		// callers can distinguish it from other failures.
+		if (mkcolCommand.getResponseCode() == 405) {
+			m_log.Log(LogMask::Warning, "Mkdir",
+					  "Cannot create directory; a file already exists at path",
+					  path);
+			return -EEXIST;
+		}
+		return HTTPRequest::HandleHTTPError(mkcolCommand, m_log, "MKCOL",
+											object.c_str());
+	}
+
+	return 0;
+}
+
 int HTTPFileSystem::Unlink(const char *path, int Opts, XrdOucEnv *env) {
 	m_log.Log(LogMask::Debug, "Unlink", "Unlinking path", path);
 	// make sure file exists
