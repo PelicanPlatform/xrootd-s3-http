@@ -17,6 +17,8 @@ The plugins in the repository include:
   killing the process if any operation exceeds a configurable timeout threshold.
 - `XrdAccDeadlock`: An authorization plugin wrapper that monitors all authorization
   operations for deadlocks.
+- `XrdAccHttpCallout`: An authorization plugin that delegates access decisions to an
+  external HTTP service, with response caching.
 
 
 ## Building and Installing
@@ -467,6 +469,67 @@ s3.end
 
 In this configuration, any S3 operation that takes longer than 2 minutes will be logged and
 the process will be killed, preventing indefinite hangs.
+
+### Configure the HTTP authorization callout plugin
+
+The `XrdAccHttpCallout` plugin delegates every authorization decision to an external HTTP
+service.  For each access check it issues an HTTP `GET` to the configured endpoint with the
+requested path and verb as query parameters (`?path=<url-encoded-path>&verb=<verb>`) and the
+client's bearer token in the `Authorization` header.  The response status determines the
+decision: `200` grants, `401`/`403` deny, and `5xx` is treated as a plugin error.  Decisions
+are cached, with independently configurable lifetimes for positive and negative responses.
+
+The plugin locates the client's bearer token the same way the SciTokens plugin does: from the
+`authz` request value (which XrdHttp populates from the incoming `Authorization` header via
+`http.header2cgi Authorization authz`), falling back to the security entity's credentials.
+
+Load the plugin with the `ofs.authlib` directive in "stacking" mode (`++`), not `acc.authlib`
+(which configures the built-in authorization database).  Stacking passes the previously
+configured authorization object to the plugin as the delegation target for passthrough:
+
+```
+http.header2cgi Authorization authz
+ofs.authorize 1
+acc.authdb /etc/xrootd/authdb          # the built-in authorization (the passthrough target)
+ofs.authlib ++ libXrdAccHttpCallout.so
+```
+
+Configuration directives:
+
+```
+httpcallout.endpoint <url>                 # (required) authorization service URL
+httpcallout.cache_ttl_positive <seconds>   # cache lifetime for grants (default 60)
+httpcallout.cache_ttl_negative <seconds>   # cache lifetime for denials (default 30)
+httpcallout.passthrough [true|false]       # on a non-grant, delegate to the chained
+                                           #   authorization object instead of denying
+                                           #   (default false)
+httpcallout.trace [all|error|warning|info|debug|none]
+```
+
+When `httpcallout.passthrough true` is set and the plugin cannot grant access itself (no
+token, an explicit denial, or a service error), it delegates the decision to the next
+authorization object in the chain rather than denying outright.
+
+XRootD operations are mapped to HTTP/WebDAV verbs: Read→GET, Readdir→PROPFIND, Stat→HEAD,
+Update/Create→PUT, Delete→DELETE, Mkdir→MKCOL, Rename→MOVE.
+
+The authorization service may optionally return a JSON body describing additional
+authorizations and identity metadata.  Each `prefixes` entry authorizes the token for the
+given verb on any path at or below that prefix; these are cached so related sub-paths are
+served without another callout:
+
+```json
+{
+  "authorizations": [
+    {"verb": "GET", "prefixes": ["/store/data", "/store/mc"]}
+  ],
+  "user": "jdoe",
+  "group": "physicists"
+}
+```
+
+A complete example configuration is provided in
+[`configs/xrootd-acchttpcallout-example.cfg`](configs/xrootd-acchttpcallout-example.cfg).
 
 ## Startup and Testing
 

@@ -212,6 +212,17 @@ target_link_libraries( XrdAccDeadlockObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERV
 add_library( XrdAccDeadlock MODULE "$<TARGET_OBJECTS:XrdAccDeadlockObj>" )
 target_link_libraries( XrdAccDeadlock XrdAccDeadlockObj )
 
+############################
+## libXrdAccHttpCallout   ##
+############################
+add_library( XrdAccHttpCalloutObj OBJECT src/AccHttpCallout.cc )
+set_target_properties( XrdAccHttpCalloutObj PROPERTIES POSITION_INDEPENDENT_CODE ON )
+target_include_directories( XrdAccHttpCalloutObj PRIVATE ${XRootD_INCLUDE_DIRS} )
+target_link_libraries( XrdAccHttpCalloutObj ${XRootD_UTILS_LIBRARIES} ${XRootD_SERVER_LIBRARIES} nlohmann_json::nlohmann_json CURL::libcurl OpenSSL::Crypto Threads::Threads )
+
+add_library( XrdAccHttpCallout MODULE "$<TARGET_OBJECTS:XrdAccHttpCalloutObj>" )
+target_link_libraries( XrdAccHttpCallout XrdAccHttpCalloutObj )
+
 # Customize module's suffix and, on Linux, hide unnecessary symbols
 if( APPLE )
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
@@ -224,6 +235,7 @@ if( APPLE )
   set_target_properties( XrdN2NPrefix PROPERTIES OUTPUT_NAME "XrdN2NPrefix-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdOssDeadlock PROPERTIES OUTPUT_NAME "XrdOssDeadlock-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
   set_target_properties( XrdAccDeadlock PROPERTIES OUTPUT_NAME "XrdAccDeadlock-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
+  set_target_properties( XrdAccHttpCallout PROPERTIES OUTPUT_NAME "XrdAccHttpCallout-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" )
 else()
   set_target_properties( XrdS3 PROPERTIES OUTPUT_NAME "XrdS3-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdHTTPServer PROPERTIES OUTPUT_NAME "XrdHTTPServer-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
@@ -235,13 +247,14 @@ else()
   set_target_properties( XrdN2NPrefix PROPERTIES OUTPUT_NAME "XrdN2NPrefix-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdOssDeadlock PROPERTIES OUTPUT_NAME "XrdOssDeadlock-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-lib-symbols" )
   set_target_properties( XrdAccDeadlock PROPERTIES OUTPUT_NAME "XrdAccDeadlock-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-acc-symbols" )
+  set_target_properties( XrdAccHttpCallout PROPERTIES OUTPUT_NAME "XrdAccHttpCallout-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-acc-symbols" )
   #set_target_properties( XrdOfsRedirect PROPERTIES OUTPUT_NAME "XrdOfsRedirect-${XRootD_PLUGIN_VERSION}" SUFFIX ".so" LINK_FLAGS "-Wl,--version-script=${CMAKE_SOURCE_DIR}/configs/export-ofs-lib-symbols" )
 endif()
 
 include(GNUInstallDirs)
 
 install(
-  TARGETS XrdPelicanHttpCore XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus XrdOssPosc XrdN2NPrefix XrdOssDeadlock XrdAccDeadlock
+  TARGETS XrdPelicanHttpCore XrdS3 XrdHTTPServer XrdOssS3 XrdOssHttp XrdOssFilter XrdOssGlobus XrdOssPosc XrdN2NPrefix XrdOssDeadlock XrdAccDeadlock XrdAccHttpCallout
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
@@ -278,6 +291,10 @@ if( ENABLE_TESTS )
   add_library( XrdAccDeadlockTesting SHARED "$<TARGET_OBJECTS:XrdAccDeadlockObj>" )
   target_link_libraries( XrdAccDeadlockTesting XrdAccDeadlockObj )
   target_include_directories( XrdAccDeadlockTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
+
+  add_library( XrdAccHttpCalloutTesting SHARED "$<TARGET_OBJECTS:XrdAccHttpCalloutObj>" )
+  target_link_libraries( XrdAccHttpCalloutTesting XrdAccHttpCalloutObj )
+  target_include_directories( XrdAccHttpCalloutTesting INTERFACE ${XRootD_INCLUDE_DIRS} )
 
   # Dummy stall OSS for integration tests
   add_library( XrdOssDummyStall MODULE src/DummyStallOss.cc )
