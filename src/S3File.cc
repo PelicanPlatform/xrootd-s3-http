@@ -551,9 +551,9 @@ void S3File::SendStatistics(XrdSysError &log) {
 				"Failed to generate g-stream statistics packet");
 		return;
 	}
-	/* TODO: Disabling this line because it always gets displayed regardless of the log level (#135)
+	// Emitted at Debug level through the filesystem's configured logger, so it
+	// is suppressed unless s3.trace enables debug logging (see issue #135).
 	log.Log(LogMask::Debug, "Statistics", buf);
-	*/
 	if (m_gstream && !m_gstream->Insert(buf, len + 1)) {
 		log.Log(LogMask::Error, "Statistics",
 				"Failed to send g-stream statistics packet");
@@ -1313,10 +1313,16 @@ XrdOss *XrdOssGetStorageSystem2(XrdOss *native_oss, XrdSysLogger *Logger,
 
 	envP->Export("XRDXROOTD_NOPOSC", "1");
 
-	S3File::LaunchMonitorThread(*log, envP);
 	try {
 		AmazonRequest::Init(*log);
 		g_s3_oss = new S3FileSystem(Logger, config_fn, envP);
+		// Launch the statistics/maintenance thread only after the filesystem
+		// has been configured, and hand it the filesystem's own logger so its
+		// output honors the s3.trace level (that logger lives for the life of
+		// the process).  Doing this here rather than in the S3FileSystem
+		// constructor also keeps unit tests -- which build S3FileSystem objects
+		// on the stack -- from spawning a thread bound to a short-lived logger.
+		S3File::LaunchMonitorThread(g_s3_oss->getLogger(), envP);
 		return g_s3_oss;
 	} catch (std::runtime_error &re) {
 		log->Emsg("Initialize", "Encountered a runtime failure", re.what());

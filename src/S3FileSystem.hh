@@ -35,6 +35,11 @@ class S3FileSystem : public XrdOss {
 
 	bool Config(XrdSysLogger *lp, const char *configfn);
 
+	// The plugin's logger, configured with the s3.trace mask by Config().  The
+	// statistics/maintenance thread is launched with this (process-lived)
+	// logger so its output honors the configured trace level.
+	XrdSysError &getLogger() { return m_log; }
+
 	XrdOssDF *newDir(const char *user = 0);
 	XrdOssDF *newFile(const char *user = 0);
 
