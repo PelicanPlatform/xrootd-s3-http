@@ -111,6 +111,9 @@ class S3File : public XrdOssDF {
 	static void SetCacheEntrySize(size_t size) { m_cache_entry_size = size; }
 
   private:
+	// Grants the statistics unit test access to the private SendStatistics().
+	friend class S3StatsTest_RespectsMask_Test;
+
 	// Periodic cleanup of in-progress transfers.
 	//
 	// Iterates through the global list of pending multipart uploads

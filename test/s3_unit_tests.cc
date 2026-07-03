@@ -24,6 +24,7 @@
 #include "../src/S3Commands.hh"
 #include "../src/S3File.hh"
 #include "../src/S3FileSystem.hh"
+#include "../src/logging.hh"
 #include "s3_tests_common.hh"
 
 #include <XrdOuc/XrdOucEnv.hh>
@@ -709,6 +710,43 @@ TEST_F(FileSystemS3Fixture, Etag) {
 	// Finalize the object
 	AmazonS3CompleteMultipartUpload complete_upload_request(*ai, object, err);
 	ASSERT_TRUE(complete_upload_request.SendRequest(eTags, 2, uploadId));
+}
+
+// The periodic statistics line must honor the logger's configured trace mask
+// (issue #135): it is emitted at Debug level, so it should appear only when
+// the logger permits debug output.  SendStatistics is exercised directly with
+// a logger writing to a temporary file.
+TEST(S3StatsTest, RespectsMask) {
+	setenv("XRDINSTANCE", "xrootd", 1);
+
+	char tmpl[] = "/tmp/s3stats_XXXXXX";
+	int fd = mkstemp(tmpl);
+	ASSERT_GE(fd, 0);
+
+	{
+		XrdSysLogger logger(fd, 0);
+		XrdSysError err(&logger, "s3_");
+
+		// Debug excluded from the mask: the statistics line is suppressed.
+		err.setMsgMask(XrdHTTPServer::LogMask::Error);
+		S3File::SendStatistics(err);
+
+		// Debug included: the statistics line is emitted exactly once.
+		err.setMsgMask(XrdHTTPServer::LogMask::All);
+		S3File::SendStatistics(err);
+	}
+
+	std::ifstream in(tmpl);
+	std::string contents((std::istreambuf_iterator<char>(in)),
+						 std::istreambuf_iterator<char>());
+	unlink(tmpl);
+
+	size_t count = 0;
+	for (size_t pos = contents.find("s3file_stats"); pos != std::string::npos;
+		 pos = contents.find("s3file_stats", pos + 1)) {
+		++count;
+	}
+	EXPECT_EQ(count, 1u) << "log contents:\n" << contents;
 }
 
 int main(int argc, char **argv) {
