@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.6.8
+Version:        0.6.9
 Release:        1%{?dist}
 Summary:        S3/HTTP/Globus filesystem plugins for xrootd
 
@@ -59,6 +59,13 @@ rm %{buildroot}%{_libdir}/libXrdPelicanHttpCore.so
 %license LICENSE
 
 %changelog
+* Mon Jul 13 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.9-1
+- Add WebDAV (PROPFIND) directory listing with OPTIONS auto-detection
+- Implement Mkdir in HTTPFileSystem via WebDAV MKCOL
+- Add deadlock detection plugin for XRootD OSS and authorization operations
+- Add XrdAccHttpCallout plugin for HTTP-based authorization callouts
+- Fix s3_Statistics log messages ignoring s3.trace level
+
 * Tue May 26 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.8-1
 - Drop noisy s3_Statistics log messages
 
