@@ -123,7 +123,7 @@ ofs.authorize 1
 acc.authdb $XROOTD_CONFIGDIR/authdb
 # Stack the deadlock-detection authorization wrapper on top of the default
 # authdb-based authorization.
-ofs.authlib ++ $BINARY_DIR/libXrdAccDeadlock-5.so
+ofs.authlib ++ $BINARY_DIR/libXrdAccDeadlock.so
 
 xrd.protocol XrdHttp:any libXrdHttp.so
 http.header2cgi Authorization authz
@@ -133,8 +133,8 @@ xrd.tls $XROOTD_CONFIGDIR/tls.crt $XROOTD_CONFIGDIR/tls.key
 
 oss.localroot $XROOTD_EXPORTDIR
 # OSS stack (innermost first): default OSS <- DummyStall <- Deadlock monitor.
-ofs.osslib ++ $BINARY_DIR/libXrdOssDummyStall-5.so
-ofs.osslib ++ $BINARY_DIR/libXrdOssDeadlock-5.so
+ofs.osslib ++ $BINARY_DIR/libXrdOssDummyStall.so
+ofs.osslib ++ $BINARY_DIR/libXrdOssDeadlock.so
 
 # Short timeout so the negative test does not have to wait long.
 deadlock.timeout 3
