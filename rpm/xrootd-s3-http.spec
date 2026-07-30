@@ -7,10 +7,17 @@ License:        Apache-2.0
 URL:            https://github.com/PelicanPlatform/%{name}
 Source0:        %{url}/archive/refs/tags/v%{version}/%{name}-%{version}.tar.gz
 
+%bcond_with xrootd6
+
+
 BuildRequires: cmake3
 BuildRequires: gcc-c++
 BuildRequires: make
-BuildRequires: xrootd-server-devel
+%if %{with xrootd6}
+BuildRequires: xrootd-server-devel >= 1:6, xrootd-server-devel < 1:7
+%else
+BuildRequires: xrootd-server-devel >= 1:5.9, xrootd-server-devel < 1:6
+%endif
 BuildRequires: libcurl-devel
 BuildRequires: openssl-devel
 BuildRequires: tinyxml2-devel
@@ -54,8 +61,8 @@ rm %{buildroot}%{_libdir}/libXrdPelicanHttpCore.so
 %license LICENSE
 
 %changelog
-* Tue Jul 21 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.9-2
-- Simplify spec file; drop explicit xrootd version dependencies
+* Fri Jul 24 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.9-2
+- Simplify spec file
 
 * Mon Jul 13 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.9-1
 - Add WebDAV (PROPFIND) directory listing with OPTIONS auto-detection
