@@ -96,7 +96,11 @@ int S3File::Open(const char *path, int Oflag, mode_t Mode, XrdOucEnv &env) {
 		m_log.Log(LogMask::Warning, "Open", "File already open:", path);
 		return -EBADF;
 	}
-	if (Oflag & O_CREAT) {
+	// After a successful Create() (a no-op in S3FileSystem), XrdOfs opens
+	// the file with O_RDWR | O_TRUNC and without O_CREAT.  Treat either flag
+	// as a request to create the object so that an upload with no data
+	// still produces a zero-length object in Close.
+	if (Oflag & (O_CREAT | O_TRUNC)) {
 		m_log.Log(LogMask::Info, "Open", "File opened for creation:", path);
 		m_create = true;
 	}
