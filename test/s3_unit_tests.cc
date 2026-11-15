@@ -295,9 +295,7 @@ TEST_F(FileSystemS3Fixture, UploadZero) {
 	WritePattern("/test/write_zero_stream.txt", 0, 'X', 32 * 1024, false);
 }
 
-// XrdOfs strips O_CREAT before it calls Open() (it creates the file through
-// Create() first), so a client writing an empty file arrives as a write open
-// with O_TRUNC and without O_CREAT.  The empty object must still be created.
+// An open with O_TRUNC and no O_CREAT must still create the empty object.
 TEST_F(FileSystemS3Fixture, UploadZeroTruncOpen) {
 	XrdSysLogger log;
 	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
@@ -316,8 +314,7 @@ TEST_F(FileSystemS3Fixture, UploadZeroTruncOpen) {
 	ASSERT_EQ(buf.st_size, 0);
 }
 
-// Opening an existing object for writing without O_CREAT or O_TRUNC and then
-// closing it without writing must leave the object untouched.
+// Opening for write without O_CREAT or O_TRUNC, then closing, keeps the object.
 TEST_F(FileSystemS3Fixture, OpenWriteNoTruncKeepsObject) {
 	WritePattern("/test/keep_object.txt", 26, 'a', 26, true);
 
