@@ -713,14 +713,39 @@ static time_t parseListTimestamp(const char *text) {
 		return 0;
 	}
 	if (*eos == '.') {
-		for (++eos; isdigit(static_cast<unsigned char>(*eos)); ++eos) {
+		const char *fraction = ++eos;
+		while (isdigit(static_cast<unsigned char>(*eos))) {
+			++eos;
+		}
+		if (eos == fraction) {
+			return 0;
 		}
 	}
-	if (*eos != 'Z' || *(eos + 1) != '\0') {
+	auto digit = [](char c) { return isdigit(static_cast<unsigned char>(c)); };
+	time_t offset = 0;
+	if (*eos == 'Z') {
+		++eos;
+	} else if ((*eos == '+' || *eos == '-') && digit(eos[1]) && digit(eos[2])) {
+		int sign = *eos == '-' ? -1 : 1;
+		int hours = (eos[1] - '0') * 10 + (eos[2] - '0');
+		eos += 3;
+		if (*eos == ':') {
+			++eos;
+		}
+		if (!digit(eos[0]) || !digit(eos[1])) {
+			return 0;
+		}
+		int minutes = (eos[0] - '0') * 10 + (eos[1] - '0');
+		eos += 2;
+		offset = sign * (hours * 3600 + minutes * 60);
+	} else {
+		return 0;
+	}
+	if (*eos != '\0') {
 		return 0;
 	}
 	auto epoch = timegm(&t);
-	return epoch == -1 ? 0 : epoch;
+	return epoch == -1 ? 0 : epoch - offset;
 }
 
 bool AmazonS3List::ParseListBucketResult(
