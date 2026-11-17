@@ -29,7 +29,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cstring>
+#include <ctime>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -704,6 +706,23 @@ bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 	return ParseListBucketResult(m_result, objInfo, commonPrefixes, ct, errMsg);
 }
 
+static time_t parseListTimestamp(const char *text) {
+	struct tm t = {};
+	const char *eos = strptime(text, "%Y-%m-%dT%H:%M:%S", &t);
+	if (!eos) {
+		return 0;
+	}
+	if (*eos == '.') {
+		for (++eos; isdigit(static_cast<unsigned char>(*eos)); ++eos) {
+		}
+	}
+	if (*eos != 'Z' || *(eos + 1) != '\0') {
+		return 0;
+	}
+	auto epoch = timegm(&t);
+	return epoch == -1 ? 0 : epoch;
+}
+
 bool AmazonS3List::ParseListBucketResult(
 	const std::string &xml, std::vector<S3ObjectInfo> &objInfo,
 	std::vector<std::string> &commonPrefixes, std::string &ct,
@@ -799,6 +818,12 @@ bool AmazonS3List::ParseListBucketResult(
 				S3ObjectInfo obj;
 				obj.m_key = keyStr;
 				obj.m_size = size;
+				auto lm = child->FirstChildElement("LastModified");
+				if (lm != nullptr && lm->GetText() != nullptr) {
+					std::string lmStr(lm->GetText());
+					trim(lmStr);
+					obj.m_last_modified = parseListTimestamp(lmStr.c_str());
+				}
 				objInfo.emplace_back(obj);
 			}
 		} else if (!strcmp(child->Name(), "NextContinuationToken")) {

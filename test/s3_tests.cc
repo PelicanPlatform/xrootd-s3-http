@@ -356,6 +356,44 @@ TEST(S3ListParsing, BasicKeysAndPrefixes) {
 	EXPECT_TRUE(ct.empty());
 }
 
+TEST(S3ListParsing, LastModified) {
+	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>false</IsTruncated>
+  <Contents>
+    <Key>dir/with_fraction.txt</Key>
+    <LastModified>2023-08-21T11:02:53.000Z</LastModified>
+    <Size>1</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/no_fraction.txt</Key>
+    <LastModified>2023-07-17T11:02:19Z</LastModified>
+    <Size>2</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/missing.txt</Key>
+    <Size>3</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/garbage.txt</Key>
+    <LastModified>yesterday</LastModified>
+    <Size>4</Size>
+  </Contents>
+</ListBucketResult>)";
+
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	ASSERT_TRUE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err))
+		<< err;
+	ASSERT_EQ(objs.size(), 4);
+	EXPECT_EQ(objs[0].m_last_modified, 1692615773);
+	EXPECT_EQ(objs[1].m_last_modified, 1689591739);
+	EXPECT_EQ(objs[2].m_last_modified, 0);
+	EXPECT_EQ(objs[3].m_last_modified, 0);
+}
+
 TEST(S3ListParsing, DecodesUrlEncodedKeysAndPrefixes) {
 	// Simulates encoding-type=url response from S3 where keys/prefixes
 	// contain percent-encoded characters

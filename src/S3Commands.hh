@@ -346,6 +346,7 @@ class AmazonS3Head final : public AmazonRequest {
 struct S3ObjectInfo {
 	size_t m_size;
 	std::string m_key;
+	time_t m_last_modified{0};
 };
 
 class AmazonS3List final : public AmazonRequest {

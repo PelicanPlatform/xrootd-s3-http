@@ -415,6 +415,43 @@ TEST_F(FileSystemS3Fixture, ListDir) {
 	ASSERT_EQ(dir->Close(), 0);
 }
 
+TEST_F(FileSystemS3Fixture, ListDirMtime) {
+	time_t before = time(nullptr);
+	WritePattern("/test/listmtime/file.txt", 1'000, 'a', 1'000, true);
+	WritePattern("/test/listmtime/sub/inner.txt", 10, 'a', 10, true);
+
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	XrdOucEnv env;
+	ASSERT_EQ(fh->Open("/test/listmtime/file.txt", O_RDONLY, 0, env), 0);
+	struct stat fstatBuf;
+	ASSERT_EQ(fh->Fstat(&fstatBuf), 0);
+	ASSERT_EQ(fh->Close(), 0);
+	ASSERT_NE(fstatBuf.st_mtime, 0);
+
+	std::unique_ptr<XrdOssDF> dir(fs.newDir());
+	ASSERT_EQ(dir->Opendir("/test/listmtime", env), 0);
+	struct stat buf;
+	ASSERT_EQ(dir->StatRet(&buf), 0);
+	std::vector<char> name(255);
+
+	ASSERT_EQ(dir->Readdir(&name[0], 255), 0);
+	ASSERT_EQ(std::string(&name[0]), "file.txt");
+	EXPECT_EQ(buf.st_mtime, fstatBuf.st_mtime);
+	EXPECT_GE(buf.st_mtime, before - 5);
+	EXPECT_LE(buf.st_mtime, time(nullptr) + 5);
+
+	ASSERT_EQ(dir->Readdir(&name[0], 255), 0);
+	ASSERT_EQ(std::string(&name[0]), "sub");
+	ASSERT_EQ(buf.st_mode & S_IFDIR,
+			  static_cast<decltype(buf.st_mode)>(S_IFDIR));
+	EXPECT_EQ(buf.st_mtime, 0);
+
+	ASSERT_EQ(dir->Close(), 0);
+}
+
 // Test stat against the root of the bucket.
 TEST_F(FileSystemS3Fixture, StatRoot) {
 	WritePattern("/test/statroot.txt", 100'000, 'a', 32'768, true);
