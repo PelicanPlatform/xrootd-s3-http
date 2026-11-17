@@ -318,7 +318,8 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 				buff->st_size = headCommand.getSize();
 				buff->st_nlink = 1;
 				buff->st_uid = buff->st_gid = 1;
-				buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+				buff->st_mtime = headCommand.getLastModified();
+				buff->st_atime = buff->st_ctime = 0;
 				buff->st_dev = 0;
 				buff->st_ino = 1;
 			}
@@ -462,7 +463,8 @@ int S3FileSystem::Stat(const char *path, struct stat *buff, int opts,
 				buff->st_size = 0;
 				buff->st_nlink = 1;
 				buff->st_uid = buff->st_gid = 1;
-				buff->st_mtime = buff->st_atime = buff->st_ctime = 0;
+				buff->st_mtime = headCommand.getLastModified();
+				buff->st_atime = buff->st_ctime = 0;
 				buff->st_dev = 0;
 				buff->st_ino = 1;
 			}

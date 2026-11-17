@@ -452,6 +452,32 @@ TEST_F(FileSystemS3Fixture, ListDirMtime) {
 	ASSERT_EQ(dir->Close(), 0);
 }
 
+TEST_F(FileSystemS3Fixture, StatMtime) {
+	time_t before = time(nullptr);
+	WritePattern("/test/statmtime/file.txt", 1'000, 'a', 1'000, true);
+	WritePattern("/test/statmtime/empty.txt", 0, 'a', 1'000, true);
+
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	for (const auto path :
+		 {"/test/statmtime/file.txt", "/test/statmtime/empty.txt"}) {
+		std::unique_ptr<XrdOssDF> fh(fs.newFile());
+		XrdOucEnv env;
+		ASSERT_EQ(fh->Open(path, O_RDONLY, 0, env), 0) << path;
+		struct stat fstatBuf;
+		ASSERT_EQ(fh->Fstat(&fstatBuf), 0) << path;
+		ASSERT_EQ(fh->Close(), 0);
+
+		struct stat buf;
+		ASSERT_EQ(fs.Stat(path, &buf, 0, nullptr), 0) << path;
+		ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG) << path;
+		EXPECT_EQ(buf.st_mtime, fstatBuf.st_mtime) << path;
+		EXPECT_GE(buf.st_mtime, before - 5) << path;
+		EXPECT_LE(buf.st_mtime, time(nullptr) + 5) << path;
+	}
+}
+
 // Test stat against the root of the bucket.
 TEST_F(FileSystemS3Fixture, StatRoot) {
 	WritePattern("/test/statroot.txt", 100'000, 'a', 32'768, true);
