@@ -72,7 +72,9 @@ class HTTPDirectory : public XrdOssDF {
 	// (so the caller may fall back to HTTP), or another negative errno.
 	int listViaWebDAV(const std::string &hostUrl, const std::string &object);
 
-	struct stat *mystat;
+	// Set by StatRet(); stays null when the caller lists without asking for
+	// stat information.
+	struct stat *mystat{nullptr};
 	XrdSysError &m_log;
 	HTTPFileSystem &m_oss;
 	std::vector<std::pair<std::string, struct stat>> m_remoteList;
