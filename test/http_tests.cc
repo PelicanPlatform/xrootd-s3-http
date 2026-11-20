@@ -198,6 +198,60 @@ TEST(TestHTTPFile, TestListHTTPFlavor) {
 	EXPECT_TRUE(S_ISDIR(entries["subdir"].st_mode));
 }
 
+// XRootD only calls StatRet when the client asks for stat information with the
+// listing (e.g. `xrdfs ls -l`); a plain listing must work without it.
+TEST(TestHTTPFile, TestListWithoutStatRet) {
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+
+	std::unique_ptr<XrdOssDF> fd(fs.newDir());
+	ASSERT_EQ(fd->Opendir("/listdir", env), 0);
+
+	std::vector<std::string> names;
+	char buf[512];
+	while (true) {
+		auto n = fd->Readdir(buf, sizeof(buf));
+		ASSERT_GE(n, 0);
+		if (n == 0 || buf[0] == '\0') {
+			break;
+		}
+		names.emplace_back(buf);
+	}
+	std::sort(names.begin(), names.end());
+	ASSERT_EQ(names, (std::vector<std::string>{"file_a.txt", "subdir"}));
+}
+
+// An entry name that does not fit in the caller's buffer is rejected without
+// writing to the buffer; a name that fits exactly is returned.
+TEST(TestHTTPFile, TestListNameTooLong) {
+	XrdSysLogger log;
+	XrdOucEnv env;
+	HTTPFileSystem fs(&log, g_config_file.c_str(), &env);
+
+	// The only entry in /testdir; it needs name.size() + 1 bytes with its NUL.
+	const std::string name = "hello_world.txt";
+	char buf[64];
+
+	{
+		std::unique_ptr<XrdOssDF> fd(fs.newDir());
+		ASSERT_EQ(fd->Opendir("/testdir", env), 0);
+		memset(buf, 'X', sizeof(buf));
+		ASSERT_EQ(fd->Readdir(buf, name.size()), -ENAMETOOLONG);
+		EXPECT_TRUE(std::all_of(std::begin(buf), std::end(buf),
+								[](char c) { return c == 'X'; }));
+	}
+
+	{
+		std::unique_ptr<XrdOssDF> fd(fs.newDir());
+		ASSERT_EQ(fd->Opendir("/testdir", env), 0);
+		memset(buf, 'X', sizeof(buf));
+		ASSERT_EQ(fd->Readdir(buf, name.size() + 1),
+				  static_cast<int>(name.size()));
+		EXPECT_EQ(name, buf);
+	}
+}
+
 // Create a fresh directory and confirm it exists afterwards.
 TEST(TestHTTPFile, TestMkdir) {
 	XrdSysLogger log;

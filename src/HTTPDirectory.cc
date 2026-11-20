@@ -292,15 +292,24 @@ int HTTPDirectory::Readdir(char *buff, int blen) {
 	if (m_remoteList.size() > 0) {
 		std::string name = m_remoteList.begin()->first;
 		struct stat currentRecord = m_remoteList.begin()->second;
-		mystat->st_size = currentRecord.st_size;
-		mystat->st_mode = currentRecord.st_mode;
-		mystat->st_nlink = currentRecord.st_nlink;
-		mystat->st_uid = currentRecord.st_uid;
-		mystat->st_gid = currentRecord.st_gid;
-		mystat->st_atime = currentRecord.st_atime;
-		mystat->st_ctime = currentRecord.st_ctime;
-		mystat->st_dev = currentRecord.st_dev;
-		mystat->st_ino = currentRecord.st_ino;
+		// The name comes from the remote server; refuse one that does not fit
+		// in the caller's buffer along with its terminating NUL.
+		if (blen <= 0 || name.size() + 1 > static_cast<size_t>(blen)) {
+			return -ENAMETOOLONG;
+		}
+		// XRootD only calls StatRet() when the client asked for stat
+		// information with the listing.
+		if (mystat) {
+			mystat->st_size = currentRecord.st_size;
+			mystat->st_mode = currentRecord.st_mode;
+			mystat->st_nlink = currentRecord.st_nlink;
+			mystat->st_uid = currentRecord.st_uid;
+			mystat->st_gid = currentRecord.st_gid;
+			mystat->st_atime = currentRecord.st_atime;
+			mystat->st_ctime = currentRecord.st_ctime;
+			mystat->st_dev = currentRecord.st_dev;
+			mystat->st_ino = currentRecord.st_ino;
+		}
 		memcpy(buff, name.c_str(), name.size() + 1);
 		m_remoteList.erase(m_remoteList.begin());
 		return name.size();
