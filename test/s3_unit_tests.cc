@@ -295,6 +295,44 @@ TEST_F(FileSystemS3Fixture, UploadZero) {
 	WritePattern("/test/write_zero_stream.txt", 0, 'X', 32 * 1024, false);
 }
 
+// An open with O_TRUNC and no O_CREAT must still create the empty object.
+TEST_F(FileSystemS3Fixture, UploadZeroTruncOpen) {
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	ASSERT_TRUE(fh);
+
+	XrdOucEnv env;
+	ASSERT_EQ(
+		fh->Open("/test/write_zero_trunc.txt", O_RDWR | O_TRUNC, 0755, env), 0);
+	ASSERT_EQ(fh->Close(), 0);
+
+	struct stat buf;
+	ASSERT_EQ(fs.Stat("/test/write_zero_trunc.txt", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_mode & S_IFREG, S_IFREG);
+	ASSERT_EQ(buf.st_size, 0);
+}
+
+// Opening for write without O_CREAT or O_TRUNC, then closing, keeps the object.
+TEST_F(FileSystemS3Fixture, OpenWriteNoTruncKeepsObject) {
+	WritePattern("/test/keep_object.txt", 26, 'a', 26, true);
+
+	XrdSysLogger log;
+	S3FileSystem fs(&log, m_configfn.c_str(), nullptr);
+
+	std::unique_ptr<XrdOssDF> fh(fs.newFile());
+	ASSERT_TRUE(fh);
+
+	XrdOucEnv env;
+	ASSERT_EQ(fh->Open("/test/keep_object.txt", O_RDWR, 0755, env), 0);
+	ASSERT_EQ(fh->Close(), 0);
+
+	struct stat buf;
+	ASSERT_EQ(fs.Stat("/test/keep_object.txt", &buf, 0, nullptr), 0);
+	ASSERT_EQ(buf.st_size, 26);
+}
+
 // Upload larger - two chunks.
 TEST_F(FileSystemS3Fixture, UploadTwoChunks) {
 	WritePattern("/test/write_two_chunks.txt", 1'024 + 42, 'a', 1'024, true);
