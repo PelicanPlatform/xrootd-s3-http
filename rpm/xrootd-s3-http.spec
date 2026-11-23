@@ -1,5 +1,5 @@
 Name:		xrootd-s3-http
-Version:        0.6.9
+Version:        0.6.10
 Release:        1%{?dist}
 Summary:        S3/HTTP/Globus filesystem plugins for xrootd
 
@@ -59,6 +59,10 @@ rm %{buildroot}%{_libdir}/libXrdPelicanHttpCore.so
 %license LICENSE
 
 %changelog
+* Mon Nov 23 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.10-1
+- Make deadlock test setup xrootd-version agnostic
+- Handle too long directory names
+
 * Mon Jul 13 2026 Mátyás Selmeci <mselmeci@wisc.edu> - 0.6.9-1
 - Add WebDAV (PROPFIND) directory listing with OPTIONS auto-detection
 - Implement Mkdir in HTTPFileSystem via WebDAV MKCOL
