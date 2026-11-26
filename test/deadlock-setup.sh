@@ -63,6 +63,7 @@ certificate = $XROOTD_CONFIGDIR/tlsca.pem
 new_certs_dir = $XROOTD_CONFIGDIR/ca
 database = $XROOTD_CONFIGDIR/ca/index.txt
 serial = $XROOTD_CONFIGDIR/ca/serial.txt
+copy_extensions = copy
 [ req ]
 default_bits = 4096
 distinguished_name = ca_test_dn
@@ -91,7 +92,7 @@ EOF
 
 openssl req -x509 -key "$XROOTD_CONFIGDIR/tlscakey.pem" -config "$XROOTD_CONFIGDIR/tlsca.ini" -out "$XROOTD_CONFIGDIR/tlsca.pem" -outform PEM -subj "/CN=XRootD CA" 0<&- >> "$SERVER_LOG" 2>&1 || { echo "Failed to generate CA"; exit 1; }
 openssl genrsa -out "$XROOTD_CONFIGDIR/tls.key" 4096 >> "$SERVER_LOG" 2>&1
-openssl req -new -key "$XROOTD_CONFIGDIR/tls.key" -config "$XROOTD_CONFIGDIR/tlsca.ini" -out "$XROOTD_CONFIGDIR/tls.csr" -outform PEM -subj "/CN=localhost" 0<&- >> "$SERVER_LOG" 2>&1 || { echo "Failed to generate host CSR"; exit 1; }
+openssl req -new -key "$XROOTD_CONFIGDIR/tls.key" -config "$XROOTD_CONFIGDIR/tlsca.ini" -out "$XROOTD_CONFIGDIR/tls.csr" -outform PEM -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 0<&- >> "$SERVER_LOG" 2>&1 || { echo "Failed to generate host CSR"; exit 1; }
 openssl ca -config "$XROOTD_CONFIGDIR/tlsca.ini" -batch -policy signing_policy -extensions cert_extensions -out "$XROOTD_CONFIGDIR/tls.crt" -infiles "$XROOTD_CONFIGDIR/tls.csr" 0<&- >> "$SERVER_LOG" 2>&1 || { echo "Failed to sign host cert"; exit 1; }
 
 XROOTD_EXPORTDIR="$RUNDIR/xrootd-export"

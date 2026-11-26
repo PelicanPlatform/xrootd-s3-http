@@ -80,6 +80,7 @@ certificate = $XROOTD_CONFIGDIR/tlsca.pem
 new_certs_dir = $XROOTD_CONFIGDIR/ca
 database = $XROOTD_CONFIGDIR/ca/index.txt
 serial = $XROOTD_CONFIGDIR/ca/serial.txt
+copy_extensions = copy
 
 [ req ]
 default_bits = 4096
@@ -124,7 +125,7 @@ fi
 
 # Create the host certificate request
 openssl genrsa -out "$XROOTD_CONFIGDIR/tls.key" 4096 >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
-openssl req -new -key "$XROOTD_CONFIGDIR/tls.key" -config "$XROOTD_CONFIGDIR/tlsca.ini" -out "$XROOTD_CONFIGDIR/tls.csr" -outform PEM -subj "/CN=localhost" 0<&- >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
+openssl req -new -key "$XROOTD_CONFIGDIR/tls.key" -config "$XROOTD_CONFIGDIR/tlsca.ini" -out "$XROOTD_CONFIGDIR/tls.csr" -outform PEM -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 0<&- >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
 if [ "$?" -ne 0 ]; then
   echo "Failed to generate host certificate request"
   exit 1
