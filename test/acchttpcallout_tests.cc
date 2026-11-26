@@ -60,7 +60,7 @@ class MockHttpServer {
   public:
 	MockHttpServer(int status, std::string body)
 		: m_status(status), m_body(std::move(body)) {
-		m_fd = socket(AF_INET, SOCK_STREAM, 0);
+		m_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
 		EXPECT_GE(m_fd, 0);
 		int one = 1;
 		setsockopt(m_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
