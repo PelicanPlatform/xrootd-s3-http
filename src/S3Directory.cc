@@ -166,6 +166,7 @@ int S3Directory::Readdir(char *buff, int blen) {
 			m_stat_buf->st_mode = 0x0600 | S_IFREG;
 			m_stat_buf->st_nlink = 1;
 			m_stat_buf->st_size = m_objInfo[idx].m_size;
+			m_stat_buf->st_mtime = m_objInfo[idx].m_last_modified;
 		}
 	} else if (idx < 0 &&
 			   -idx == static_cast<ssize_t>(m_commonPrefixes.size())) {
@@ -240,7 +241,7 @@ int S3Directory::Readdir(char *buff, int blen) {
 	if (m_stat_buf) {
 		m_stat_buf->st_uid = 1;
 		m_stat_buf->st_gid = 1;
-		m_stat_buf->st_mtime = m_stat_buf->st_ctime = m_stat_buf->st_atime = 0;
+		m_stat_buf->st_ctime = m_stat_buf->st_atime = 0;
 		m_stat_buf->st_dev = 0;
 		m_stat_buf->st_ino = 1; // If both st_dev and st_ino are 0, then XRootD
 								// interprets that as an unavailable file.

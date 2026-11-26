@@ -356,6 +356,80 @@ TEST(S3ListParsing, BasicKeysAndPrefixes) {
 	EXPECT_TRUE(ct.empty());
 }
 
+TEST(S3ListParsing, LastModified) {
+	std::string xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <IsTruncated>false</IsTruncated>
+  <Contents>
+    <Key>dir/with_fraction.txt</Key>
+    <LastModified>2023-08-21T11:02:53.058Z</LastModified>
+    <ETag>&#34;9af2f8218b150c351ad802c6f3d66abe&#34;</ETag>
+    <Size>1</Size>
+    <StorageClass>STANDARD</StorageClass>
+  </Contents>
+  <Contents>
+    <Key>dir/no_fraction.txt</Key>
+    <LastModified>2023-07-17T11:02:19Z</LastModified>
+    <Size>2</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/nanoseconds.txt</Key>
+    <LastModified>2023-08-21T11:02:53.123456789Z</LastModified>
+    <Size>3</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/offset.txt</Key>
+    <LastModified>2023-08-21T13:32:53.5+02:30</LastModified>
+    <Size>4</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/negative_offset.txt</Key>
+    <LastModified>2023-08-21T06:02:53-0500</LastModified>
+    <Size>5</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/missing.txt</Key>
+    <Size>6</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/garbage.txt</Key>
+    <LastModified>yesterday</LastModified>
+    <Size>7</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/no_zone.txt</Key>
+    <LastModified>2023-08-21T11:02:53</LastModified>
+    <Size>8</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/trailing.txt</Key>
+    <LastModified>2023-08-21T11:02:53Zjunk</LastModified>
+    <Size>9</Size>
+  </Contents>
+  <Contents>
+    <Key>dir/empty_fraction.txt</Key>
+    <LastModified>2023-08-21T11:02:53.Z</LastModified>
+    <Size>10</Size>
+  </Contents>
+</ListBucketResult>)";
+
+	std::vector<S3ObjectInfo> objs;
+	std::vector<std::string> prefixes;
+	std::string ct, err;
+	ASSERT_TRUE(
+		AmazonS3List::ParseListBucketResult(xml, objs, prefixes, ct, err))
+		<< err;
+	ASSERT_EQ(objs.size(), 10);
+	EXPECT_EQ(objs[0].m_last_modified, 1692615773);
+	EXPECT_EQ(objs[1].m_last_modified, 1689591739);
+	EXPECT_EQ(objs[2].m_last_modified, 1692615773);
+	EXPECT_EQ(objs[3].m_last_modified, 1692615773);
+	EXPECT_EQ(objs[4].m_last_modified, 1692615773);
+	for (size_t idx = 5; idx < objs.size(); idx++) {
+		EXPECT_EQ(objs[idx].m_last_modified, 0) << objs[idx].m_key;
+	}
+}
+
 TEST(S3ListParsing, DecodesUrlEncodedKeysAndPrefixes) {
 	// Simulates encoding-type=url response from S3 where keys/prefixes
 	// contain percent-encoded characters

@@ -29,7 +29,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cstring>
+#include <ctime>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -704,6 +706,48 @@ bool AmazonS3List::Results(std::vector<S3ObjectInfo> &objInfo,
 	return ParseListBucketResult(m_result, objInfo, commonPrefixes, ct, errMsg);
 }
 
+static time_t parseListTimestamp(const char *text) {
+	struct tm t = {};
+	const char *eos = strptime(text, "%Y-%m-%dT%H:%M:%S", &t);
+	if (!eos) {
+		return 0;
+	}
+	if (*eos == '.') {
+		const char *fraction = ++eos;
+		while (isdigit(static_cast<unsigned char>(*eos))) {
+			++eos;
+		}
+		if (eos == fraction) {
+			return 0;
+		}
+	}
+	auto digit = [](char c) { return isdigit(static_cast<unsigned char>(c)); };
+	time_t offset = 0;
+	if (*eos == 'Z') {
+		++eos;
+	} else if ((*eos == '+' || *eos == '-') && digit(eos[1]) && digit(eos[2])) {
+		int sign = *eos == '-' ? -1 : 1;
+		int hours = (eos[1] - '0') * 10 + (eos[2] - '0');
+		eos += 3;
+		if (*eos == ':') {
+			++eos;
+		}
+		if (!digit(eos[0]) || !digit(eos[1])) {
+			return 0;
+		}
+		int minutes = (eos[0] - '0') * 10 + (eos[1] - '0');
+		eos += 2;
+		offset = sign * (hours * 3600 + minutes * 60);
+	} else {
+		return 0;
+	}
+	if (*eos != '\0') {
+		return 0;
+	}
+	auto epoch = timegm(&t);
+	return epoch == -1 ? 0 : epoch - offset;
+}
+
 bool AmazonS3List::ParseListBucketResult(
 	const std::string &xml, std::vector<S3ObjectInfo> &objInfo,
 	std::vector<std::string> &commonPrefixes, std::string &ct,
@@ -799,6 +843,12 @@ bool AmazonS3List::ParseListBucketResult(
 				S3ObjectInfo obj;
 				obj.m_key = keyStr;
 				obj.m_size = size;
+				auto lm = child->FirstChildElement("LastModified");
+				if (lm != nullptr && lm->GetText() != nullptr) {
+					std::string lmStr(lm->GetText());
+					trim(lmStr);
+					obj.m_last_modified = parseListTimestamp(lmStr.c_str());
+				}
 				objInfo.emplace_back(obj);
 			}
 		} else if (!strcmp(child->Name(), "NextContinuationToken")) {
