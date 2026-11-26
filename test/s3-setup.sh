@@ -86,6 +86,7 @@ certificate = $MINIO_CERTSDIR/CAs/tlsca.pem
 new_certs_dir = $MINIO_CERTSDIR/ca
 database = $MINIO_CERTSDIR/ca/index.txt
 serial = $MINIO_CERTSDIR/ca/serial.txt
+copy_extensions = copy
 
 [ req ]
 default_bits = 4096
@@ -130,7 +131,7 @@ fi
 
 # Create the host certificate request
 openssl genrsa -out "$MINIO_CERTSDIR/private.key" 4096 >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
-openssl req -new -key "$MINIO_CERTSDIR/private.key" -config "$MINIO_CERTSDIR/tlsca.ini" -out "$MINIO_CERTSDIR/public.csr" -outform PEM -subj "/CN=$(hostname)" 0<&- >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
+openssl req -new -key "$MINIO_CERTSDIR/private.key" -config "$MINIO_CERTSDIR/tlsca.ini" -out "$MINIO_CERTSDIR/public.csr" -outform PEM -subj "/CN=$(hostname)" -addext "subjectAltName=DNS:$(hostname)" 0<&- >> "$BINARY_DIR/tests/$TEST_NAME/server.log"
 if [ "$?" -ne 0 ]; then
   echo "Failed to generate host certificate request"
   exit 1
